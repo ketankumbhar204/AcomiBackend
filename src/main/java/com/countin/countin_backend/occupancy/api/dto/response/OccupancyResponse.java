@@ -5,6 +5,7 @@ import com.countin.countin_backend.occupancy.domain.model.AllocationTargetType;
 import com.countin.countin_backend.occupancy.domain.model.OccupancyStatus;
 import com.countin.countin_backend.occupancy.infrastructure.persistence.entity.OccupancyChargeSnapshotEntity;
 import com.countin.countin_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
+import com.countin.countin_backend.space.api.dto.AmenityAssignmentDto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -51,6 +52,7 @@ public class OccupancyResponse {
     private boolean foodIncludedInRent;
     private LocalDateTime pricingLockedAt;
     private List<OccupancyChargeLineResponse> otherCharges;
+    private List<AmenityAssignmentDto> amenities;
     private LocalDateTime vacatedAt;
     private UUID vacatedBy;
     private OccupancyStatus status;
@@ -59,11 +61,18 @@ public class OccupancyResponse {
     private LocalDateTime updatedAt;
 
     public static OccupancyResponse from(OccupancyEntity entity) {
-        return from(entity, List.of());
+        return from(entity, List.of(), List.of());
     }
 
     public static OccupancyResponse from(
             OccupancyEntity entity, List<OccupancyChargeSnapshotEntity> chargeSnapshots) {
+        return from(entity, chargeSnapshots, List.of());
+    }
+
+    public static OccupancyResponse from(
+            OccupancyEntity entity,
+            List<OccupancyChargeSnapshotEntity> chargeSnapshots,
+            List<AmenityAssignmentDto> amenities) {
         LocalDate expectedExit = entity.getExpectedExitDate() != null
                 ? entity.getExpectedExitDate()
                 : entity.getExpectedCheckoutDate();
@@ -100,6 +109,7 @@ public class OccupancyResponse {
                 .foodIncludedInRent(entity.isFoodIncludedInRent())
                 .pricingLockedAt(entity.getPricingLockedAt())
                 .otherCharges(chargeSnapshots.stream().map(OccupancyChargeLineResponse::from).toList())
+                .amenities(amenities)
                 .vacatedAt(entity.getVacatedAt())
                 .vacatedBy(entity.getVacatedBy() != null ? entity.getVacatedBy().getId() : null)
                 .status(entity.getStatus())

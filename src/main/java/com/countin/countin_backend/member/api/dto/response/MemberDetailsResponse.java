@@ -7,16 +7,19 @@ import com.countin.countin_backend.member.domain.model.MembershipRole;
 import com.countin.countin_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.countin.countin_backend.occupancy.api.dto.response.CurrentOccupancySummaryResponse;
 import com.countin.countin_backend.occupancy.domain.model.MemberOccupancyStatus;
+import com.countin.countin_backend.space.api.dto.AmenityAssignmentDto;
 import com.countin.countin_backend.space.domain.model.MealBillingType;
+import com.countin.countin_backend.user.api.dto.response.UserResponse;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Getter;
 
 @Getter
-@Builder
+@Builder(toBuilder = true)
 @Schema(description = "Complete member master record details")
 public class MemberDetailsResponse {
 
@@ -70,8 +73,14 @@ public class MemberDetailsResponse {
     @Schema(description = "Effective meal billing type after applying space default")
     private MealBillingType effectiveMealBillingType;
 
+    @Schema(description = "Amenities assigned on the current occupancy")
+    private List<AmenityAssignmentDto> assignedAmenities;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    @Schema(description = "Linked app user profile when visible to the caller")
+    private UserResponse linkedUserProfile;
 
     public static MemberDetailsResponse from(MemberEntity member) {
         return from(member, null);
@@ -86,6 +95,14 @@ public class MemberDetailsResponse {
             MemberEntity member,
             CurrentOccupancySummaryResponse currentOccupancy,
             MemberMealParticipationSummaryResponse mealParticipation) {
+        return from(member, currentOccupancy, mealParticipation, List.of());
+    }
+
+    public static MemberDetailsResponse from(
+            MemberEntity member,
+            CurrentOccupancySummaryResponse currentOccupancy,
+            MemberMealParticipationSummaryResponse mealParticipation,
+            List<AmenityAssignmentDto> assignedAmenities) {
         BigDecimal depositBalance = member.getDepositPaid().subtract(member.getDepositRefunded());
         return MemberDetailsResponse.builder()
                 .memberId(member.getId())
@@ -112,6 +129,7 @@ public class MemberDetailsResponse {
                 .depositBalance(depositBalance)
                 .mealBillingType(member.getMealBillingType())
                 .effectiveMealBillingType(resolveEffectiveMealBillingType(member))
+                .assignedAmenities(assignedAmenities)
                 .createdAt(member.getCreatedAt())
                 .updatedAt(member.getUpdatedAt())
                 .build();

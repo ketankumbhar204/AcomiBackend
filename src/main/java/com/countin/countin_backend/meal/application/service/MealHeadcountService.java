@@ -22,7 +22,8 @@ import com.countin.countin_backend.meal.domain.model.MealPollPaymentStatus;
 
 import com.countin.countin_backend.meal.domain.model.MealType;
 
-import com.countin.countin_backend.meal.domain.policy.MealEligibilityEngine;
+import com.countin.countin_backend.meal.domain.policy.MealPollEligibilityPolicy;
+import com.countin.countin_backend.meal.domain.policy.MealOccupancyPolicy;
 
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.MealParticipationEntity;
 
@@ -50,6 +51,7 @@ import com.countin.countin_backend.member.infrastructure.persistence.entity.Memb
 
 import com.countin.countin_backend.space.domain.model.SpaceType;
 
+import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
 
 import java.time.LocalDate;
@@ -102,6 +104,10 @@ public class MealHeadcountService {
     private final MealAccessService mealAccessService;
 
     private final SpaceRepository spaceRepository;
+
+    private final MealPollEligibilityPolicy pollEligibilityPolicy;
+
+    private final MealOccupancyPolicy occupancyPolicy;
 
 
 
@@ -333,13 +339,18 @@ public class MealHeadcountService {
 
     private List<MemberEntity> listEligibleMembers(UUID spaceId, LocalDate date, MealType mealType) {
 
+        SpaceEntity space = spaceRepository
+                .findById(spaceId)
+                .orElseThrow(() -> new BusinessException("Space not found", HttpStatus.NOT_FOUND));
+        Set<UUID> occupiedMemberIds = occupancyPolicy
+                .occupiedMemberIdsForDate(space, date)
+                .orElse(null);
         List<MealParticipationEntity> participations = participationRepository.findAllNonStoppedBySpaceId(spaceId);
 
         return participations.stream()
 
-                .filter(participation -> MealEligibilityEngine.isEligibleForPollAudience(
-
-                        participation.getMember(), participation, date, mealType))
+                .filter(participation -> pollEligibilityPolicy.isPollEligible(
+                        participation, date, mealType, occupiedMemberIds))
 
                 .map(MealParticipationEntity::getMember)
 

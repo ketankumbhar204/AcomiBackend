@@ -1,6 +1,7 @@
 package com.countin.countin_backend.accommodation.application.service;
 
 import com.countin.countin_backend.accommodation.api.dto.response.BedListItemResponse;
+import com.countin.countin_backend.accommodation.api.dto.response.BedSpaceListItemResponse;
 import com.countin.countin_backend.accommodation.api.dto.response.FloorListItemResponse;
 import com.countin.countin_backend.accommodation.api.dto.response.RoomListItemResponse;
 import com.countin.countin_backend.accommodation.api.dto.response.UnitListItemResponse;
@@ -71,7 +72,12 @@ public class AccommodationLazyListService {
         assertBuildingInSpace(spaceId, buildingId);
 
         Page<UnitListItemResponse> page = lazyListRepository.findUnitListItemsByBuildingId(
-                buildingId, normalizeQuery(query), includeSynthetic, pageable);
+                buildingId,
+                normalizeQuery(query),
+                includeSynthetic,
+                AccommodationStatus.AVAILABLE,
+                AccommodationStatus.OCCUPIED,
+                pageable);
         return PagedResponse.from(page);
     }
 
@@ -92,7 +98,12 @@ public class AccommodationLazyListService {
         assertFloorInBuilding(buildingId, floorId);
 
         Page<UnitListItemResponse> page = lazyListRepository.findUnitListItemsByFloorId(
-                floorId, normalizeQuery(query), includeSynthetic, pageable);
+                floorId,
+                normalizeQuery(query),
+                includeSynthetic,
+                AccommodationStatus.AVAILABLE,
+                AccommodationStatus.OCCUPIED,
+                pageable);
         return PagedResponse.from(page);
     }
 
@@ -104,7 +115,12 @@ public class AccommodationLazyListService {
         accessService.assertCanViewStructure(spaceId, callerId);
 
         Page<UnitListItemResponse> page = lazyListRepository.findUnitListItemsBySpaceId(
-                spaceId, normalizeQuery(query), false, pageable);
+                spaceId,
+                normalizeQuery(query),
+                false,
+                AccommodationStatus.AVAILABLE,
+                AccommodationStatus.OCCUPIED,
+                pageable);
         return PagedResponse.from(page);
     }
 
@@ -156,6 +172,32 @@ public class AccommodationLazyListService {
 
         Page<BedListItemResponse> page = lazyListRepository.findBedListItemsByRoomId(
                 roomId, normalizeQuery(query), status, pageable);
+        return PagedResponse.from(page);
+    }
+
+    @Transactional(readOnly = true)
+    public PagedResponse<BedSpaceListItemResponse> searchBedsInSpace(
+            UUID spaceId,
+            UUID callerId,
+            String query,
+            AccommodationStatus status,
+            UUID buildingId,
+            UUID floorId,
+            UUID unitId,
+            Pageable pageable) {
+        log.info(
+                "Searching beds (lazy): spaceId={}, callerId={}, status={}, buildingId={}, floorId={}, unitId={}",
+                spaceId,
+                callerId,
+                status,
+                buildingId,
+                floorId,
+                unitId);
+
+        accessService.assertCanViewStructure(spaceId, callerId);
+
+        Page<BedSpaceListItemResponse> page = lazyListRepository.findBedListItemsBySpaceId(
+                spaceId, normalizeQuery(query), status, buildingId, floorId, unitId, pageable);
         return PagedResponse.from(page);
     }
 

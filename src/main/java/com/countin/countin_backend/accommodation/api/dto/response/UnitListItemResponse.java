@@ -26,6 +26,12 @@ public class UnitListItemResponse {
     @Schema(description = "Active bed count", example = "6")
     private long bedCount;
 
+    @Schema(description = "Available beds in this unit", example = "4")
+    private long availableBeds;
+
+    @Schema(description = "Occupied beds in this unit", example = "2")
+    private long occupiedBeds;
+
     @Schema(description = "Unit status (useful for rental leaf units)")
     private AccommodationStatus status;
 

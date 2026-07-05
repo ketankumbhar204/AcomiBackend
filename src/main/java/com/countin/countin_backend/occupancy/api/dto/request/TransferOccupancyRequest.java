@@ -2,6 +2,7 @@ package com.countin.countin_backend.occupancy.api.dto.request;
 
 import com.countin.countin_backend.occupancy.domain.model.AllocationTargetType;
 import com.countin.countin_backend.occupancy.domain.model.TransferRentPolicy;
+import com.countin.countin_backend.space.api.dto.AmenityAssignmentDto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.Valid;
@@ -41,4 +42,8 @@ public class TransferOccupancyRequest {
 
     @Valid
     private List<OccupancyChargeLineRequest> otherCharges = new ArrayList<>();
+
+    @Valid
+    @Schema(description = "Amenities for the new occupancy; omit for all space amenities")
+    private List<AmenityAssignmentDto> amenities;
 }

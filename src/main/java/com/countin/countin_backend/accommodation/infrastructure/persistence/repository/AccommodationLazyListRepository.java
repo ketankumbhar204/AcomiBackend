@@ -1,6 +1,7 @@
 package com.countin.countin_backend.accommodation.infrastructure.persistence.repository;
 
 import com.countin.countin_backend.accommodation.api.dto.response.BedListItemResponse;
+import com.countin.countin_backend.accommodation.api.dto.response.BedSpaceListItemResponse;
 import com.countin.countin_backend.accommodation.api.dto.response.FloorListItemResponse;
 import com.countin.countin_backend.accommodation.api.dto.response.RoomListItemResponse;
 import com.countin.countin_backend.accommodation.api.dto.response.UnitListItemResponse;
@@ -88,6 +89,12 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                 (SELECT COUNT(r) FROM RoomEntity r WHERE r.unit.id = u.id AND r.isActive = true),
                 (SELECT COUNT(b) FROM BedEntity b
                     WHERE b.room.unit.id = u.id AND b.isActive = true AND b.room.isActive = true),
+                (SELECT COUNT(b) FROM BedEntity b
+                    WHERE b.room.unit.id = u.id AND b.isActive = true AND b.room.isActive = true
+                      AND b.status = :availableStatus),
+                (SELECT COUNT(b) FROM BedEntity b
+                    WHERE b.room.unit.id = u.id AND b.isActive = true AND b.room.isActive = true
+                      AND b.status = :occupiedStatus),
                 u.status,
                 u.synthetic,
                 u.unitKind
@@ -101,6 +108,8 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
             @Param("buildingId") UUID buildingId,
             @Param("query") String query,
             @Param("includeSynthetic") boolean includeSynthetic,
+            @Param("availableStatus") AccommodationStatus availableStatus,
+            @Param("occupiedStatus") AccommodationStatus occupiedStatus,
             Pageable pageable);
 
     @Query("""
@@ -110,6 +119,12 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                 (SELECT COUNT(r) FROM RoomEntity r WHERE r.unit.id = u.id AND r.isActive = true),
                 (SELECT COUNT(b) FROM BedEntity b
                     WHERE b.room.unit.id = u.id AND b.isActive = true AND b.room.isActive = true),
+                (SELECT COUNT(b) FROM BedEntity b
+                    WHERE b.room.unit.id = u.id AND b.isActive = true AND b.room.isActive = true
+                      AND b.status = :availableStatus),
+                (SELECT COUNT(b) FROM BedEntity b
+                    WHERE b.room.unit.id = u.id AND b.isActive = true AND b.room.isActive = true
+                      AND b.status = :occupiedStatus),
                 u.status,
                 u.synthetic,
                 u.unitKind
@@ -123,6 +138,8 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
             @Param("spaceId") UUID spaceId,
             @Param("query") String query,
             @Param("includeSynthetic") boolean includeSynthetic,
+            @Param("availableStatus") AccommodationStatus availableStatus,
+            @Param("occupiedStatus") AccommodationStatus occupiedStatus,
             Pageable pageable);
 
     @Query("""
@@ -132,6 +149,12 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                 (SELECT COUNT(r) FROM RoomEntity r WHERE r.unit.id = u.id AND r.isActive = true),
                 (SELECT COUNT(b) FROM BedEntity b
                     WHERE b.room.unit.id = u.id AND b.isActive = true AND b.room.isActive = true),
+                (SELECT COUNT(b) FROM BedEntity b
+                    WHERE b.room.unit.id = u.id AND b.isActive = true AND b.room.isActive = true
+                      AND b.status = :availableStatus),
+                (SELECT COUNT(b) FROM BedEntity b
+                    WHERE b.room.unit.id = u.id AND b.isActive = true AND b.room.isActive = true
+                      AND b.status = :occupiedStatus),
                 u.status,
                 u.synthetic,
                 u.unitKind
@@ -145,6 +168,8 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
             @Param("floorId") UUID floorId,
             @Param("query") String query,
             @Param("includeSynthetic") boolean includeSynthetic,
+            @Param("availableStatus") AccommodationStatus availableStatus,
+            @Param("occupiedStatus") AccommodationStatus occupiedStatus,
             Pageable pageable);
 
     @Query("""
@@ -238,5 +263,51 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
             @Param("roomId") UUID roomId,
             @Param("query") String query,
             @Param("status") AccommodationStatus status,
+            Pageable pageable);
+
+    @Query("""
+            SELECT new com.countin.countin_backend.accommodation.api.dto.response.BedSpaceListItemResponse(
+                b.id,
+                b.bedNumber,
+                b.status,
+                COALESCE(bu.id, bf.id),
+                COALESCE(bu.name, bf.name),
+                COALESCE(uf.id, f.id),
+                COALESCE(uf.name, f.name),
+                ru.id,
+                ru.name,
+                r.id,
+                r.name
+            )
+            FROM BedEntity b
+            JOIN b.room r
+            LEFT JOIN r.floor f
+            LEFT JOIN f.building bf
+            LEFT JOIN r.unit ru
+            LEFT JOIN ru.building bu
+            LEFT JOIN ru.floor uf
+            WHERE b.isActive = true
+              AND r.isActive = true
+              AND (
+                  (f IS NOT NULL AND f.isActive = true AND bf.isActive = true AND bf.space.id = :spaceId)
+                  OR (ru IS NOT NULL AND ru.isActive = true AND bu.isActive = true AND bu.space.id = :spaceId)
+              )
+              AND (:status IS NULL OR b.status = :status)
+              AND (:buildingId IS NULL OR COALESCE(bu.id, bf.id) = :buildingId)
+              AND (:floorId IS NULL OR COALESCE(uf.id, f.id) = :floorId)
+              AND (:unitId IS NULL OR ru.id = :unitId)
+              AND (:query IS NULL OR :query = ''
+                  OR LOWER(b.bedNumber) LIKE LOWER(CONCAT('%', :query, '%'))
+                  OR LOWER(r.name) LIKE LOWER(CONCAT('%', :query, '%'))
+                  OR LOWER(COALESCE(ru.name, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+                  OR LOWER(COALESCE(bu.name, bf.name, '')) LIKE LOWER(CONCAT('%', :query, '%')))
+            """)
+    Page<BedSpaceListItemResponse> findBedListItemsBySpaceId(
+            @Param("spaceId") UUID spaceId,
+            @Param("query") String query,
+            @Param("status") AccommodationStatus status,
+            @Param("buildingId") UUID buildingId,
+            @Param("floorId") UUID floorId,
+            @Param("unitId") UUID unitId,
             Pageable pageable);
 }

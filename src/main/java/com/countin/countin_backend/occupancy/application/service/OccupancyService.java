@@ -27,6 +27,7 @@ import com.countin.countin_backend.occupancy.infrastructure.persistence.entity.O
 import com.countin.countin_backend.occupancy.infrastructure.persistence.entity.OccupancyHistoryEntity;
 import com.countin.countin_backend.occupancy.infrastructure.persistence.repository.OccupancyHistoryRepository;
 import com.countin.countin_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
+import com.countin.countin_backend.space.api.dto.AmenityAssignmentDto;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.countin.countin_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.countin.countin_backend.user.infrastructure.persistence.repository.UserRepository;
@@ -58,6 +59,7 @@ public class OccupancyService {
     private final GenderPolicyValidator genderPolicyValidator;
     private final OccupancyContractSnapshotService contractSnapshotService;
     private final MealOccupancyBridgeService mealOccupancyBridgeService;
+    private final OccupancyAmenityService occupancyAmenityService;
 
     @Transactional
     public OccupancyResponse reserve(UUID spaceId, UUID callerId, ReserveOccupancyRequest request) {
@@ -145,6 +147,7 @@ public class OccupancyService {
         contractSnapshotService.applyActivationSnapshot(
                 occupancy, toContractInput(body), target, occupancy.getSpace(), now);
         occupancy = occupancyRepository.save(occupancy);
+        occupancyAmenityService.applyToOccupancy(occupancy, body.getAmenities(), null);
 
         accommodationStatusSyncService.markOccupied(target);
 
@@ -221,6 +224,7 @@ public class OccupancyService {
         contractSnapshotService.applyActivationSnapshot(
                 occupancy, toContractInput(request), target, space, now);
         occupancy = occupancyRepository.save(occupancy);
+        occupancyAmenityService.applyToOccupancy(occupancy, request.getAmenities(), null);
         accommodationStatusSyncService.markOccupied(target);
         member.setOccupancyStatus(MemberOccupancyStatus.ALLOCATED);
         memberRepository.save(member);
@@ -278,6 +282,10 @@ public class OccupancyService {
         contractSnapshotService.applyTransferSnapshot(
                 next, toContractInput(request), request.getRentPolicy(), current, newTarget, space, now);
         next = occupancyRepository.save(next);
+        occupancyAmenityService.applyToOccupancy(
+                next,
+                request.getAmenities(),
+                occupancyAmenityService.loadForOccupancy(current.getId()));
         accommodationStatusSyncService.markOccupied(newTarget);
 
         recordHistory(
@@ -395,6 +403,18 @@ public class OccupancyService {
             return Optional.of(toSummary(active.get()));
         }
         return occupancyRepository.findReservedBySpaceIdAndMemberId(spaceId, memberId).map(this::toSummary);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AmenityAssignmentDto> findAssignedAmenitiesForMember(UUID spaceId, UUID memberId) {
+        Optional<OccupancyEntity> active = occupancyRepository.findActiveBySpaceIdAndMemberId(spaceId, memberId);
+        if (active.isPresent()) {
+            return occupancyAmenityService.loadForOccupancy(active.get().getId());
+        }
+        return occupancyRepository
+                .findReservedBySpaceIdAndMemberId(spaceId, memberId)
+                .map(occupancy -> occupancyAmenityService.loadForOccupancy(occupancy.getId()))
+                .orElse(List.of());
     }
 
     @Transactional(readOnly = true)
@@ -607,7 +627,10 @@ public class OccupancyService {
     }
 
     private OccupancyResponse toResponse(OccupancyEntity occupancy) {
-        return OccupancyResponse.from(occupancy, contractSnapshotService.loadChargeSnapshots(occupancy));
+        return OccupancyResponse.from(
+                occupancy,
+                contractSnapshotService.loadChargeSnapshots(occupancy),
+                occupancyAmenityService.loadForOccupancy(occupancy.getId()));
     }
 
     private OccupancyContractSnapshotService.ContractSnapshotInput toContractInput(AllocateOccupancyRequest request) {

@@ -1,9 +1,12 @@
 package com.countin.countin_backend.space.api.dto.request;
 
+import com.countin.countin_backend.space.api.dto.AmenityAssignmentDto;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import java.math.BigDecimal;
+import java.util.List;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -30,4 +33,8 @@ public class UpdateSpaceRequest {
     @DecimalMin(value = "0.0", inclusive = true, message = "Default food charge must be zero or greater")
     @Schema(description = "Default monthly food charge prefill when food is billed separately")
     private BigDecimal defaultFoodCharge;
+
+    @Valid
+    @Schema(description = "Replace space amenities when provided (PG, Hostel, Co-living only)")
+    private List<AmenityAssignmentDto> amenities;
 }

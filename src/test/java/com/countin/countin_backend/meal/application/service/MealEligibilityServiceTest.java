@@ -2,11 +2,14 @@ package com.countin.countin_backend.meal.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.countin.countin_backend.meal.domain.model.MealParticipationStatus;
 import com.countin.countin_backend.meal.domain.model.MealPlanCode;
 import com.countin.countin_backend.meal.domain.model.MealType;
+import com.countin.countin_backend.meal.domain.policy.MealOccupancyPolicy;
+import com.countin.countin_backend.meal.domain.policy.MealPollEligibilityPolicy;
 import com.countin.countin_backend.meal.domain.policy.MemberSubscriptionPolicy;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.MealParticipationEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.MealPlanEntity;
@@ -21,6 +24,7 @@ import com.countin.countin_backend.member.infrastructure.persistence.repository.
 import com.countin.countin_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
 import com.countin.countin_backend.space.domain.model.SpaceType;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
+import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import com.countin.countin_backend.user.infrastructure.persistence.entity.UserEntity;
 import java.time.LocalDate;
 import java.util.List;
@@ -50,21 +54,41 @@ class MealEligibilityServiceTest {
     @Mock
     private MemberSubscriptionPolicy subscriptionPolicy;
 
+    @Mock
+    private MealOccupancyPolicy occupancyPolicy;
+
+    @Mock
+    private SpaceRepository spaceRepository;
+
     private MealEligibilityService mealEligibilityService;
 
     private UUID spaceId;
     private UUID callerId;
+    private SpaceEntity messSpace;
 
     @BeforeEach
     void setUp() {
         when(subscriptionPolicy.canParticipateInPolls(any(), any())).thenReturn(true);
+        lenient().when(occupancyPolicy.occupiedMemberIdsForDate(any(), any())).thenReturn(Optional.empty());
+        lenient()
+                .when(occupancyPolicy.hasOccupancyOnDate(any(), any(), any(), any()))
+                .thenReturn(true);
+        lenient().when(occupancyPolicy.hasOccupancyOnDate(any(), any(), any())).thenReturn(true);
         mealEligibilityService = new MealEligibilityService(
                 participationRepository,
                 dailyMenuService,
                 new MealAccessService(new SpaceMembershipResolver(spaceMembershipRepository), memberRepository),
-                subscriptionPolicy);
+                new MealPollEligibilityPolicy(subscriptionPolicy, occupancyPolicy),
+                occupancyPolicy,
+                spaceRepository);
         spaceId = UUID.randomUUID();
         callerId = UUID.randomUUID();
+        messSpace = SpaceEntity.builder()
+                .name("Mess")
+                .type(SpaceType.MESS)
+                .isActive(true)
+                .build();
+        messSpace.setId(spaceId);
     }
 
     @Test
@@ -89,6 +113,7 @@ class MealEligibilityServiceTest {
                 .build();
 
         MealParticipationEntity participation = MealParticipationEntity.builder()
+                .space(messSpace)
                 .member(member)
                 .mealPlan(fullPlan)
                 .status(MealParticipationStatus.ACTIVE)
@@ -190,6 +215,7 @@ class MealEligibilityServiceTest {
                 .build();
 
         return MealParticipationEntity.builder()
+                .space(messSpace)
                 .member(member)
                 .mealPlan(plan)
                 .status(status)
@@ -207,6 +233,7 @@ class MealEligibilityServiceTest {
                 .isActive(true)
                 .build();
         space.setId(spaceId);
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
         SpaceMembershipEntity membership = SpaceMembershipEntity.builder()
                 .user(user)
                 .space(space)

@@ -1,10 +1,12 @@
 package com.countin.countin_backend.space.application.mapper;
 
+import com.countin.countin_backend.space.api.dto.AmenityAssignmentDto;
 import com.countin.countin_backend.space.api.dto.request.UpdateSpaceRequest;
 import com.countin.countin_backend.space.api.dto.response.SpaceDetailsResponse;
 import com.countin.countin_backend.space.api.dto.response.SpaceResponse;
 import com.countin.countin_backend.space.domain.model.Space;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
+import java.util.List;
 
 public final class SpaceMapper {
 
@@ -52,8 +54,8 @@ public final class SpaceMapper {
         entity.setPrepaidFallbackToPayPerMeal(space.isPrepaidFallbackToPayPerMeal());
     }
 
-    public static SpaceDetailsResponse toDetailsResponse(Space space) {
-        return SpaceDetailsResponse.from(space);
+    public static SpaceDetailsResponse toDetailsResponse(Space space, List<AmenityAssignmentDto> amenities) {
+        return SpaceDetailsResponse.from(space, amenities);
     }
 
     public static SpaceResponse toCreateResponse(SpaceEntity entity) {

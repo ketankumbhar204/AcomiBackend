@@ -1,9 +1,7 @@
 package com.countin.countin_backend.dashboard.application.service;
 
 import com.countin.countin_backend.accommodation.domain.model.AccommodationStatus;
-import com.countin.countin_backend.accommodation.infrastructure.persistence.entity.BuildingEntity;
 import com.countin.countin_backend.accommodation.infrastructure.persistence.repository.AccommodationSummaryRepository;
-import com.countin.countin_backend.accommodation.infrastructure.persistence.repository.BuildingRepository;
 import com.countin.countin_backend.common.exception.ResourceNotFoundException;
 import com.countin.countin_backend.dashboard.api.dto.response.DashboardAccommodationOperationsResponse;
 import com.countin.countin_backend.dashboard.api.dto.response.DashboardAttentionItemResponse;
@@ -44,7 +42,6 @@ public class SpaceDashboardSummaryService {
     private final MealPollService mealPollService;
     private final MealHeadcountService mealHeadcountService;
     private final DailyMenuRepository dailyMenuRepository;
-    private final BuildingRepository buildingRepository;
     private final AccommodationSummaryRepository accommodationSummaryRepository;
     private final OccupancyRepository occupancyRepository;
 
@@ -135,14 +132,10 @@ public class SpaceDashboardSummaryService {
         LocalDate monthStart = month.atDay(1);
         LocalDate monthEnd = month.atEndOfMonth();
 
-        long occupiedBeds = 0;
-        long vacantBeds = 0;
-        for (BuildingEntity building : buildingRepository.findActiveBySpaceId(spaceId)) {
-            occupiedBeds += accommodationSummaryRepository.countBedsByStatus(
-                    building.getId(), AccommodationStatus.OCCUPIED);
-            vacantBeds += accommodationSummaryRepository.countBedsByStatus(
-                    building.getId(), AccommodationStatus.AVAILABLE);
-        }
+        long occupiedBeds = accommodationSummaryRepository.countBedsByStatusForSpace(
+                spaceId, AccommodationStatus.OCCUPIED);
+        long vacantBeds = accommodationSummaryRepository.countBedsByStatusForSpace(
+                spaceId, AccommodationStatus.AVAILABLE);
 
         List<OccupancyEntity> activeOccupancies = occupancyRepository.findActiveBySpaceId(spaceId);
         int moveInsThisMonth = (int) activeOccupancies.stream()

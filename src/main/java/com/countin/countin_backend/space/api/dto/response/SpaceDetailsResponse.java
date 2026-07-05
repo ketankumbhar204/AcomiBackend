@@ -1,5 +1,6 @@
 package com.countin.countin_backend.space.api.dto.response;
 
+import com.countin.countin_backend.space.api.dto.AmenityAssignmentDto;
 import com.countin.countin_backend.space.domain.model.Space;
 import com.countin.countin_backend.space.domain.model.MealBillingType;
 import com.countin.countin_backend.space.domain.model.PrepaidBalanceUnit;
@@ -7,6 +8,7 @@ import com.countin.countin_backend.space.domain.model.SpaceType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Getter;
@@ -43,10 +45,17 @@ public class SpaceDetailsResponse {
     @Schema(description = "When prepaid balance is exhausted, bill pay-per-meal automatically")
     private boolean prepaidFallbackToPayPerMeal;
 
+    @Schema(description = "Amenities offered at this space (PG, Hostel, Co-living)")
+    private List<AmenityAssignmentDto> amenities;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
     public static SpaceDetailsResponse from(Space space) {
+        return from(space, List.of());
+    }
+
+    public static SpaceDetailsResponse from(Space space, List<AmenityAssignmentDto> amenities) {
         return SpaceDetailsResponse.builder()
                 .id(space.getId())
                 .name(space.getName())
@@ -59,6 +68,7 @@ public class SpaceDetailsResponse {
                 .mealBillingType(space.getMealBillingType())
                 .prepaidBalanceUnit(space.getPrepaidBalanceUnit())
                 .prepaidFallbackToPayPerMeal(space.isPrepaidFallbackToPayPerMeal())
+                .amenities(amenities)
                 .createdAt(space.getCreatedAt())
                 .updatedAt(space.getUpdatedAt())
                 .build();

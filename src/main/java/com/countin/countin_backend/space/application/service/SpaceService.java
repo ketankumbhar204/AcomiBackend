@@ -43,6 +43,7 @@ public class SpaceService {
     private final MemberMasterService memberMasterService;
     private final MealSpaceSetupService mealSpaceSetupService;
     private final MealPlanService mealPlanService;
+    private final SpaceAmenityService spaceAmenityService;
 
     @Transactional
     public SpaceResponse createSpace(CreateSpaceRequest request) {
@@ -61,6 +62,8 @@ public class SpaceService {
                 .build();
 
         space = spaceRepository.save(space);
+
+        spaceAmenityService.replaceForSpace(space, request.getAmenities());
 
         SpaceMembershipEntity ownerMembership = SpaceMembershipEntity.builder()
                 .user(owner)
@@ -87,7 +90,8 @@ public class SpaceService {
         SpaceEntity entity = spaceRepository.findByIdAndIsActiveTrue(spaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("Space", "id", spaceId));
 
-        return SpaceMapper.toDetailsResponse(SpaceMapper.toDomain(entity));
+        return SpaceMapper.toDetailsResponse(
+                SpaceMapper.toDomain(entity), spaceAmenityService.getForSpace(spaceId));
     }
 
     @Transactional
@@ -103,7 +107,11 @@ public class SpaceService {
         SpaceMapper.applyToEntity(entity, updated);
 
         SpaceEntity saved = spaceRepository.save(entity);
-        return SpaceMapper.toDetailsResponse(SpaceMapper.toDomain(saved));
+        if (request.getAmenities() != null) {
+            spaceAmenityService.replaceForSpace(saved, request.getAmenities());
+        }
+        return SpaceMapper.toDetailsResponse(
+                SpaceMapper.toDomain(saved), spaceAmenityService.getForSpace(spaceId));
     }
 
     @Transactional(readOnly = true)

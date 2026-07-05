@@ -13,7 +13,9 @@ import com.countin.countin_backend.accommodation.infrastructure.persistence.repo
 import com.countin.countin_backend.accommodation.infrastructure.persistence.repository.RoomRepository;
 import com.countin.countin_backend.accommodation.infrastructure.persistence.repository.UnitRepository;
 import com.countin.countin_backend.common.exception.ResourceNotFoundException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -97,8 +99,8 @@ public class AccommodationSubtreeLoader {
 
         List<FloorEntity> floors = floorRepository.findAllByBuildingId(buildingId);
         List<UnitEntity> units = unitRepository.findAllByBuildingId(buildingId);
-        List<RoomEntity> rooms = roomRepository.findAllByBuildingId(buildingId);
-        List<BedEntity> beds = bedRepository.findAllByBuildingId(buildingId);
+        List<RoomEntity> rooms = collectRoomsForBuilding(buildingId, floors, units);
+        List<BedEntity> beds = collectBedsForRooms(buildingId, rooms);
 
         return AccommodationDeletionSubtree.builder()
                 .rootType(AccommodationDeletionRoot.BUILDING)
@@ -109,5 +111,37 @@ public class AccommodationSubtreeLoader {
                 .rooms(rooms)
                 .beds(beds)
                 .build();
+    }
+
+    private List<RoomEntity> collectRoomsForBuilding(
+            UUID buildingId, List<FloorEntity> floors, List<UnitEntity> units) {
+        Map<UUID, RoomEntity> byId = new LinkedHashMap<>();
+        for (RoomEntity room : roomRepository.findAllByBuildingId(buildingId)) {
+            byId.put(room.getId(), room);
+        }
+        for (FloorEntity floor : floors) {
+            for (RoomEntity room : roomRepository.findAllByFloorIdIncludingUnits(floor.getId())) {
+                byId.putIfAbsent(room.getId(), room);
+            }
+        }
+        for (UnitEntity unit : units) {
+            for (RoomEntity room : roomRepository.findAllByUnitId(unit.getId())) {
+                byId.putIfAbsent(room.getId(), room);
+            }
+        }
+        return List.copyOf(byId.values());
+    }
+
+    private List<BedEntity> collectBedsForRooms(UUID buildingId, List<RoomEntity> rooms) {
+        Map<UUID, BedEntity> byId = new LinkedHashMap<>();
+        for (BedEntity bed : bedRepository.findAllByBuildingId(buildingId)) {
+            byId.put(bed.getId(), bed);
+        }
+        for (RoomEntity room : rooms) {
+            for (BedEntity bed : bedRepository.findAllByRoomId(room.getId())) {
+                byId.putIfAbsent(bed.getId(), bed);
+            }
+        }
+        return List.copyOf(byId.values());
     }
 }

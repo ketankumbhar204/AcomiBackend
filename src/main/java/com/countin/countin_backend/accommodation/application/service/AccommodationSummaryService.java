@@ -48,7 +48,8 @@ public class AccommodationSummaryService {
                 .beds(summaryRepository.countActiveBeds(buildingId))
                 .build();
 
-        StatusCountsResponse statusCounts = aggregateStatusCounts(buildingId);
+        StatusCountsResponse statusCounts = aggregateStatusCounts(
+                buildingId, counts.getBeds(), counts.getUnits());
         AvailabilityCountsResponse availability = buildAvailabilityCounts(buildingId);
 
         return BuildingSummaryResponse.builder()
@@ -80,15 +81,23 @@ public class AccommodationSummaryService {
                 .build();
     }
 
-    private StatusCountsResponse aggregateStatusCounts(UUID buildingId) {
+    /**
+     * Bed-level status counts for PG/hostel layouts; unit-level for rental-only buildings.
+     * Never merges room + bed + unit rows — that triple-counts a single occupied bed.
+     */
+    private StatusCountsResponse aggregateStatusCounts(UUID buildingId, long bedCount, long unitCount) {
         Map<AccommodationStatus, Long> totals = new EnumMap<>(AccommodationStatus.class);
         for (AccommodationStatus status : AccommodationStatus.values()) {
             totals.put(status, 0L);
         }
 
-        mergeStatusRows(totals, summaryRepository.countRoomStatuses(buildingId));
-        mergeStatusRows(totals, summaryRepository.countBedStatuses(buildingId));
-        mergeStatusRows(totals, summaryRepository.countUnitStatuses(buildingId));
+        if (bedCount > 0) {
+            mergeStatusRows(totals, summaryRepository.countBedStatuses(buildingId));
+        } else if (unitCount > 0) {
+            mergeStatusRows(totals, summaryRepository.countUnitStatuses(buildingId));
+        } else {
+            mergeStatusRows(totals, summaryRepository.countRoomStatuses(buildingId));
+        }
 
         return StatusCountsResponse.builder()
                 .available(totals.get(AccommodationStatus.AVAILABLE))

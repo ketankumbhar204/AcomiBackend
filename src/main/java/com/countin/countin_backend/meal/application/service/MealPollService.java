@@ -22,7 +22,7 @@ import com.countin.countin_backend.meal.domain.model.MealPollPaymentStatus;
 import com.countin.countin_backend.meal.domain.model.MealPollResponseSource;
 import com.countin.countin_backend.meal.domain.model.MealPollStatus;
 import com.countin.countin_backend.meal.domain.model.MealType;
-import com.countin.countin_backend.meal.domain.policy.MealEligibilityEngine;
+import com.countin.countin_backend.meal.domain.policy.MealPollEligibilityPolicy;
 import com.countin.countin_backend.meal.domain.policy.MemberSubscriptionPolicy;
 import com.countin.countin_backend.meal.application.support.MealBillingResolver;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.DailyMenuEntity;
@@ -91,6 +91,7 @@ public class MealPollService {
     private final MemberMealBalanceService memberMealBalanceService;
     private final MealBillingResolver mealBillingResolver;
     private final MealPollPaymentEventService paymentEventService;
+    private final MealPollEligibilityPolicy pollEligibilityPolicy;
     private final MemberSubscriptionPolicy subscriptionPolicy;
 
     @Transactional(readOnly = true)
@@ -293,8 +294,7 @@ public class MealPollService {
                     .findFirst()
                     .orElseThrow(() -> new BusinessException("No meal participation found", HttpStatus.FORBIDDEN));
 
-            if (!MealEligibilityEngine.isEligibleForPollAudience(
-                    member, participation, pollDate, selection.getMealType())) {
+            if (!pollEligibilityPolicy.isPollEligible(participation, pollDate, selection.getMealType())) {
                 throw new BusinessException(
                         "You are not eligible for " + formatMealType(selection.getMealType()),
                         HttpStatus.FORBIDDEN);

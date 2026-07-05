@@ -100,6 +100,6 @@ class AccommodationSummaryServiceTest {
         assertThat(response.getName()).isEqualTo("Sunrise PG");
         assertThat(response.getCounts().getFloors()).isEqualTo(3);
         assertThat(response.getCounts().getBeds()).isEqualTo(90);
-        assertThat(response.getStatusCounts().getAvailable()).isEqualTo(120);
+        assertThat(response.getStatusCounts().getAvailable()).isEqualTo(90);
     }
 }

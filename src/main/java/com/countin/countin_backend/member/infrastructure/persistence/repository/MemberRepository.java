@@ -76,4 +76,11 @@ public interface MemberRepository extends JpaRepository<MemberEntity, UUID> {
             """)
     Optional<MemberEntity> findActiveBySpaceIdAndUserId(
             @Param("spaceId") UUID spaceId, @Param("userId") UUID userId);
+
+    @Query("""
+            SELECT m FROM MemberEntity m
+            WHERE m.user.id = :userId
+              AND m.isActive = true
+            """)
+    List<MemberEntity> findActiveByUserId(@Param("userId") UUID userId);
 }

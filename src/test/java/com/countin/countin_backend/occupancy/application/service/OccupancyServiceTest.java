@@ -84,6 +84,9 @@ class OccupancyServiceTest {
     @Mock
     private MealOccupancyBridgeService mealOccupancyBridgeService;
 
+    @Mock
+    private OccupancyAmenityService occupancyAmenityService;
+
     @InjectMocks
     private OccupancyService occupancyService;
 
@@ -156,6 +159,9 @@ class OccupancyServiceTest {
                 .applyActivationSnapshot(any(), any(), any(), any(), any());
         lenient()
                 .when(contractSnapshotService.loadChargeSnapshots(any()))
+                .thenReturn(java.util.List.of());
+        lenient()
+                .when(occupancyAmenityService.loadForOccupancy(any()))
                 .thenReturn(java.util.List.of());
     }
 

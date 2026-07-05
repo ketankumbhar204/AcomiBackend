@@ -1,15 +1,18 @@
 package com.countin.countin_backend.meal.application.service;
 
+import com.countin.countin_backend.common.exception.BusinessException;
 import com.countin.countin_backend.meal.api.dto.response.EligibleParticipantResponse;
 import com.countin.countin_backend.meal.api.dto.response.MealEligibilityPlanBreakdownResponse;
 import com.countin.countin_backend.meal.api.dto.response.MealEligibilitySlotResponse;
 import com.countin.countin_backend.meal.api.dto.response.MealEligibilitySummaryResponse;
 import com.countin.countin_backend.meal.domain.model.MealPlanCode;
 import com.countin.countin_backend.meal.domain.model.MealType;
-import com.countin.countin_backend.meal.domain.policy.MealEligibilityEngine;
-import com.countin.countin_backend.meal.domain.policy.MemberSubscriptionPolicy;
+import com.countin.countin_backend.meal.domain.policy.MealOccupancyPolicy;
+import com.countin.countin_backend.meal.domain.policy.MealPollEligibilityPolicy;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.MealParticipationEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.MealParticipationRepository;
+import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
+import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -20,6 +23,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,12 +34,18 @@ public class MealEligibilityService {
     private final MealParticipationRepository participationRepository;
     private final DailyMenuService dailyMenuService;
     private final MealAccessService mealAccessService;
-    private final MemberSubscriptionPolicy subscriptionPolicy;
+    private final MealPollEligibilityPolicy pollEligibilityPolicy;
+    private final MealOccupancyPolicy occupancyPolicy;
+    private final SpaceRepository spaceRepository;
 
     @Transactional(readOnly = true)
     public MealEligibilitySummaryResponse getSummary(UUID spaceId, UUID callerId, LocalDate date) {
         mealAccessService.requireViewMeals(spaceId, callerId);
         LocalDate targetDate = date != null ? date : LocalDate.now();
+        SpaceEntity space = loadSpace(spaceId);
+        Set<UUID> occupiedMemberIds = occupancyPolicy
+                .occupiedMemberIdsForDate(space, targetDate)
+                .orElse(null);
         List<MealParticipationEntity> participations = participationRepository.findAllNonStoppedBySpaceId(spaceId);
         List<MealEligibilitySlotResponse> slots = new ArrayList<>();
         Set<UUID> distinctEligibleMemberIds = new HashSet<>();
@@ -46,15 +56,15 @@ public class MealEligibilityService {
             Map<MealPlanCode, PlanAccumulator> byPlanCounts = new EnumMap<>(MealPlanCode.class);
 
             for (MealParticipationEntity participation : participations) {
-                if (isPollEligible(participation, targetDate, mealType)) {
+                if (pollEligibilityPolicy.isPollEligible(participation, targetDate, mealType, occupiedMemberIds)) {
                     eligibleCount++;
                     distinctEligibleMemberIds.add(participation.getMember().getId());
                     MealPlanCode planCode = participation.getMealPlan().getCode();
                     byPlanCounts
                             .computeIfAbsent(planCode, code -> new PlanAccumulator(participation.getMealPlan().getName()))
                             .increment();
-                } else if (MealEligibilityEngine.isPausedPollAudienceMember(
-                        participation.getMember(), participation, targetDate, mealType)) {
+                } else if (pollEligibilityPolicy.isPausedPollAudienceMember(
+                        participation, targetDate, mealType, occupiedMemberIds)) {
                     pausedCount++;
                 }
             }
@@ -89,8 +99,13 @@ public class MealEligibilityService {
             UUID spaceId, UUID callerId, LocalDate date, MealType mealType) {
         mealAccessService.requireManageMeals(spaceId, callerId);
         LocalDate targetDate = date != null ? date : LocalDate.now();
+        SpaceEntity space = loadSpace(spaceId);
+        Set<UUID> occupiedMemberIds = occupancyPolicy
+                .occupiedMemberIdsForDate(space, targetDate)
+                .orElse(null);
         return participationRepository.findAllActiveBySpaceId(spaceId).stream()
-                .filter(participation -> isPollEligible(participation, targetDate, mealType))
+                .filter(participation ->
+                        pollEligibilityPolicy.isPollEligible(participation, targetDate, mealType, occupiedMemberIds))
                 .map(participation -> EligibleParticipantResponse.builder()
                         .memberId(participation.getMember().getId())
                         .memberName(participation.getMember().getFullName())
@@ -101,13 +116,10 @@ public class MealEligibilityService {
                 .toList();
     }
 
-    private boolean isPollEligible(MealParticipationEntity participation, LocalDate date, MealType mealType) {
-        if (!MealEligibilityEngine.isEligibleForPollAudience(
-                participation.getMember(), participation, date, mealType)) {
-            return false;
-        }
-        return subscriptionPolicy.canParticipateInPolls(
-                participation.getSpace(), participation.getMember());
+    private SpaceEntity loadSpace(UUID spaceId) {
+        return spaceRepository
+                .findById(spaceId)
+                .orElseThrow(() -> new BusinessException("Space not found", HttpStatus.NOT_FOUND));
     }
 
     private static final class PlanAccumulator {

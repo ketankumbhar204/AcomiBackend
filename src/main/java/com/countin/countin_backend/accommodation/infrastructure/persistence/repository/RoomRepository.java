@@ -124,6 +124,7 @@ public interface RoomRepository extends JpaRepository<RoomEntity, UUID> {
             SELECT r FROM RoomEntity r
             WHERE (r.floor IS NOT NULL AND r.floor.building.id = :buildingId)
                OR (r.unit IS NOT NULL AND r.unit.building.id = :buildingId)
+               OR (r.unit IS NOT NULL AND r.unit.floor IS NOT NULL AND r.unit.floor.building.id = :buildingId)
             """)
     List<RoomEntity> findAllByBuildingId(@Param("buildingId") UUID buildingId);
 

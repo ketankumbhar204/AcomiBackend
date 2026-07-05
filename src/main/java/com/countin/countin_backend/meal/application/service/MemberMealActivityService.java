@@ -19,7 +19,7 @@ import com.countin.countin_backend.meal.domain.model.MealPollPaymentStatus;
 import com.countin.countin_backend.meal.domain.model.MealPollStatus;
 import com.countin.countin_backend.meal.domain.model.MealType;
 import com.countin.countin_backend.meal.domain.model.MemberMealActivitySlotStatus;
-import com.countin.countin_backend.meal.domain.policy.MealEligibilityEngine;
+import com.countin.countin_backend.meal.domain.policy.MealPollEligibilityPolicy;
 import com.countin.countin_backend.meal.application.support.MealBillingResolver;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.DailyMenuEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.MealParticipationEntity;
@@ -73,6 +73,7 @@ public class MemberMealActivityService {
     private final SpaceRepository spaceRepository;
     private final MemberMealBalanceService memberMealBalanceService;
     private final MealBillingResolver mealBillingResolver;
+    private final MealPollEligibilityPolicy pollEligibilityPolicy;
 
     @Transactional(readOnly = true)
     public MemberMealActivityMonthResponse getMonthlyActivity(
@@ -402,7 +403,7 @@ public class MemberMealActivityService {
             List<MealPollResponseEntity> slotResponses,
             Map<String, MealPollMemberDeliveryEntity> deliveryByPollKey) {
         boolean eligible = participation != null
-                && MealEligibilityEngine.isEligibleForPollAudience(member, participation, date, mealType);
+                && pollEligibilityPolicy.isPollEligible(participation, date, mealType);
 
         MealPollMemberDeliveryEntity delivery = deliveryByPollKey.get(pollKey(date, mealType));
         String deliveryLocationName = null;
@@ -520,7 +521,7 @@ public class MemberMealActivityService {
             Map<LocalDate, Map<MealType, List<MealPollResponseEntity>>> responsesByDate,
             Map<String, MealPollMemberDeliveryEntity> deliveryByPollKey) {
         boolean eligible = participation != null
-                && MealEligibilityEngine.isEligibleForPollAudience(member, participation, date, mealType);
+                && pollEligibilityPolicy.isPollEligible(participation, date, mealType);
 
         if (!eligible) {
             return MemberMealActivitySlotResponse.builder()

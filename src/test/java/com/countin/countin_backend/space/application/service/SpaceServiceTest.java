@@ -63,6 +63,9 @@ class SpaceServiceTest {
     @Mock
     private MealPlanService mealPlanService;
 
+    @Mock
+    private SpaceAmenityService spaceAmenityService;
+
     @InjectMocks
     private SpaceService spaceService;
 

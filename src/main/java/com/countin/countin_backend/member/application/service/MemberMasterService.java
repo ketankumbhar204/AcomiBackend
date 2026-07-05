@@ -34,6 +34,7 @@ import com.countin.countin_backend.occupancy.application.service.OccupancyServic
 import com.countin.countin_backend.occupancy.domain.model.MemberOccupancyStatus;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import com.countin.countin_backend.user.api.dto.response.UserResponse;
 import com.countin.countin_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.countin.countin_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.math.BigDecimal;
@@ -172,7 +173,12 @@ public class MemberMasterService {
         MemberEntity member = memberRepository.findByIdAndSpaceIdAndActiveTrue(memberId, spaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("Member", "id", memberId));
 
-        return toMemberDetails(member);
+        MemberDetailsResponse response = toMemberDetails(member);
+        UserResponse linkedProfile = resolveLinkedUserProfile(member, spaceId, callerId);
+        if (linkedProfile != null) {
+            return response.toBuilder().linkedUserProfile(linkedProfile).build();
+        }
+        return response;
     }
 
     @Transactional
@@ -336,9 +342,8 @@ public class MemberMasterService {
                 spaceId, memberId, callerId, request.getDocumentType());
 
         assertSpaceExists(spaceId);
-        assertOwnerOrManager(spaceId, callerId);
-
         MemberEntity member = loadActiveMember(spaceId, memberId);
+        assertCanManageMemberDocuments(spaceId, member, callerId);
 
         MemberDocumentEntity document = MemberDocumentEntity.builder()
                 .member(member)
@@ -374,8 +379,8 @@ public class MemberMasterService {
                 spaceId, memberId, documentId, callerId);
 
         assertSpaceExists(spaceId);
-        assertOwnerOrManager(spaceId, callerId);
-        loadActiveMember(spaceId, memberId);
+        MemberEntity member = loadActiveMember(spaceId, memberId);
+        assertCanManageMemberDocuments(spaceId, member, callerId);
 
         MemberDocumentEntity document = memberDocumentRepository
                 .findByIdAndMemberId(documentId, memberId)
@@ -589,6 +594,15 @@ public class MemberMasterService {
         }
     }
 
+    private void assertCanManageMemberDocuments(
+            UUID spaceId, MemberEntity member, UUID callerId) {
+        if (member.getUser() != null && member.getUser().getId().equals(callerId)) {
+            assertCallerBelongsToSpace(spaceId, callerId);
+            return;
+        }
+        assertOwnerOrManager(spaceId, callerId);
+    }
+
     private void assertMobileAllowedForMemberRecord(
             UUID spaceId, String mobileNumber, UUID updatingMemberId) {
         Optional<MemberEntity> memberWithMobile =
@@ -635,6 +649,27 @@ public class MemberMasterService {
         return MemberDetailsResponse.from(
                 member,
                 occupancyService.findCurrentOccupancySummary(spaceId, member.getId()).orElse(null),
-                mealParticipationService.findActiveSummaryForMember(spaceId, member.getId()).orElse(null));
+                mealParticipationService.findActiveSummaryForMember(spaceId, member.getId()).orElse(null),
+                occupancyService.findAssignedAmenitiesForMember(spaceId, member.getId()));
+    }
+
+    private UserResponse resolveLinkedUserProfile(
+            MemberEntity member, UUID spaceId, UUID callerId) {
+        UserEntity linkedUser = member.getUser();
+        if (linkedUser == null) {
+            return null;
+        }
+
+        if (linkedUser.getId().equals(callerId)) {
+            return UserResponse.from(linkedUser);
+        }
+
+        boolean canView = spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                callerId, spaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER));
+        if (!canView) {
+            return null;
+        }
+
+        return UserResponse.from(linkedUser);
     }
 }

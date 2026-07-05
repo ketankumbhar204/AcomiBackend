@@ -4,6 +4,7 @@ import com.countin.countin_backend.accommodation.domain.model.AccommodationDelet
 import com.countin.countin_backend.accommodation.domain.policy.AccommodationDeletionPolicy;
 import com.countin.countin_backend.accommodation.domain.policy.AccommodationDeletionSubtree;
 import com.countin.countin_backend.accommodation.domain.policy.DeletionEvaluation;
+import com.countin.countin_backend.accommodation.infrastructure.persistence.repository.AccommodationSetupIdempotencyRepository;
 import com.countin.countin_backend.accommodation.infrastructure.persistence.repository.BedRepository;
 import com.countin.countin_backend.accommodation.infrastructure.persistence.repository.BuildingRepository;
 import com.countin.countin_backend.accommodation.infrastructure.persistence.repository.FloorRepository;
@@ -29,6 +30,7 @@ public class AccommodationDeletionService {
     private final FloorRepository floorRepository;
     private final UnitRepository unitRepository;
     private final BuildingRepository buildingRepository;
+    private final AccommodationSetupIdempotencyRepository setupIdempotencyRepository;
 
     @Transactional
     public void deleteBed(UUID spaceId, UUID bedId, UUID callerId) {
@@ -97,6 +99,7 @@ public class AccommodationDeletionService {
                 if (!subtree.getFloors().isEmpty()) {
                     floorRepository.deleteAll(subtree.getFloors());
                 }
+                setupIdempotencyRepository.deleteByBuildingId(subtree.getBuilding().getId());
                 buildingRepository.delete(subtree.getBuilding());
             }
             case FLOOR -> {

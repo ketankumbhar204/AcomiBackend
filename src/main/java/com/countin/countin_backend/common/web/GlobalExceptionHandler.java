@@ -16,7 +16,9 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.apache.catalina.connector.ClientAbortException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -115,6 +117,11 @@ public class GlobalExceptionHandler {
             return "Member already has an active or reserved occupancy";
         }
         return "A record with the same unique value already exists";
+    }
+
+    @ExceptionHandler({ClientAbortException.class, AsyncRequestNotUsableException.class})
+    public void handleClientAbort(Exception ex) {
+        log.debug("Client aborted request: {}", ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

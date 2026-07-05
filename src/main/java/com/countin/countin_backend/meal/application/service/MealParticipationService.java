@@ -9,6 +9,7 @@ import com.countin.countin_backend.meal.api.dto.response.MealParticipationDetail
 import com.countin.countin_backend.meal.api.dto.response.MealParticipationHistoryEntryResponse;
 import com.countin.countin_backend.meal.api.dto.response.MealParticipationResponse;
 import com.countin.countin_backend.meal.api.dto.response.MemberMealParticipationSummaryResponse;
+import com.countin.countin_backend.meal.domain.policy.MealOccupancyPolicy;
 import com.countin.countin_backend.meal.domain.model.MealParticipationHistoryAction;
 import com.countin.countin_backend.meal.domain.model.MealParticipationStatus;
 import com.countin.countin_backend.meal.domain.model.MealPlanCode;
@@ -50,6 +51,7 @@ public class MealParticipationService {
     private final MealPlanService mealPlanService;
     private final MealAccessService mealAccessService;
     private final MealDeliveryLocationService deliveryLocationService;
+    private final MealOccupancyPolicy occupancyPolicy;
 
     @Transactional(readOnly = true)
     public PagedResponse<MealParticipationResponse> listParticipations(
@@ -102,11 +104,12 @@ public class MealParticipationService {
     public MealParticipationResponse enroll(UUID spaceId, UUID callerId, CreateMealParticipationRequest request) {
         mealAccessService.requireManageParticipation(spaceId, callerId);
         UserEntity actor = loadUser(callerId);
+        SpaceEntity space = loadSpace(spaceId);
         MemberEntity member = loadMember(spaceId, request.getMemberId());
+        assertOccupancyForEnrollment(space, member, request.getEffectiveFrom());
         assertNoActiveParticipation(spaceId, member.getId());
 
         MealPlanEntity plan = mealPlanService.loadPlan(spaceId, request.getMealPlanId());
-        SpaceEntity space = loadSpace(spaceId);
         MealParticipationEntity participation = MealParticipationEntity.builder()
                 .space(space)
                 .member(member)
@@ -238,8 +241,19 @@ public class MealParticipationService {
     private static boolean isDefaultMealEligible(MemberEntity member) {
         SpaceType spaceType = member.getSpace().getType();
         MembershipRole role = member.getRole();
-        return (spaceType == SpaceType.MESS && role == MembershipRole.CUSTOMER)
-                || (spaceType == SpaceType.PG && role == MembershipRole.TENANT);
+        return spaceType == SpaceType.MESS && role == MembershipRole.CUSTOMER;
+    }
+
+    private void assertOccupancyForEnrollment(SpaceEntity space, MemberEntity member, LocalDate effectiveFrom) {
+        if (!occupancyPolicy.requiresActiveOccupancy(space.getType())) {
+            return;
+        }
+        LocalDate targetDate = effectiveFrom != null ? effectiveFrom : LocalDate.now();
+        if (!occupancyPolicy.hasOccupancyOnDate(space, member.getId(), targetDate)) {
+            throw new BusinessException(
+                    "Move in the tenant to a bed before enabling meals",
+                    HttpStatus.BAD_REQUEST);
+        }
     }
 
     private MealParticipationResponse changeStatus(

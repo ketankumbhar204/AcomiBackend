@@ -19,6 +19,7 @@ import com.countin.countin_backend.space.infrastructure.persistence.entity.Space
 import com.countin.countin_backend.accommodation.infrastructure.persistence.repository.BedRepository;
 import com.countin.countin_backend.accommodation.infrastructure.persistence.entity.BuildingEntity;
 import com.countin.countin_backend.accommodation.infrastructure.persistence.repository.BuildingRepository;
+import com.countin.countin_backend.accommodation.infrastructure.persistence.repository.AccommodationSetupIdempotencyRepository;
 import com.countin.countin_backend.accommodation.infrastructure.persistence.repository.FloorRepository;
 import com.countin.countin_backend.accommodation.infrastructure.persistence.repository.RoomRepository;
 import com.countin.countin_backend.accommodation.infrastructure.persistence.repository.UnitRepository;
@@ -58,6 +59,9 @@ class AccommodationDeletionServiceTest {
     @Mock
     private BuildingRepository buildingRepository;
 
+    @Mock
+    private AccommodationSetupIdempotencyRepository setupIdempotencyRepository;
+
     @InjectMocks
     private AccommodationDeletionService deletionService;
 
@@ -65,6 +69,58 @@ class AccommodationDeletionServiceTest {
     private final UUID callerId = UUID.randomUUID();
     private final UUID roomId = UUID.randomUUID();
     private final UUID floorId = UUID.randomUUID();
+
+    @Test
+    void deleteBuilding_whenUnitRoomsExist_cascadeDeletesRoomsBeforeUnits() {
+        UUID buildingId = UUID.randomUUID();
+        SpaceEntity space = SpaceEntity.builder().name("PG").build();
+        space.setId(spaceId);
+
+        BuildingEntity building = BuildingEntity.builder().space(space).name("Block A").code("A").build();
+        building.setId(buildingId);
+
+        FloorEntity floor = FloorEntity.builder().building(building).name("Floor 1").floorNumber(1).build();
+        floor.setId(UUID.randomUUID());
+
+        UnitEntity unit = UnitEntity.builder()
+                .building(building)
+                .floor(floor)
+                .name("Apt 101")
+                .unitNumber("101")
+                .status(AccommodationStatus.AVAILABLE)
+                .build();
+        unit.setId(UUID.randomUUID());
+
+        RoomEntity room = RoomEntity.builder()
+                .unit(unit)
+                .name("Bedroom")
+                .roomNumber("101")
+                .status(AccommodationStatus.AVAILABLE)
+                .build();
+        room.setId(UUID.randomUUID());
+
+        AccommodationDeletionSubtree subtree = AccommodationDeletionSubtree.builder()
+                .rootType(AccommodationDeletionRoot.BUILDING)
+                .rootName("Block A")
+                .building(building)
+                .floors(List.of(floor))
+                .units(List.of(unit))
+                .rooms(List.of(room))
+                .beds(List.of())
+                .build();
+
+        when(subtreeLoader.loadBuilding(spaceId, buildingId)).thenReturn(subtree);
+        when(deletionPolicy.evaluate(subtree)).thenReturn(DeletionEvaluation.allowed());
+        when(setupIdempotencyRepository.deleteByBuildingId(buildingId)).thenReturn(1);
+
+        deletionService.deleteBuilding(spaceId, buildingId, callerId);
+
+        verify(setupIdempotencyRepository).deleteByBuildingId(buildingId);
+        verify(roomRepository).deleteAll(subtree.getRooms());
+        verify(unitRepository).deleteAll(subtree.getUnits());
+        verify(floorRepository).deleteAll(subtree.getFloors());
+        verify(buildingRepository).delete(building);
+    }
 
     @Test
     void deleteFloor_whenApartmentsExist_cascadeDeletesUnitsBeforeFloor() {

@@ -1,9 +1,11 @@
 package com.countin.countin_backend.accommodation.api.controller;
 
+import com.countin.countin_backend.accommodation.api.dto.response.BedSpaceListItemResponse;
 import com.countin.countin_backend.accommodation.api.dto.response.FloorListItemResponse;
 import com.countin.countin_backend.accommodation.api.dto.response.RoomListItemResponse;
 import com.countin.countin_backend.accommodation.api.dto.response.UnitListItemResponse;
 import com.countin.countin_backend.accommodation.application.service.AccommodationLazyListService;
+import com.countin.countin_backend.accommodation.domain.model.AccommodationStatus;
 import com.countin.countin_backend.common.security.SecurityUtils;
 import com.countin.countin_backend.common.web.ApiResponse;
 import com.countin.countin_backend.common.web.PagedResponse;
@@ -70,5 +72,24 @@ public class AccommodationSearchController {
         PagedResponse<RoomListItemResponse> rooms =
                 lazyListService.searchRoomsInSpace(spaceId, callerId, query, pageable);
         return ResponseEntity.ok(ApiResponse.success(rooms));
+    }
+
+    @GetMapping("/beds")
+    @Operation(
+            summary = "Search beds",
+            description = "Returns lightweight bed summaries across the space with location context. Supports status filter, query, and pagination.")
+    public ResponseEntity<ApiResponse<PagedResponse<BedSpaceListItemResponse>>> searchBeds(
+            @PathVariable UUID spaceId,
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) AccommodationStatus status,
+            @RequestParam(required = false) UUID buildingId,
+            @RequestParam(required = false) UUID floorId,
+            @RequestParam(required = false) UUID unitId,
+            @PageableDefault(size = 20, sort = "bedNumber") Pageable pageable) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        PagedResponse<BedSpaceListItemResponse> beds =
+                lazyListService.searchBedsInSpace(
+                        spaceId, callerId, query, status, buildingId, floorId, unitId, pageable);
+        return ResponseEntity.ok(ApiResponse.success(beds));
     }
 }

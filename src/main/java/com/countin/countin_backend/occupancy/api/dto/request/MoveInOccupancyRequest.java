@@ -1,5 +1,6 @@
 package com.countin.countin_backend.occupancy.api.dto.request;
 
+import com.countin.countin_backend.space.api.dto.AmenityAssignmentDto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import java.math.BigDecimal;
@@ -40,4 +41,8 @@ public class MoveInOccupancyRequest {
 
     @Schema(description = "Create FULL meal participation when food is enabled on move-in")
     private boolean createMealParticipation;
+
+    @Valid
+    @Schema(description = "Amenities assigned to this occupancy; omit for all space amenities")
+    private List<AmenityAssignmentDto> amenities;
 }

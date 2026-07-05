@@ -330,8 +330,25 @@ public class DailyMenuService {
             case ITEM -> entry.getItem() != null
                     && option.getItemId() != null
                     && entry.getItem().getId().equals(option.getItemId());
-            case PACKAGE -> entry.getEntryType() == DailyMenuEntryType.PACKAGE;
+            case PACKAGE -> matchesPackageRef(entry, option);
         };
+    }
+
+    private boolean matchesPackageRef(DailyMenuEntryEntity entry, DailyMenuOptionRequest option) {
+        if (entry.getEntryType() != DailyMenuEntryType.PACKAGE) {
+            return false;
+        }
+        List<UUID> requestedIds = option.getItemIds() == null ? List.of() : option.getItemIds();
+        if (requestedIds.isEmpty()) {
+            return false;
+        }
+        List<UUID> existingIds = dailyMenuPackageItemRepository.findByEntryIdWithItems(entry.getId()).stream()
+                .map(packageItem -> packageItem.getItem().getId())
+                .toList();
+        if (existingIds.size() != requestedIds.size()) {
+            return false;
+        }
+        return new HashSet<>(existingIds).equals(new HashSet<>(requestedIds));
     }
 
     private DailyMenuEntryType applyScalarsToEntry(

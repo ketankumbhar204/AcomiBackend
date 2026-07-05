@@ -7,8 +7,8 @@ import com.countin.countin_backend.meal.api.dto.response.MealSharePreviewSlotRes
 import com.countin.countin_backend.meal.domain.model.DailyMenuEntryType;
 import com.countin.countin_backend.meal.domain.model.DailyMenuStatus;
 import com.countin.countin_backend.meal.domain.model.MealType;
-import com.countin.countin_backend.meal.domain.policy.MealEligibilityEngine;
-import com.countin.countin_backend.meal.domain.policy.MemberSubscriptionPolicy;
+import com.countin.countin_backend.meal.domain.policy.MealPollEligibilityPolicy;
+import com.countin.countin_backend.meal.domain.policy.MealOccupancyPolicy;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.DailyMenuEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.DailyMenuEntryEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.MealComboItemEntity;
@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -51,7 +52,8 @@ public class MealSharePreviewService {
     private final MealParticipationRepository participationRepository;
     private final SpaceRepository spaceRepository;
     private final MealAccessService mealAccessService;
-    private final MemberSubscriptionPolicy subscriptionPolicy;
+    private final MealPollEligibilityPolicy pollEligibilityPolicy;
+    private final MealOccupancyPolicy occupancyPolicy;
 
     @Transactional(readOnly = true)
     public MealSharePreviewResponse getSharePreview(
@@ -64,6 +66,9 @@ public class MealSharePreviewService {
 
         List<MealType> targetTypes = mealType != null ? List.of(mealType) : List.of(MealType.values());
         List<MealParticipationEntity> participations = participationRepository.findAllNonStoppedBySpaceId(spaceId);
+        Set<UUID> occupiedMemberIds = occupancyPolicy
+                .occupiedMemberIdsForDate(space, menuDate)
+                .orElse(null);
         List<MealSharePreviewSlotResponse> slots = new ArrayList<>();
 
         for (MealType type : targetTypes) {
@@ -78,7 +83,7 @@ public class MealSharePreviewService {
                         .dailyMenuId(menu.getId())
                         .lines(buildLines(menu))
                         .notes(menu.getNotes())
-                        .eligibleCount(countEligible(participations, menuDate, type))
+                        .eligibleCount(countEligible(participations, menuDate, type, occupiedMemberIds))
                         .build());
             } else if (mealType != null) {
                 slots.add(MealSharePreviewSlotResponse.builder()
@@ -86,7 +91,7 @@ public class MealSharePreviewService {
                         .lines(List.of(MealSharePreviewLineResponse.builder()
                                 .label(NOT_PUBLISHED_LABEL)
                                 .build()))
-                        .eligibleCount(countEligible(participations, menuDate, type))
+                        .eligibleCount(countEligible(participations, menuDate, type, occupiedMemberIds))
                         .build());
             }
         }
@@ -151,18 +156,16 @@ public class MealSharePreviewService {
                 .build();
     }
 
-    private int countEligible(List<MealParticipationEntity> participations, LocalDate date, MealType mealType) {
+    private int countEligible(
+            List<MealParticipationEntity> participations,
+            LocalDate date,
+            MealType mealType,
+            Set<UUID> occupiedMemberIds) {
         int count = 0;
         for (MealParticipationEntity participation : participations) {
-            if (!MealEligibilityEngine.isEligibleForPollAudience(
-                    participation.getMember(), participation, date, mealType)) {
-                continue;
+            if (pollEligibilityPolicy.isPollEligible(participation, date, mealType, occupiedMemberIds)) {
+                count++;
             }
-            if (!subscriptionPolicy.canParticipateInPolls(
-                    participation.getSpace(), participation.getMember())) {
-                continue;
-            }
-            count++;
         }
         return count;
     }

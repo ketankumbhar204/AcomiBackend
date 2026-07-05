@@ -2,6 +2,7 @@ package com.countin.countin_backend.meal.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import com.countin.countin_backend.common.exception.BusinessException;
@@ -10,6 +11,8 @@ import com.countin.countin_backend.meal.domain.model.DailyMenuStatus;
 import com.countin.countin_backend.meal.domain.model.MealPlanCode;
 import com.countin.countin_backend.meal.domain.model.MealParticipationStatus;
 import com.countin.countin_backend.meal.domain.model.MealType;
+import com.countin.countin_backend.meal.domain.policy.MealOccupancyPolicy;
+import com.countin.countin_backend.meal.domain.policy.MealPollEligibilityPolicy;
 import com.countin.countin_backend.meal.domain.policy.MemberSubscriptionPolicy;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.DailyMenuEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.DailyMenuEntryEntity;
@@ -75,6 +78,9 @@ class MealSharePreviewServiceTest {
     @Mock
     private MemberSubscriptionPolicy subscriptionPolicy;
 
+    @Mock
+    private MealOccupancyPolicy occupancyPolicy;
+
     private MealSharePreviewService mealSharePreviewService;
 
     private UUID spaceId;
@@ -83,7 +89,12 @@ class MealSharePreviewServiceTest {
 
     @BeforeEach
     void setUp() {
-        when(subscriptionPolicy.canParticipateInPolls(any(), any())).thenReturn(true);
+        lenient().when(subscriptionPolicy.canParticipateInPolls(any(), any())).thenReturn(true);
+        lenient().when(occupancyPolicy.occupiedMemberIdsForDate(any(), any())).thenReturn(Optional.empty());
+        lenient()
+                .when(occupancyPolicy.hasOccupancyOnDate(any(), any(), any(), any()))
+                .thenReturn(true);
+        lenient().when(occupancyPolicy.hasOccupancyOnDate(any(), any(), any())).thenReturn(true);
         mealSharePreviewService = new MealSharePreviewService(
                 dailyMenuRepository,
                 dailyMenuEntryRepository,
@@ -92,7 +103,8 @@ class MealSharePreviewServiceTest {
                 participationRepository,
                 spaceRepository,
                 new MealAccessService(new SpaceMembershipResolver(spaceMembershipRepository), memberRepository),
-                subscriptionPolicy);
+                new MealPollEligibilityPolicy(subscriptionPolicy, occupancyPolicy),
+                occupancyPolicy);
         spaceId = UUID.randomUUID();
         callerId = UUID.randomUUID();
         menuDate = LocalDate.of(2026, 6, 18);
@@ -222,6 +234,7 @@ class MealSharePreviewServiceTest {
                 .build();
 
         return MealParticipationEntity.builder()
+                .space(space())
                 .member(member)
                 .mealPlan(plan)
                 .status(MealParticipationStatus.ACTIVE)
