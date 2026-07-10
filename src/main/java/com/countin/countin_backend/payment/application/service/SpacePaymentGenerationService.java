@@ -4,11 +4,14 @@ import com.countin.countin_backend.dashboard.application.support.MealLedgerContr
 import com.countin.countin_backend.dashboard.application.support.OccupancyBillingCalculator;
 import com.countin.countin_backend.dashboard.application.support.PayPerMealBillingCalculator;
 import com.countin.countin_backend.meal.application.support.MealBillingResolver;
+import com.countin.countin_backend.meal.application.support.MealPricingPolicy;
 import com.countin.countin_backend.meal.domain.model.MealParticipationStatus;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.MealParticipationEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.MealParticipationRepository;
 import com.countin.countin_backend.member.infrastructure.persistence.entity.MemberEntity;
+import com.countin.countin_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
 import com.countin.countin_backend.member.infrastructure.persistence.repository.MemberRepository;
+import com.countin.countin_backend.occupancy.application.service.OccupancyTargetLabelBuilder;
 import com.countin.countin_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.countin.countin_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
 import com.countin.countin_backend.payment.domain.model.PaymentTimelineEventType;
@@ -23,6 +26,7 @@ import com.countin.countin_backend.space.infrastructure.persistence.entity.Space
 import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.HashSet;
@@ -50,6 +54,8 @@ public class SpacePaymentGenerationService {
     private final PayPerMealBillingCalculator payPerMealBillingCalculator;
     private final MealBillingResolver mealBillingResolver;
     private final SpacePaymentTimelineService timelineService;
+    private final SpacePaymentAccessService accessService;
+    private final OccupancyTargetLabelBuilder occupancyTargetLabelBuilder;
 
     @Transactional
     public void syncExpectedPayments(UUID spaceId, UUID callerId, YearMonth month) {
@@ -58,16 +64,40 @@ public class SpacePaymentGenerationService {
             return;
         }
 
+        SpaceMembershipEntity membership = accessService.requireActiveMembership(spaceId, callerId);
+        UUID ownMemberFilter = accessService.isOwnScopeOnly(membership)
+                ? accessService.resolveOwnMemberId(spaceId, callerId)
+                : null;
+
         String monthKey = month.toString();
         LocalDate dueDate = month.atEndOfMonth();
 
         if (isAccommodationApplicable(space.getType())) {
-            for (OccupancyEntity occupancy : occupancyRepository.findActiveBySpaceId(spaceId)) {
-                syncRentPayment(space, occupancy, month, monthKey, dueDate);
+            LocalDateTime monthStartTime = month.atDay(1).atStartOfDay();
+            LocalDateTime monthEndExclusive = month.plusMonths(1).atDay(1).atStartOfDay();
+            for (OccupancyEntity occupancy :
+                    occupancyRepository.findBillableBySpaceIdForMonth(
+                            spaceId,
+                            monthStartTime,
+                            monthEndExclusive,
+                            month.atEndOfMonth())) {
+                if (ownMemberFilter != null
+                        && !occupancy.getMember().getId().equals(ownMemberFilter)) {
+                    continue;
+                }
+                if (OccupancyBillingCalculator.isBillableInMonth(occupancy, month)) {
+                    syncRentPayment(space, occupancy, month, monthKey, dueDate);
+                }
             }
         }
 
         for (MemberEntity member : resolveMealBillingMembers(space)) {
+            if (!MealPricingPolicy.usesSeparateMealBilling(space)) {
+                continue;
+            }
+            if (ownMemberFilter != null && !member.getId().equals(ownMemberFilter)) {
+                continue;
+            }
             MealBillingType billingType = mealBillingResolver.resolve(space, member);
             if (billingType != MealBillingType.PAY_PER_MEAL) {
                 continue;
@@ -82,7 +112,7 @@ public class SpacePaymentGenerationService {
             YearMonth month,
             String monthKey,
             LocalDate dueDate) {
-        BigDecimal amount = OccupancyBillingCalculator.computeMonthlyExpected(occupancy);
+        BigDecimal amount = OccupancyBillingCalculator.computeMonthlyExpected(occupancy, month);
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
@@ -100,6 +130,10 @@ public class SpacePaymentGenerationService {
                 dueDate,
                 monthKey,
                 buildTargetLabel(occupancy));
+    }
+
+    private String buildTargetLabel(OccupancyEntity occupancy) {
+        return occupancyTargetLabelBuilder.build(occupancy);
     }
 
     private void syncMealPayment(
@@ -121,10 +155,20 @@ public class SpacePaymentGenerationService {
                 ? contribution.getCurrencyCode()
                 : DEFAULT_CURRENCY;
         String title = "Meals — " + MONTH_TITLE.format(month);
+        OccupancyEntity occupancy = null;
+        String targetLabel = null;
+        if (isAccommodationApplicable(space.getType())) {
+            occupancy = occupancyRepository
+                    .findActiveBySpaceIdAndMemberId(space.getId(), member.getId())
+                    .orElse(null);
+            if (occupancy != null) {
+                targetLabel = buildTargetLabel(occupancy);
+            }
+        }
         upsertPayment(
                 space,
                 member,
-                null,
+                occupancy,
                 SpacePaymentType.MEAL,
                 SpacePaymentCategory.MONTHLY,
                 title,
@@ -132,7 +176,7 @@ public class SpacePaymentGenerationService {
                 currency,
                 dueDate,
                 monthKey,
-                null);
+                targetLabel);
     }
 
     private void upsertPayment(
@@ -207,21 +251,5 @@ public class SpacePaymentGenerationService {
                 || type == SpaceType.HOSTEL
                 || type == SpaceType.CO_LIVING
                 || type == SpaceType.RENTAL;
-    }
-
-    private String buildTargetLabel(OccupancyEntity occupancy) {
-        if (occupancy.getBed() != null && occupancy.getRoom() != null) {
-            return occupancy.getRoom().getName() + " — " + occupancy.getBed().getName();
-        }
-        if (occupancy.getRoom() != null) {
-            return occupancy.getRoom().getName();
-        }
-        if (occupancy.getUnit() != null) {
-            return occupancy.getUnit().getName();
-        }
-        if (occupancy.getBuilding() != null) {
-            return occupancy.getBuilding().getName();
-        }
-        return null;
     }
 }

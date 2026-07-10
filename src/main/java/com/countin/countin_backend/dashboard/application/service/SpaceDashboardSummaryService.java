@@ -18,14 +18,17 @@ import com.countin.countin_backend.meal.application.service.MealPollService;
 import com.countin.countin_backend.meal.domain.model.MealPollStatus;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.DailyMenuEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.DailyMenuRepository;
-import com.countin.countin_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
+import com.countin.countin_backend.notification.api.dto.response.PendingActionsSummaryResponse;
+import com.countin.countin_backend.notification.application.service.PendingActionService;
 import com.countin.countin_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
 import com.countin.countin_backend.space.domain.model.SpaceType;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -38,6 +41,7 @@ public class SpaceDashboardSummaryService {
     private final SpaceRepository spaceRepository;
     private final SpaceBillingService spaceBillingService;
     private final DashboardAttentionService dashboardAttentionService;
+    private final PendingActionService pendingActionService;
     private final MealEligibilityService mealEligibilityService;
     private final MealPollService mealPollService;
     private final MealHeadcountService mealHeadcountService;
@@ -45,7 +49,10 @@ public class SpaceDashboardSummaryService {
     private final AccommodationSummaryRepository accommodationSummaryRepository;
     private final OccupancyRepository occupancyRepository;
 
-    @Transactional(readOnly = true)
+    /**
+     * Not read-only: embeds Pending Actions sync which may write notification rows.
+     */
+    @Transactional
     public DashboardSummaryResponse getSummary(UUID spaceId, UUID callerId, String monthParam) {
         SpaceEntity space = spaceRepository
                 .findById(spaceId)
@@ -59,23 +66,32 @@ public class SpaceDashboardSummaryService {
         DashboardMessOperationsResponse messOperations = null;
         DashboardAccommodationOperationsResponse accommodationOperations = null;
         List<DashboardAttentionItemResponse> attention;
+        // Payment overdue attention is no longer derived here — Pending Actions syncs from payments.
         if (space.getType() == SpaceType.MESS) {
-            messOperations = buildMessOperations(spaceId, callerId, monthParam);
+            LocalDate tomorrow = LocalDate.now().plusDays(1);
+            var eligibility = mealEligibilityService.getSummary(spaceId, callerId, tomorrow);
+            List<MealPollResponse> polls =
+                    mealPollService.getPollsForDate(spaceId, callerId, tomorrow).getPolls();
+            messOperations = buildMessOperations(spaceId, callerId, monthParam, eligibility, polls);
             attention = dashboardAttentionService.resolveAttention(
                     spaceId,
                     callerId,
-                    LocalDate.now().plusDays(1),
-                    pendingPaymentsCount,
+                    tomorrow,
+                    0,
                     financial.getPending(),
-                    financial.getCurrencyCode());
+                    financial.getCurrencyCode(),
+                    eligibility,
+                    polls);
         } else {
             if (isAccommodationApplicable(space.getType())) {
                 accommodationOperations =
                         buildAccommodationOperations(spaceId, monthParam, pendingPaymentsCount);
             }
-            attention = dashboardAttentionService.resolvePaymentsAttention(
-                    pendingPaymentsCount, financial.getPending(), financial.getCurrencyCode());
+            attention = List.of();
         }
+
+        PendingActionsSummaryResponse pendingActions =
+                pendingActionService.getPendingActions(spaceId, callerId, ledger.getMonth());
 
         return DashboardSummaryResponse.builder()
                 .spaceType(space.getType())
@@ -84,19 +100,21 @@ public class SpaceDashboardSummaryService {
                 .messOperations(messOperations)
                 .accommodationOperations(accommodationOperations)
                 .attention(attention)
+                .pendingActions(pendingActions)
                 .build();
     }
 
     private DashboardMessOperationsResponse buildMessOperations(
-            UUID spaceId, UUID callerId, String monthParam) {
+            UUID spaceId,
+            UUID callerId,
+            String monthParam,
+            com.countin.countin_backend.meal.api.dto.response.MealEligibilitySummaryResponse eligibility,
+            List<MealPollResponse> polls) {
         YearMonth month = YearMonth.parse(monthParam != null && !monthParam.isBlank()
                 ? monthParam
                 : YearMonth.now().toString());
-        LocalDate tomorrow = LocalDate.now().plusDays(1);
         LocalDate today = LocalDate.now();
 
-        var eligibility = mealEligibilityService.getSummary(spaceId, callerId, tomorrow);
-        List<MealPollResponse> polls = mealPollService.getPollsForDate(spaceId, callerId, tomorrow).getPolls();
         List<MealPollResponse> openPolls =
                 polls.stream().filter(poll -> poll.getStatus() == MealPollStatus.OPEN).toList();
 
@@ -132,18 +150,16 @@ public class SpaceDashboardSummaryService {
         LocalDate monthStart = month.atDay(1);
         LocalDate monthEnd = month.atEndOfMonth();
 
-        long occupiedBeds = accommodationSummaryRepository.countBedsByStatusForSpace(
-                spaceId, AccommodationStatus.OCCUPIED);
-        long vacantBeds = accommodationSummaryRepository.countBedsByStatusForSpace(
-                spaceId, AccommodationStatus.AVAILABLE);
+        Map<AccommodationStatus, Long> bedCounts = countBedStatusesForSpace(spaceId);
+        long occupiedBeds = bedCounts.getOrDefault(AccommodationStatus.OCCUPIED, 0L);
+        long vacantBeds = bedCounts.getOrDefault(AccommodationStatus.AVAILABLE, 0L);
 
-        List<OccupancyEntity> activeOccupancies = occupancyRepository.findActiveBySpaceId(spaceId);
-        int moveInsThisMonth = (int) activeOccupancies.stream()
-                .filter(occupancy -> {
-                    LocalDate moveIn = occupancy.getMoveInDate();
-                    return moveIn != null && !moveIn.isBefore(monthStart) && !moveIn.isAfter(monthEnd);
-                })
-                .count();
+        int moveInsThisMonth = (int) occupancyRepository.countMoveInsBetween(
+                spaceId,
+                monthStart,
+                monthEnd,
+                monthStart.atStartOfDay(),
+                monthEnd.plusDays(1).atStartOfDay());
 
         return DashboardAccommodationOperationsResponse.builder()
                 .occupiedBeds((int) occupiedBeds)
@@ -151,6 +167,14 @@ public class SpaceDashboardSummaryService {
                 .moveInsThisMonth(moveInsThisMonth)
                 .pendingPaymentsCount(pendingPaymentsCount)
                 .build();
+    }
+
+    private Map<AccommodationStatus, Long> countBedStatusesForSpace(UUID spaceId) {
+        Map<AccommodationStatus, Long> counts = new EnumMap<>(AccommodationStatus.class);
+        for (Object[] row : accommodationSummaryRepository.countBedStatusesForSpace(spaceId)) {
+            counts.put((AccommodationStatus) row[0], (Long) row[1]);
+        }
+        return counts;
     }
 
     private boolean isAccommodationApplicable(SpaceType spaceType) {

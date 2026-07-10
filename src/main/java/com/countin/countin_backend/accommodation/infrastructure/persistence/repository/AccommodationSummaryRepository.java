@@ -51,20 +51,22 @@ public interface AccommodationSummaryRepository extends JpaRepository<BuildingEn
     long countActiveRooms(@Param("buildingId") UUID buildingId);
 
     /**
-     * Bed counts follow the same floor-scoped EXISTS pattern as {@link #countActiveRooms}.
-     * Direct {@code room.unit.building} paths miss APARTMENT_PG beds (room → unit → floor → building).
+     * Bed counts use explicit JOIN paths (not EXISTS) so corridor rooms (room → floor)
+     * and apartment rooms (room → unit → building) both resolve correctly.
+     * Hibernate can mis-translate EXISTS + OR into SQL that requires room.unit_id.
      */
     @Query("""
             SELECT COUNT(b) FROM BedEntity b
+            JOIN b.room r
+            LEFT JOIN r.floor f
+            LEFT JOIN f.building bf
+            LEFT JOIN r.unit ru
+            LEFT JOIN ru.building bu
             WHERE b.isActive = true
-              AND b.room.isActive = true
-              AND EXISTS (
-                  SELECT 1 FROM FloorEntity f
-                  WHERE f.building.id = :buildingId AND f.isActive = true
-                    AND (
-                        (b.room.floor IS NOT NULL AND b.room.floor.id = f.id)
-                        OR (b.room.unit IS NOT NULL AND b.room.unit.isActive = true AND b.room.unit.floor.id = f.id)
-                    )
+              AND r.isActive = true
+              AND (
+                  (f IS NOT NULL AND f.isActive = true AND bf.isActive = true AND bf.id = :buildingId)
+                  OR (ru IS NOT NULL AND ru.isActive = true AND bu.isActive = true AND bu.id = :buildingId)
               )
             """)
     long countActiveBeds(@Param("buildingId") UUID buildingId);
@@ -86,15 +88,16 @@ public interface AccommodationSummaryRepository extends JpaRepository<BuildingEn
 
     @Query("""
             SELECT b.status, COUNT(b) FROM BedEntity b
+            JOIN b.room r
+            LEFT JOIN r.floor f
+            LEFT JOIN f.building bf
+            LEFT JOIN r.unit ru
+            LEFT JOIN ru.building bu
             WHERE b.isActive = true
-              AND b.room.isActive = true
-              AND EXISTS (
-                  SELECT 1 FROM FloorEntity f
-                  WHERE f.building.id = :buildingId AND f.isActive = true
-                    AND (
-                        (b.room.floor IS NOT NULL AND b.room.floor.id = f.id)
-                        OR (b.room.unit IS NOT NULL AND b.room.unit.isActive = true AND b.room.unit.floor.id = f.id)
-                    )
+              AND r.isActive = true
+              AND (
+                  (f IS NOT NULL AND f.isActive = true AND bf.isActive = true AND bf.id = :buildingId)
+                  OR (ru IS NOT NULL AND ru.isActive = true AND bu.isActive = true AND bu.id = :buildingId)
               )
             GROUP BY b.status
             """)
@@ -109,16 +112,17 @@ public interface AccommodationSummaryRepository extends JpaRepository<BuildingEn
 
     @Query("""
             SELECT COUNT(b) FROM BedEntity b
+            JOIN b.room r
+            LEFT JOIN r.floor f
+            LEFT JOIN f.building bf
+            LEFT JOIN r.unit ru
+            LEFT JOIN ru.building bu
             WHERE b.isActive = true
-              AND b.room.isActive = true
+              AND r.isActive = true
               AND b.status = :status
-              AND EXISTS (
-                  SELECT 1 FROM FloorEntity f
-                  WHERE f.building.id = :buildingId AND f.isActive = true
-                    AND (
-                        (b.room.floor IS NOT NULL AND b.room.floor.id = f.id)
-                        OR (b.room.unit IS NOT NULL AND b.room.unit.isActive = true AND b.room.unit.floor.id = f.id)
-                    )
+              AND (
+                  (f IS NOT NULL AND f.isActive = true AND bf.isActive = true AND bf.id = :buildingId)
+                  OR (ru IS NOT NULL AND ru.isActive = true AND bu.isActive = true AND bu.id = :buildingId)
               )
             """)
     long countBedsByStatus(
@@ -126,22 +130,38 @@ public interface AccommodationSummaryRepository extends JpaRepository<BuildingEn
 
     @Query("""
             SELECT COUNT(b) FROM BedEntity b
+            JOIN b.room r
+            LEFT JOIN r.floor f
+            LEFT JOIN f.building bf
+            LEFT JOIN r.unit ru
+            LEFT JOIN ru.building bu
             WHERE b.isActive = true
-              AND b.room.isActive = true
+              AND r.isActive = true
               AND b.status = :status
-              AND EXISTS (
-                  SELECT 1 FROM FloorEntity f
-                  WHERE f.building.space.id = :spaceId
-                    AND f.isActive = true
-                    AND f.building.isActive = true
-                    AND (
-                        (b.room.floor IS NOT NULL AND b.room.floor.id = f.id)
-                        OR (b.room.unit IS NOT NULL AND b.room.unit.isActive = true AND b.room.unit.floor.id = f.id)
-                    )
+              AND (
+                  (f IS NOT NULL AND f.isActive = true AND bf.isActive = true AND bf.space.id = :spaceId)
+                  OR (ru IS NOT NULL AND ru.isActive = true AND bu.isActive = true AND bu.space.id = :spaceId)
               )
             """)
     long countBedsByStatusForSpace(
             @Param("spaceId") UUID spaceId, @Param("status") AccommodationStatus status);
+
+    @Query("""
+            SELECT b.status, COUNT(b) FROM BedEntity b
+            JOIN b.room r
+            LEFT JOIN r.floor f
+            LEFT JOIN f.building bf
+            LEFT JOIN r.unit ru
+            LEFT JOIN ru.building bu
+            WHERE b.isActive = true
+              AND r.isActive = true
+              AND (
+                  (f IS NOT NULL AND f.isActive = true AND bf.isActive = true AND bf.space.id = :spaceId)
+                  OR (ru IS NOT NULL AND ru.isActive = true AND bu.isActive = true AND bu.space.id = :spaceId)
+              )
+            GROUP BY b.status
+            """)
+    List<Object[]> countBedStatusesForSpace(@Param("spaceId") UUID spaceId);
 
     @Query("""
             SELECT COUNT(r) FROM RoomEntity r

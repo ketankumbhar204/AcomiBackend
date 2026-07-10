@@ -8,5 +8,6 @@ public enum PaymentTimelineEventType {
     REJECTED,
     RESUBMITTED,
     PAID,
-    REFUNDED
+    REFUNDED,
+    UPDATE_REQUESTED
 }

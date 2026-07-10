@@ -20,6 +20,7 @@ import com.countin.countin_backend.meal.domain.model.MealPollStatus;
 import com.countin.countin_backend.meal.domain.model.MealType;
 import com.countin.countin_backend.meal.domain.model.MemberMealActivitySlotStatus;
 import com.countin.countin_backend.meal.domain.policy.MealPollEligibilityPolicy;
+import com.countin.countin_backend.meal.domain.policy.MealOccupancyPolicy;
 import com.countin.countin_backend.meal.application.support.MealBillingResolver;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.DailyMenuEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.MealParticipationEntity;
@@ -34,6 +35,7 @@ import com.countin.countin_backend.meal.infrastructure.persistence.repository.Me
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.MealPollRepository;
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.MealPollResponseRepository;
 import com.countin.countin_backend.member.infrastructure.persistence.entity.MemberEntity;
+import com.countin.countin_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.countin.countin_backend.member.infrastructure.persistence.repository.MemberRepository;
 import com.countin.countin_backend.space.domain.model.MealBillingType;
 import com.countin.countin_backend.space.domain.model.PrepaidBalanceUnit;
@@ -74,6 +76,7 @@ public class MemberMealActivityService {
     private final MemberMealBalanceService memberMealBalanceService;
     private final MealBillingResolver mealBillingResolver;
     private final MealPollEligibilityPolicy pollEligibilityPolicy;
+    private final MealOccupancyPolicy occupancyPolicy;
 
     @Transactional(readOnly = true)
     public MemberMealActivityMonthResponse getMonthlyActivity(
@@ -93,6 +96,9 @@ public class MemberMealActivityService {
                         memberId,
                         com.countin.countin_backend.meal.domain.model.MealParticipationStatus.ACTIVE)
                 .orElse(null);
+
+        Optional<OccupancyEntity> memberOccupancy =
+                occupancyPolicy.findActiveOccupancy(member.getSpace(), memberId);
 
         List<DailyMenuEntity> publishedMenus = dailyMenuRepository.findBySpaceAndDateRange(
                 spaceId, from, to, true);
@@ -147,6 +153,7 @@ public class MemberMealActivityService {
                 MemberMealActivitySlotResponse slot = buildSlot(
                         member,
                         participation,
+                        memberOccupancy,
                         date,
                         mealType,
                         publishedByDate,
@@ -260,6 +267,9 @@ public class MemberMealActivityService {
                         com.countin.countin_backend.meal.domain.model.MealParticipationStatus.ACTIVE)
                 .orElse(null);
 
+        Optional<OccupancyEntity> memberOccupancy =
+                occupancyPolicy.findActiveOccupancy(member.getSpace(), memberId);
+
         Map<MealType, Boolean> publishedByType = new EnumMap<>(MealType.class);
         for (MealType mealType : MealType.values()) {
             publishedByType.put(mealType, dailyMenuService.isPublished(spaceId, date, mealType));
@@ -291,6 +301,7 @@ public class MemberMealActivityService {
             MemberMealActivitySlotDetailResponse slot = buildSlotDetail(
                     member,
                     participation,
+                    memberOccupancy,
                     date,
                     mealType,
                     publishedByType.getOrDefault(mealType, false),
@@ -396,6 +407,7 @@ public class MemberMealActivityService {
     private MemberMealActivitySlotDetailResponse buildSlotDetail(
             MemberEntity member,
             MealParticipationEntity participation,
+            Optional<OccupancyEntity> memberOccupancy,
             LocalDate date,
             MealType mealType,
             boolean menuPublished,
@@ -403,7 +415,8 @@ public class MemberMealActivityService {
             List<MealPollResponseEntity> slotResponses,
             Map<String, MealPollMemberDeliveryEntity> deliveryByPollKey) {
         boolean eligible = participation != null
-                && pollEligibilityPolicy.isPollEligible(participation, date, mealType);
+                && pollEligibilityPolicy.isPollEligible(
+                        participation, date, mealType, null, memberOccupancy, true);
 
         MealPollMemberDeliveryEntity delivery = deliveryByPollKey.get(pollKey(date, mealType));
         String deliveryLocationName = null;
@@ -515,13 +528,15 @@ public class MemberMealActivityService {
     private MemberMealActivitySlotResponse buildSlot(
             MemberEntity member,
             MealParticipationEntity participation,
+            Optional<OccupancyEntity> memberOccupancy,
             LocalDate date,
             MealType mealType,
             Map<LocalDate, Map<MealType, Boolean>> publishedByDate,
             Map<LocalDate, Map<MealType, List<MealPollResponseEntity>>> responsesByDate,
             Map<String, MealPollMemberDeliveryEntity> deliveryByPollKey) {
         boolean eligible = participation != null
-                && pollEligibilityPolicy.isPollEligible(participation, date, mealType);
+                && pollEligibilityPolicy.isPollEligible(
+                        participation, date, mealType, null, memberOccupancy, true);
 
         if (!eligible) {
             return MemberMealActivitySlotResponse.builder()

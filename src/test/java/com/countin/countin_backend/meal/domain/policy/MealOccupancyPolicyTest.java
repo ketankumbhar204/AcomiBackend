@@ -59,7 +59,8 @@ class MealOccupancyPolicyTest {
 
     @Test
     void hasOccupancyOnDate_falseWhenPgTenantHasNoActiveOccupancy() {
-        when(occupancyRepository.findActiveBySpaceId(spaceId)).thenReturn(List.of());
+        when(occupancyRepository.findActiveBySpaceIdAndMemberId(spaceId, memberId))
+                .thenReturn(Optional.empty());
 
         assertThat(policy.hasOccupancyOnDate(pgSpace, memberId, LocalDate.now())).isFalse();
     }
@@ -74,7 +75,8 @@ class MealOccupancyPolicyTest {
                 .status(OccupancyStatus.ACTIVE)
                 .moveInDate(LocalDate.now().minusDays(1))
                 .build();
-        when(occupancyRepository.findActiveBySpaceId(spaceId)).thenReturn(List.of(occupancy));
+        when(occupancyRepository.findActiveBySpaceIdAndMemberId(spaceId, memberId))
+                .thenReturn(Optional.of(occupancy));
 
         assertThat(policy.hasOccupancyOnDate(pgSpace, memberId, LocalDate.now())).isTrue();
     }
@@ -90,7 +92,8 @@ class MealOccupancyPolicyTest {
                 .status(OccupancyStatus.ACTIVE)
                 .moveInDate(menuDate.plusDays(1))
                 .build();
-        when(occupancyRepository.findActiveBySpaceId(spaceId)).thenReturn(List.of(occupancy));
+        when(occupancyRepository.findActiveBySpaceIdAndMemberId(spaceId, memberId))
+                .thenReturn(Optional.of(occupancy));
 
         assertThat(policy.hasOccupancyOnDate(pgSpace, memberId, menuDate)).isFalse();
     }
@@ -107,9 +110,32 @@ class MealOccupancyPolicyTest {
                 .moveInDate(menuDate.minusDays(10))
                 .vacatedAt(LocalDateTime.of(2026, 7, 3, 12, 0))
                 .build();
-        when(occupancyRepository.findActiveBySpaceId(spaceId)).thenReturn(List.of(occupancy));
+        when(occupancyRepository.findActiveBySpaceIdAndMemberId(spaceId, memberId))
+                .thenReturn(Optional.of(occupancy));
 
         assertThat(policy.hasOccupancyOnDate(pgSpace, memberId, menuDate)).isFalse();
+    }
+
+    @Test
+    void hasMemberOccupancyOnDate_preloadedEmptyDoesNotQueryRepository() {
+        assertThat(policy.hasMemberOccupancyOnDate(pgSpace, Optional.empty(), memberId, LocalDate.now(), true))
+                .isFalse();
+    }
+
+    @Test
+    void hasMemberOccupancyOnDate_preloadedOccupancyUsesInMemoryOnly() {
+        MemberEntity member = MemberEntity.builder().build();
+        member.setId(memberId);
+        OccupancyEntity occupancy = OccupancyEntity.builder()
+                .space(pgSpace)
+                .member(member)
+                .status(OccupancyStatus.ACTIVE)
+                .moveInDate(LocalDate.now().minusDays(1))
+                .build();
+
+        assertThat(policy.hasMemberOccupancyOnDate(
+                        pgSpace, Optional.of(occupancy), memberId, LocalDate.now(), true))
+                .isTrue();
     }
 
     @Test

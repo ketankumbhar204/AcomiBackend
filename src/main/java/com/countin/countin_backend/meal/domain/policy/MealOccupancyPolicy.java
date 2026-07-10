@@ -52,8 +52,13 @@ public class MealOccupancyPolicy {
     }
 
     public boolean hasOccupancyOnDate(SpaceEntity space, UUID memberId, LocalDate date) {
-        Optional<Set<UUID>> occupiedMemberIds = occupiedMemberIdsForDate(space, date);
-        return occupiedMemberIds.map(ids -> ids.contains(memberId)).orElse(true);
+        if (!requiresActiveOccupancy(space.getType())) {
+            return true;
+        }
+        return occupancyRepository
+                .findActiveBySpaceIdAndMemberId(space.getId(), memberId)
+                .map(occupancy -> isOccupiedOnDate(occupancy, date))
+                .orElse(false);
     }
 
     public boolean hasOccupancyOnDate(
@@ -61,9 +66,47 @@ public class MealOccupancyPolicy {
         if (!requiresActiveOccupancy(space.getType())) {
             return true;
         }
-        if (preloadedOccupiedMemberIds == null) {
-            return hasOccupancyOnDate(space, memberId, date);
+        if (preloadedOccupiedMemberIds != null) {
+            return preloadedOccupiedMemberIds.contains(memberId);
         }
-        return preloadedOccupiedMemberIds.contains(memberId);
+        return hasOccupancyOnDate(space, memberId, date);
+    }
+
+    public Optional<OccupancyEntity> findActiveOccupancy(SpaceEntity space, UUID memberId) {
+        if (!requiresActiveOccupancy(space.getType())) {
+            return Optional.empty();
+        }
+        return occupancyRepository.findActiveBySpaceIdAndMemberId(space.getId(), memberId);
+    }
+
+    /**
+     * When {@code preloaded=true}, uses the caller-resolved occupancy only (no DB).
+     * Callers must invoke {@link #findActiveOccupancy} once per request and pass the result.
+     */
+    public boolean hasMemberOccupancyOnDate(
+            SpaceEntity space,
+            Optional<OccupancyEntity> preloadedOccupancy,
+            UUID memberId,
+            LocalDate date,
+            boolean preloaded) {
+        if (!requiresActiveOccupancy(space.getType())) {
+            return true;
+        }
+        if (preloaded) {
+            return preloadedOccupancy.filter(occupancy -> isOccupiedOnDate(occupancy, date)).isPresent();
+        }
+        return occupancyRepository
+                .findActiveBySpaceIdAndMemberId(space.getId(), memberId)
+                .map(occupancy -> isOccupiedOnDate(occupancy, date))
+                .orElse(false);
+    }
+
+    /** @deprecated prefer {@link #hasMemberOccupancyOnDate(SpaceEntity, Optional, UUID, LocalDate, boolean)} */
+    public boolean hasMemberOccupancyOnDate(
+            SpaceEntity space,
+            Optional<OccupancyEntity> preloadedOccupancy,
+            UUID memberId,
+            LocalDate date) {
+        return hasMemberOccupancyOnDate(space, preloadedOccupancy, memberId, date, false);
     }
 }

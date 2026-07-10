@@ -10,9 +10,11 @@ import com.countin.countin_backend.dashboard.application.support.MealLedgerContr
 import com.countin.countin_backend.dashboard.application.support.OccupancyBillingCalculator;
 import com.countin.countin_backend.dashboard.application.support.PayPerMealBillingCalculator;
 import com.countin.countin_backend.dashboard.application.support.PrepaidBalanceBillingCalculator;
+import com.countin.countin_backend.dashboard.application.support.SpacePaymentLedgerSupport;
 import com.countin.countin_backend.dashboard.domain.model.DashboardFinancialSource;
 import com.countin.countin_backend.dashboard.domain.model.MemberPaymentStatus;
 import com.countin.countin_backend.meal.application.support.MealBillingResolver;
+import com.countin.countin_backend.meal.application.support.MealPricingPolicy;
 import com.countin.countin_backend.meal.domain.model.MealParticipationStatus;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.MealParticipationEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.MealParticipationRepository;
@@ -20,12 +22,15 @@ import com.countin.countin_backend.member.infrastructure.persistence.entity.Memb
 import com.countin.countin_backend.member.infrastructure.persistence.repository.MemberRepository;
 import com.countin.countin_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.countin.countin_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
+import com.countin.countin_backend.payment.infrastructure.persistence.entity.SpacePaymentEntity;
 import com.countin.countin_backend.space.domain.model.MealBillingType;
 import com.countin.countin_backend.space.domain.model.PrepaidBalanceUnit;
 import com.countin.countin_backend.space.domain.model.SpaceType;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -54,6 +59,7 @@ public class SpaceBillingService {
     private final PayPerMealBillingCalculator payPerMealBillingCalculator;
     private final PrepaidBalanceBillingCalculator prepaidBalanceBillingCalculator;
     private final MealBillingResolver mealBillingResolver;
+    private final SpacePaymentLedgerSupport spacePaymentLedgerSupport;
 
     @Transactional(readOnly = true)
     public MemberPaymentLedgerResponse buildLedger(UUID spaceId, UUID callerId, String monthParam) {
@@ -65,12 +71,14 @@ public class SpaceBillingService {
                         .filter(participation -> participation.getStatus() == MealParticipationStatus.ACTIVE)
                         .toList();
         List<OccupancyEntity> activeOccupancies = isAccommodationApplicable(space.getType())
-                ? occupancyRepository.findActiveBySpaceId(spaceId)
+                ? loadBillableOccupancies(spaceId, month)
                 : List.of();
 
         Set<UUID> memberIds = collectRelevantMemberIds(space.getType(), participations, activeOccupancies);
         Map<UUID, MemberEntity> membersById = loadMembers(spaceId, memberIds);
         Map<UUID, OccupancyEntity> occupancyByMember = mapOccupancyByMember(activeOccupancies);
+        Map<UUID, List<SpacePaymentEntity>> paymentsByMember =
+                spacePaymentLedgerSupport.loadPaymentsByMember(spaceId, month.toString());
 
         List<MemberPaymentLedgerRowResponse> rows = new ArrayList<>();
         for (UUID memberId : memberIds) {
@@ -84,7 +92,8 @@ public class SpaceBillingService {
                     month,
                     callerId,
                     participations.stream().anyMatch(row -> row.getMember().getId().equals(memberId)),
-                    occupancyByMember.get(memberId)));
+                    occupancyByMember.get(memberId),
+                    paymentsByMember.getOrDefault(memberId, List.of())));
         }
 
         rows.sort(Comparator.comparing(MemberPaymentLedgerRowResponse::getPending, Comparator.nullsLast(Comparator.reverseOrder()))
@@ -110,7 +119,10 @@ public class SpaceBillingService {
     public int countPendingPayments(List<MemberPaymentLedgerRowResponse> rows) {
         return (int) rows.stream()
                 .filter(row -> row.getStatus() == MemberPaymentStatus.PENDING
-                        || row.getStatus() == MemberPaymentStatus.PARTIAL)
+                        || row.getStatus() == MemberPaymentStatus.PARTIAL
+                        || row.getStatus() == MemberPaymentStatus.UNDER_REVIEW
+                        || row.getStatus() == MemberPaymentStatus.UPDATE_REQUESTED
+                        || row.getStatus() == MemberPaymentStatus.REJECTED)
                 .count();
     }
 
@@ -120,7 +132,8 @@ public class SpaceBillingService {
             YearMonth month,
             UUID callerId,
             boolean hasMealParticipation,
-            OccupancyEntity occupancy) {
+            OccupancyEntity occupancy,
+            List<SpacePaymentEntity> memberPayments) {
         UUID memberId = member.getId();
         UUID spaceId = space.getId();
         boolean isMess = space.getType() == SpaceType.MESS;
@@ -133,7 +146,7 @@ public class SpaceBillingService {
         boolean hasCollected = false;
         String currencyCode = DEFAULT_CURRENCY;
 
-        if (isMess || hasMealParticipation) {
+        if (MealPricingPolicy.usesSeparateMealBilling(space) && (isMess || hasMealParticipation)) {
             MealLedgerContribution mealContribution = computeMealContribution(
                     space, memberBillingType, spaceId, memberId, callerId, month);
             if (mealContribution.getExpected() != null) {
@@ -150,11 +163,18 @@ public class SpaceBillingService {
         }
 
         if (occupancy != null && accommodationApplicable) {
-            BigDecimal occupancyExpected = OccupancyBillingCalculator.computeMonthlyExpected(occupancy);
+            BigDecimal occupancyExpected =
+                    OccupancyBillingCalculator.computeMonthlyExpected(occupancy, month);
             if (occupancyExpected != null) {
                 expectedCharges = expectedCharges.add(occupancyExpected);
                 hasExpected = true;
             }
+        }
+
+        BigDecimal paymentCollected = spacePaymentLedgerSupport.sumPaidAmount(memberPayments);
+        if (paymentCollected.compareTo(BigDecimal.ZERO) > 0) {
+            collected = collected.add(paymentCollected);
+            hasCollected = true;
         }
 
         BigDecimal expected = hasExpected ? expectedCharges : null;
@@ -169,7 +189,8 @@ public class SpaceBillingService {
                         .collected(collectedAmount)
                         .pending(pending)
                         .currencyCode(currencyCode)
-                        .status(deriveStatus(expected, collectedAmount))
+                        .status(spacePaymentLedgerSupport.resolveRowStatus(
+                                expected, collectedAmount, memberPayments))
                         .mealBillingType(memberBillingType);
 
         if (memberBillingType == MealBillingType.PREPAID_BALANCE) {
@@ -248,24 +269,37 @@ public class SpaceBillingService {
                 .collected(collected)
                 .pending(computePending(expected, collected))
                 .currencyCode(currencyCode)
-                .source(resolveSource(space.getType(), hasMealParticipation))
+                .source(resolveSource(space, hasMealParticipation))
                 .mealBillingType(space.getMealBillingType())
                 .prepaidBalance(prepaidBalance)
                 .mixedMealBilling(mixedMealBilling ? true : null)
                 .build();
     }
 
-    private DashboardFinancialSource resolveSource(SpaceType spaceType, boolean hasMealParticipation) {
+    private DashboardFinancialSource resolveSource(SpaceEntity space, boolean hasMealParticipation) {
+        SpaceType spaceType = space.getType();
         if (spaceType == SpaceType.MESS) {
             return DashboardFinancialSource.MEAL_ACTIVITY;
         }
-        if (hasMealParticipation && isAccommodationApplicable(spaceType)) {
+        if (hasMealParticipation
+                && isAccommodationApplicable(spaceType)
+                && MealPricingPolicy.usesSeparateMealBilling(space)) {
             return DashboardFinancialSource.HYBRID;
         }
         if (isAccommodationApplicable(spaceType)) {
             return DashboardFinancialSource.OCCUPANCY;
         }
         return DashboardFinancialSource.API;
+    }
+
+    private List<OccupancyEntity> loadBillableOccupancies(UUID spaceId, YearMonth month) {
+        LocalDateTime monthStartTime = month.atDay(1).atStartOfDay();
+        LocalDateTime monthEndExclusive = month.plusMonths(1).atDay(1).atStartOfDay();
+        return occupancyRepository.findBillableBySpaceIdForMonth(
+                        spaceId, monthStartTime, monthEndExclusive, month.atEndOfMonth())
+                .stream()
+                .filter(occupancy -> OccupancyBillingCalculator.isBillableInMonth(occupancy, month))
+                .toList();
     }
 
     private Set<UUID> collectRelevantMemberIds(
@@ -311,21 +345,6 @@ public class SpaceBillingService {
             return expected.max(BigDecimal.ZERO);
         }
         return expected.subtract(collected).max(BigDecimal.ZERO);
-    }
-
-    private MemberPaymentStatus deriveStatus(BigDecimal expected, BigDecimal collected) {
-        if (expected == null || expected.compareTo(BigDecimal.ZERO) <= 0) {
-            return collected != null && collected.compareTo(BigDecimal.ZERO) > 0
-                    ? MemberPaymentStatus.PAID
-                    : MemberPaymentStatus.NONE;
-        }
-        if (collected == null || collected.compareTo(BigDecimal.ZERO) <= 0) {
-            return MemberPaymentStatus.PENDING;
-        }
-        if (collected.compareTo(expected) >= 0) {
-            return MemberPaymentStatus.PAID;
-        }
-        return MemberPaymentStatus.PARTIAL;
     }
 
     private BigDecimal sumNullable(List<BigDecimal> values) {

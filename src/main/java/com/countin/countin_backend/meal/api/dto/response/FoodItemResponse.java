@@ -4,6 +4,7 @@ import com.countin.countin_backend.meal.domain.model.FoodScope;
 import com.countin.countin_backend.meal.domain.model.FoodType;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.FoodItemEntity;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import java.math.BigDecimal;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Getter;
@@ -26,7 +27,15 @@ public class FoodItemResponse {
 
     private FoodType foodType;
 
+    private BigDecimal defaultPrice;
+    private String currencyCode;
+
     public static FoodItemResponse from(FoodItemEntity entity) {
+        return from(entity, null, null);
+    }
+
+    public static FoodItemResponse from(
+            FoodItemEntity entity, BigDecimal defaultPrice, String currencyCode) {
         return FoodItemResponse.builder()
                 .itemId(entity.getId())
                 .categoryId(entity.getCategory().getId())
@@ -36,6 +45,8 @@ public class FoodItemResponse {
                 .custom(entity.isCustom())
                 .active(entity.isActive())
                 .foodType(entity.getFoodType())
+                .defaultPrice(defaultPrice)
+                .currencyCode(currencyCode)
                 .build();
     }
 }

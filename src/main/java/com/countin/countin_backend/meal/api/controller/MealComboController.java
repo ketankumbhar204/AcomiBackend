@@ -3,6 +3,7 @@ package com.countin.countin_backend.meal.api.controller;
 import com.countin.countin_backend.common.security.SecurityUtils;
 import com.countin.countin_backend.common.web.ApiResponse;
 import com.countin.countin_backend.meal.api.dto.request.CreateMealComboRequest;
+import com.countin.countin_backend.meal.api.dto.request.UpdateMealComboPriceRequest;
 import com.countin.countin_backend.meal.api.dto.request.UpdateMealComboRequest;
 import com.countin.countin_backend.meal.api.dto.response.MealComboResponse;
 import com.countin.countin_backend.meal.application.service.MealComboService;
@@ -56,6 +57,17 @@ public class MealComboController {
         return ResponseEntity.ok(ApiResponse.success(
                 "Meal combo updated successfully",
                 mealComboService.updateCombo(spaceId, comboId, callerId, request)));
+    }
+
+    @PutMapping("/{comboId}/price")
+    public ResponseEntity<ApiResponse<MealComboResponse>> updateComboPrice(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID comboId,
+            @RequestBody @Valid UpdateMealComboPriceRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Meal combo price updated successfully",
+                mealComboService.updateComboPrice(spaceId, comboId, callerId, request)));
     }
 
     @PostMapping("/{comboId}/deactivate")

@@ -40,7 +40,7 @@ public class AllocateOccupancyRequest {
     private Boolean foodEnabled;
     private BigDecimal foodChargeSnapshot;
 
-    @Schema(description = "Ignored at activation; server copies space foodIncludedInRent policy")
+    @Schema(description = "When true, food is bundled in rent and no separate food charge is required")
     private Boolean foodIncludedInRent;
 
     @Valid

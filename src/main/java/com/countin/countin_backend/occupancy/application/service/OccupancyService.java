@@ -639,6 +639,7 @@ public class OccupancyService {
                 .depositSnapshot(request.getDepositSnapshot())
                 .foodEnabled(request.getFoodEnabled())
                 .foodChargeSnapshot(request.getFoodChargeSnapshot())
+                .foodIncludedInRent(request.getFoodIncludedInRent())
                 .otherCharges(request.getOtherCharges())
                 .build();
     }
@@ -649,6 +650,7 @@ public class OccupancyService {
                 .depositSnapshot(request.getDepositSnapshot())
                 .foodEnabled(request.getFoodEnabled())
                 .foodChargeSnapshot(request.getFoodChargeSnapshot())
+                .foodIncludedInRent(request.getFoodIncludedInRent())
                 .otherCharges(request.getOtherCharges())
                 .build();
     }
@@ -659,6 +661,7 @@ public class OccupancyService {
                 .depositSnapshot(request.getDepositSnapshot())
                 .foodEnabled(request.getFoodEnabled())
                 .foodChargeSnapshot(request.getFoodChargeSnapshot())
+                .foodIncludedInRent(request.getFoodIncludedInRent())
                 .otherCharges(request.getOtherCharges())
                 .build();
     }

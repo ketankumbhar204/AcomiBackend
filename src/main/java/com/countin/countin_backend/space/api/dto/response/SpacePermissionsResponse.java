@@ -20,4 +20,7 @@ public class SpacePermissionsResponse {
     private boolean canViewMeals;
     private boolean canManageMealParticipation;
     private boolean canViewOwnMealParticipation;
+    private boolean canRaiseComplaint;
+    private boolean canViewAllComplaints;
+    private boolean canManageComplaints;
 }

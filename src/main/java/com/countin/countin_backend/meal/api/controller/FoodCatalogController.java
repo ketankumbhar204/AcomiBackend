@@ -4,6 +4,7 @@ import com.countin.countin_backend.common.security.SecurityUtils;
 import com.countin.countin_backend.common.web.ApiResponse;
 import com.countin.countin_backend.meal.api.dto.request.CreateFoodCategoryRequest;
 import com.countin.countin_backend.meal.api.dto.request.CreateFoodItemRequest;
+import com.countin.countin_backend.meal.api.dto.request.UpdateFoodItemDefaultPriceRequest;
 import com.countin.countin_backend.meal.api.dto.request.UpdateFoodItemRequest;
 import com.countin.countin_backend.meal.api.dto.response.FoodCategoryResponse;
 import com.countin.countin_backend.meal.api.dto.response.FoodItemResponse;
@@ -84,6 +85,17 @@ public class FoodCatalogController {
         return ResponseEntity.ok(ApiResponse.success(
                 "Food item updated successfully",
                 foodCatalogService.updateItem(spaceId, itemId, callerId, request)));
+    }
+
+    @PutMapping("/food-items/{itemId}/default-price")
+    public ResponseEntity<ApiResponse<FoodItemResponse>> updateItemDefaultPrice(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID itemId,
+            @RequestBody @Valid UpdateFoodItemDefaultPriceRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Food item default price updated successfully",
+                foodCatalogService.updateItemDefaultPrice(spaceId, itemId, callerId, request)));
     }
 
     @PostMapping("/food-items/{itemId}/deactivate")

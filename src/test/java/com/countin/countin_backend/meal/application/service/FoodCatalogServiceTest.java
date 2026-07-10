@@ -9,9 +9,11 @@ import static org.mockito.Mockito.when;
 
 import com.countin.countin_backend.common.exception.BusinessException;
 import com.countin.countin_backend.meal.api.dto.request.CreateFoodItemRequest;
+import com.countin.countin_backend.meal.api.dto.request.UpdateFoodItemDefaultPriceRequest;
 import com.countin.countin_backend.meal.domain.model.FoodScope;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.FoodCategoryEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.FoodItemEntity;
+import com.countin.countin_backend.meal.infrastructure.persistence.entity.SpaceFoodItemSettingsEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.FoodCategoryRepository;
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.FoodItemRepository;
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.SpaceFoodCategorySettingsRepository;
@@ -26,6 +28,7 @@ import com.countin.countin_backend.space.domain.model.SpaceType;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import com.countin.countin_backend.user.infrastructure.persistence.entity.UserEntity;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -138,6 +141,7 @@ class FoodCatalogServiceTest {
                         .build())
                 .toList();
         when(foodItemRepository.findAllVisibleForSpace(spaceId)).thenReturn(globalItems);
+        when(spaceFoodItemSettingsRepository.findAllBySpaceId(spaceId)).thenReturn(List.of());
 
         var items = foodCatalogService.listItems(spaceId, callerId, null);
 
@@ -339,6 +343,59 @@ class FoodCatalogServiceTest {
     }
 
     @Test
+    void listItems_returnsSpaceSpecificDefaultPrices() {
+        stubMembershipForSpace(spaceId, MembershipRole.OWNER);
+        stubMembershipForSpace(otherSpaceId, MembershipRole.OWNER);
+        UUID itemId = UUID.randomUUID();
+        FoodItemEntity poha = globalItem(itemId, "Poha");
+        when(foodCategoryRepository.countGlobalActive()).thenReturn(12L);
+        when(foodItemRepository.findAllVisibleForSpace(spaceId)).thenReturn(List.of(poha));
+        when(foodItemRepository.findAllVisibleForSpace(otherSpaceId)).thenReturn(List.of(poha));
+
+        SpaceFoodItemSettingsEntity spaceASettings = SpaceFoodItemSettingsEntity.builder()
+                .spaceId(spaceId)
+                .itemId(itemId)
+                .isEnabled(true)
+                .defaultPrice(new BigDecimal("30.00"))
+                .currencyCode("INR")
+                .build();
+        when(spaceFoodItemSettingsRepository.findAllBySpaceId(spaceId)).thenReturn(List.of(spaceASettings));
+        when(spaceFoodItemSettingsRepository.findAllBySpaceId(otherSpaceId)).thenReturn(List.of());
+
+        var spaceAItems = foodCatalogService.listItems(spaceId, callerId, null);
+        var spaceBItems = foodCatalogService.listItems(otherSpaceId, callerId, null);
+
+        assertThat(spaceAItems).hasSize(1);
+        assertThat(spaceAItems.get(0).getDefaultPrice()).isEqualByComparingTo("30.00");
+        assertThat(spaceBItems).hasSize(1);
+        assertThat(spaceBItems.get(0).getDefaultPrice()).isNull();
+    }
+
+    @Test
+    void updateItemDefaultPrice_persistsPerSpaceSetting() {
+        stubOwnerMembership();
+        UUID itemId = UUID.randomUUID();
+        FoodItemEntity item = globalItem(itemId, "Poha");
+        when(foodItemRepository.findByIdWithCategory(itemId)).thenReturn(Optional.of(item));
+        when(spaceFoodItemSettingsRepository.findBySpaceIdAndItemId(spaceId, itemId))
+                .thenReturn(Optional.empty());
+        when(spaceFoodItemSettingsRepository.save(org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        UpdateFoodItemDefaultPriceRequest request = new UpdateFoodItemDefaultPriceRequest();
+        request.setPrice(new BigDecimal("30.00"));
+
+        var response = foodCatalogService.updateItemDefaultPrice(spaceId, itemId, callerId, request);
+
+        assertThat(response.getDefaultPrice()).isEqualByComparingTo("30.00");
+        assertThat(response.getCurrencyCode()).isEqualTo("INR");
+        verify(spaceFoodItemSettingsRepository).save(org.mockito.ArgumentMatchers.argThat(settings ->
+                settings.getSpaceId().equals(spaceId)
+                        && settings.getItemId().equals(itemId)
+                        && settings.getDefaultPrice().compareTo(new BigDecimal("30.00")) == 0));
+    }
+
+    @Test
     void createItem_deniesStaff() {
         stubMembership(MembershipRole.STAFF);
         CreateFoodItemRequest request = new CreateFoodItemRequest();
@@ -368,20 +425,28 @@ class FoodCatalogServiceTest {
     }
 
     private void stubMembership(MembershipRole role) {
+        stubMembershipForSpace(spaceId, role);
+    }
+
+    private void stubMembershipForSpace(UUID targetSpaceId, MembershipRole role) {
         UserEntity user = UserEntity.builder().fullName("User").mobileNumber("9000000000").build();
         user.setId(callerId);
-        SpaceEntity space = space();
+        SpaceEntity space = spaceForId(targetSpaceId);
         SpaceMembershipEntity membership = SpaceMembershipEntity.builder()
                 .user(user)
                 .space(space)
                 .role(role)
                 .status(MembershipStatus.ACTIVE)
                 .build();
-        when(spaceMembershipRepository.findMembershipByUserAndSpace(callerId, spaceId))
+        when(spaceMembershipRepository.findMembershipByUserAndSpace(callerId, targetSpaceId))
                 .thenReturn(Optional.of(membership));
     }
 
     private SpaceEntity space() {
+        return spaceForId(spaceId);
+    }
+
+    private SpaceEntity spaceForId(UUID targetSpaceId) {
         UserEntity owner = UserEntity.builder().fullName("Owner").mobileNumber("9000000001").build();
         owner.setId(UUID.randomUUID());
         SpaceEntity space = SpaceEntity.builder()
@@ -390,7 +455,7 @@ class FoodCatalogServiceTest {
                 .type(SpaceType.MESS)
                 .isActive(true)
                 .build();
-        space.setId(spaceId);
+        space.setId(targetSpaceId);
         return space;
     }
 

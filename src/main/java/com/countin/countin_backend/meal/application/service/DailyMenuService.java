@@ -26,10 +26,14 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -55,30 +59,22 @@ public class DailyMenuService {
         SpaceMembershipEntity membership = mealAccessService.requireViewMeals(spaceId, callerId);
         validateDateRange(from, to);
         boolean publishedOnly = !mealAccessService.canManageMeals(membership);
-        return dailyMenuRepository.findBySpaceAndDateRange(spaceId, from, to, publishedOnly).stream()
-                .map(this::toResponse)
-                .toList();
+        return toResponses(dailyMenuRepository.findBySpaceAndDateRange(spaceId, from, to, publishedOnly));
     }
 
     @Transactional(readOnly = true)
     public List<DailyMenuResponse> getTodayMenus(UUID spaceId, UUID callerId) {
         mealAccessService.requireViewMeals(spaceId, callerId);
-        return dailyMenuRepository
-                .findBySpaceAndDate(spaceId, LocalDate.now(), true, DailyMenuStatus.PUBLISHED)
-                .stream()
-                .map(this::toResponse)
-                .toList();
+        return toResponses(dailyMenuRepository.findBySpaceAndDate(
+                spaceId, LocalDate.now(), true, DailyMenuStatus.PUBLISHED));
     }
 
     @Transactional(readOnly = true)
     public List<DailyMenuResponse> getMenusByDate(UUID spaceId, UUID callerId, LocalDate date) {
         SpaceMembershipEntity membership = mealAccessService.requireViewMeals(spaceId, callerId);
         boolean publishedOnly = !mealAccessService.canManageMeals(membership);
-        return dailyMenuRepository
-                .findBySpaceAndDate(spaceId, date, publishedOnly, DailyMenuStatus.PUBLISHED)
-                .stream()
-                .map(this::toResponse)
-                .toList();
+        return toResponses(dailyMenuRepository.findBySpaceAndDate(
+                spaceId, date, publishedOnly, DailyMenuStatus.PUBLISHED));
     }
 
     @Transactional(readOnly = true)
@@ -217,32 +213,91 @@ public class DailyMenuService {
     }
 
     public boolean isPublished(UUID spaceId, LocalDate date, MealType mealType) {
+        return publishedMealTypes(spaceId, date).contains(mealType);
+    }
+
+    /** One query for all published meal types on a date (avoids 3× findBySpaceDateAndType). */
+    public Set<MealType> publishedMealTypes(UUID spaceId, LocalDate date) {
         return dailyMenuRepository
-                .findBySpaceDateAndType(spaceId, date, mealType)
-                .filter(menu -> !menu.isDeleted() && menu.getStatus() == DailyMenuStatus.PUBLISHED)
-                .isPresent();
+                .findBySpaceAndDate(spaceId, date, true, DailyMenuStatus.PUBLISHED)
+                .stream()
+                .map(DailyMenuEntity::getMealType)
+                .collect(Collectors.toCollection(() -> EnumSet.noneOf(MealType.class)));
+    }
+
+    private List<DailyMenuResponse> toResponses(List<DailyMenuEntity> menus) {
+        if (menus.isEmpty()) {
+            return List.of();
+        }
+
+        List<UUID> menuIds = menus.stream().map(DailyMenuEntity::getId).toList();
+        List<DailyMenuEntryEntity> allEntries = dailyMenuEntryRepository.findByDailyMenuIdIn(menuIds);
+
+        Map<UUID, List<DailyMenuEntryEntity>> entriesByMenuId = new HashMap<>();
+        for (DailyMenuEntryEntity entry : allEntries) {
+            if (entry.getDailyMenu() == null || entry.getDailyMenu().getId() == null) {
+                continue;
+            }
+            entriesByMenuId
+                    .computeIfAbsent(entry.getDailyMenu().getId(), ignored -> new ArrayList<>())
+                    .add(entry);
+        }
+
+        List<UUID> packageEntryIds = allEntries.stream()
+                .filter(entry -> entry.getEntryType() == DailyMenuEntryType.PACKAGE)
+                .map(DailyMenuEntryEntity::getId)
+                .toList();
+
+        Map<UUID, List<DailyMenuPackageItemEntity>> packageItemsByEntryId = new HashMap<>();
+        if (!packageEntryIds.isEmpty()) {
+            for (DailyMenuPackageItemEntity packageItem :
+                    dailyMenuPackageItemRepository.findByEntryIdInWithItems(packageEntryIds)) {
+                packageItemsByEntryId
+                        .computeIfAbsent(packageItem.getEntry().getId(), ignored -> new ArrayList<>())
+                        .add(packageItem);
+            }
+        }
+
+        List<DailyMenuResponse> responses = new ArrayList<>(menus.size());
+        for (DailyMenuEntity menu : menus) {
+            List<DailyMenuEntryEntity> entries =
+                    entriesByMenuId.getOrDefault(menu.getId(), List.of());
+            List<com.countin.countin_backend.meal.api.dto.response.DailyMenuOptionResponse> options =
+                    new ArrayList<>(entries.size());
+            for (DailyMenuEntryEntity entry : entries) {
+                if (entry.getEntryType() == DailyMenuEntryType.PACKAGE) {
+                    options.add(com.countin.countin_backend.meal.api.dto.response.DailyMenuOptionResponse.from(
+                            entry, packageItemsByEntryId.getOrDefault(entry.getId(), List.of())));
+                } else {
+                    options.add(com.countin.countin_backend.meal.api.dto.response.DailyMenuOptionResponse.from(entry));
+                }
+            }
+            responses.add(DailyMenuResponse.builder()
+                    .dailyMenuId(menu.getId())
+                    .menuDate(menu.getMenuDate())
+                    .mealType(menu.getMealType())
+                    .status(menu.getStatus())
+                    .publishedAt(menu.getPublishedAt())
+                    .notes(menu.getNotes())
+                    .options(options)
+                    .build());
+        }
+        return responses;
     }
 
     private DailyMenuResponse toResponse(DailyMenuEntity menu) {
-        List<DailyMenuEntryEntity> entries = dailyMenuEntryRepository.findByDailyMenuId(menu.getId());
-        List<com.countin.countin_backend.meal.api.dto.response.DailyMenuOptionResponse> options = new ArrayList<>();
-        for (DailyMenuEntryEntity entry : entries) {
-            if (entry.getEntryType() == DailyMenuEntryType.PACKAGE) {
-                options.add(com.countin.countin_backend.meal.api.dto.response.DailyMenuOptionResponse.from(
-                        entry, dailyMenuPackageItemRepository.findByEntryIdWithItems(entry.getId())));
-            } else {
-                options.add(com.countin.countin_backend.meal.api.dto.response.DailyMenuOptionResponse.from(entry));
-            }
-        }
-        return DailyMenuResponse.builder()
-                .dailyMenuId(menu.getId())
-                .menuDate(menu.getMenuDate())
-                .mealType(menu.getMealType())
-                .status(menu.getStatus())
-                .publishedAt(menu.getPublishedAt())
-                .notes(menu.getNotes())
-                .options(options)
-                .build();
+        List<DailyMenuResponse> responses = toResponses(List.of(menu));
+        return responses.isEmpty()
+                ? DailyMenuResponse.builder()
+                        .dailyMenuId(menu.getId())
+                        .menuDate(menu.getMenuDate())
+                        .mealType(menu.getMealType())
+                        .status(menu.getStatus())
+                        .publishedAt(menu.getPublishedAt())
+                        .notes(menu.getNotes())
+                        .options(List.of())
+                        .build()
+                : responses.get(0);
     }
 
     private DailyMenuEntity loadMenu(UUID spaceId, LocalDate date, MealType mealType) {

@@ -37,4 +37,14 @@ public class DashboardAccessService {
         }
         return membership;
     }
+
+    /** Any active space member (owner, manager, staff, tenant, customer). */
+    public SpaceMembershipEntity requireActiveMembership(UUID spaceId, UUID callerId) {
+        return membershipResolver.requireActive(spaceId, callerId);
+    }
+
+    public boolean canManagePayments(UUID spaceId, UUID callerId) {
+        SpaceMembershipEntity membership = membershipResolver.requireActive(spaceId, callerId);
+        return MANAGE_PAYMENTS_ROLES.contains(membership.getRole());
+    }
 }

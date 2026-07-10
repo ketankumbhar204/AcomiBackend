@@ -37,6 +37,12 @@ public class SpaceFoodItemSettingsEntity {
     @Column(name = "is_enabled", nullable = false)
     private boolean isEnabled = true;
 
+    @Column(name = "default_price", precision = 10, scale = 2)
+    private java.math.BigDecimal defaultPrice;
+
+    @Column(name = "currency_code", length = 3)
+    private String currencyCode;
+
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 

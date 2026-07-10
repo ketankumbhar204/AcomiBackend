@@ -42,6 +42,13 @@ class SpacePermissionPolicyTest {
         assertThat(permissions.isCanViewMeals()).isTrue();
         assertThat(permissions.isCanManageMealParticipation()).isEqualTo(canManageOccupancy);
         assertThat(permissions.isCanViewOwnMealParticipation()).isTrue();
+        assertThat(permissions.isCanRaiseComplaint())
+                .isEqualTo(role == MembershipRole.OWNER
+                        || role == MembershipRole.MANAGER
+                        || role == MembershipRole.TENANT
+                        || role == MembershipRole.CUSTOMER);
+        assertThat(permissions.isCanViewAllComplaints()).isEqualTo(canManageOccupancy);
+        assertThat(permissions.isCanManageComplaints()).isEqualTo(canManageOccupancy);
     }
 
     @ParameterizedTest

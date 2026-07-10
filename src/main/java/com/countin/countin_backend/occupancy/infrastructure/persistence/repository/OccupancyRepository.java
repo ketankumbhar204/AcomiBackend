@@ -3,6 +3,8 @@ package com.countin.countin_backend.occupancy.infrastructure.persistence.reposit
 import com.countin.countin_backend.occupancy.domain.model.AllocationTargetType;
 import com.countin.countin_backend.occupancy.domain.model.OccupancyStatus;
 import com.countin.countin_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -137,7 +139,49 @@ public interface OccupancyRepository extends JpaRepository<OccupancyEntity, UUID
             SELECT o FROM OccupancyEntity o
             JOIN FETCH o.member
             WHERE o.space.id = :spaceId
+              AND o.status IN (
+                  com.countin.countin_backend.occupancy.domain.model.OccupancyStatus.ACTIVE,
+                  com.countin.countin_backend.occupancy.domain.model.OccupancyStatus.VACATED)
+              AND (
+                  (o.actualMoveInAt IS NOT NULL
+                      AND o.actualMoveInAt < :monthEndExclusive)
+                  OR (o.actualMoveInAt IS NULL AND o.moveInDate <= :monthEnd)
+              )
+              AND (o.vacatedAt IS NULL OR o.vacatedAt >= :monthStartTime)
+            """)
+    List<OccupancyEntity> findBillableBySpaceIdForMonth(
+            @Param("spaceId") UUID spaceId,
+            @Param("monthStartTime") LocalDateTime monthStartTime,
+            @Param("monthEndExclusive") LocalDateTime monthEndExclusive,
+            @Param("monthEnd") LocalDate monthEnd);
+
+    @Query("""
+            SELECT o FROM OccupancyEntity o
+            JOIN FETCH o.member
+            WHERE o.space.id = :spaceId
               AND o.status = com.countin.countin_backend.occupancy.domain.model.OccupancyStatus.ACTIVE
             """)
     List<OccupancyEntity> findActiveBySpaceId(@Param("spaceId") UUID spaceId);
+
+    @Query("""
+            SELECT COUNT(o) FROM OccupancyEntity o
+            WHERE o.space.id = :spaceId
+              AND o.status IN (
+                  com.countin.countin_backend.occupancy.domain.model.OccupancyStatus.ACTIVE,
+                  com.countin.countin_backend.occupancy.domain.model.OccupancyStatus.VACATED)
+              AND (
+                  (o.actualMoveInAt IS NOT NULL
+                      AND o.actualMoveInAt >= :monthStartTime
+                      AND o.actualMoveInAt < :monthEndExclusive)
+                  OR (o.actualMoveInAt IS NULL
+                      AND o.moveInDate >= :startDate
+                      AND o.moveInDate <= :endDate)
+              )
+            """)
+    long countMoveInsBetween(
+            @Param("spaceId") UUID spaceId,
+            @Param("startDate") LocalDate startDate,
+            @Param("endDate") LocalDate endDate,
+            @Param("monthStartTime") LocalDateTime monthStartTime,
+            @Param("monthEndExclusive") LocalDateTime monthEndExclusive);
 }

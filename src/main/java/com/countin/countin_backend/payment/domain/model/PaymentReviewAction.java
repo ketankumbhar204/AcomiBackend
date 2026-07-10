@@ -2,5 +2,6 @@ package com.countin.countin_backend.payment.domain.model;
 
 public enum PaymentReviewAction {
     APPROVE,
-    REJECT
+    REJECT,
+    REQUEST_UPDATE
 }

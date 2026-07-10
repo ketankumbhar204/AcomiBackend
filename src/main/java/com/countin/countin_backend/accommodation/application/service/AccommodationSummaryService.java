@@ -48,9 +48,15 @@ public class AccommodationSummaryService {
                 .beds(summaryRepository.countActiveBeds(buildingId))
                 .build();
 
+        // One GROUP BY per entity type — never 9× count-by-status round trips.
+        Map<AccommodationStatus, Long> bedByStatus = statusMap(summaryRepository.countBedStatuses(buildingId));
+        Map<AccommodationStatus, Long> roomByStatus = statusMap(summaryRepository.countRoomStatuses(buildingId));
+        Map<AccommodationStatus, Long> unitByStatus = statusMap(summaryRepository.countUnitStatuses(buildingId));
+
         StatusCountsResponse statusCounts = aggregateStatusCounts(
-                buildingId, counts.getBeds(), counts.getUnits());
-        AvailabilityCountsResponse availability = buildAvailabilityCounts(buildingId);
+                counts.getBeds(), counts.getUnits(), bedByStatus, roomByStatus, unitByStatus);
+        AvailabilityCountsResponse availability =
+                buildAvailabilityCounts(bedByStatus, roomByStatus, unitByStatus);
 
         return BuildingSummaryResponse.builder()
                 .buildingId(building.getId())
@@ -67,52 +73,56 @@ public class AccommodationSummaryService {
                 .build();
     }
 
-    private AvailabilityCountsResponse buildAvailabilityCounts(UUID buildingId) {
+    private static AvailabilityCountsResponse buildAvailabilityCounts(
+            Map<AccommodationStatus, Long> bedByStatus,
+            Map<AccommodationStatus, Long> roomByStatus,
+            Map<AccommodationStatus, Long> unitByStatus) {
         return AvailabilityCountsResponse.builder()
-                .availableBeds(summaryRepository.countBedsByStatus(buildingId, AccommodationStatus.AVAILABLE))
-                .occupiedBeds(summaryRepository.countBedsByStatus(buildingId, AccommodationStatus.OCCUPIED))
-                .reservedBeds(summaryRepository.countBedsByStatus(buildingId, AccommodationStatus.RESERVED))
-                .availableRooms(summaryRepository.countRoomsByStatus(buildingId, AccommodationStatus.AVAILABLE))
-                .occupiedRooms(summaryRepository.countRoomsByStatus(buildingId, AccommodationStatus.OCCUPIED))
-                .reservedRooms(summaryRepository.countRoomsByStatus(buildingId, AccommodationStatus.RESERVED))
-                .availableUnits(summaryRepository.countUnitsByStatus(buildingId, AccommodationStatus.AVAILABLE))
-                .occupiedUnits(summaryRepository.countUnitsByStatus(buildingId, AccommodationStatus.OCCUPIED))
-                .reservedUnits(summaryRepository.countUnitsByStatus(buildingId, AccommodationStatus.RESERVED))
+                .availableBeds(bedByStatus.getOrDefault(AccommodationStatus.AVAILABLE, 0L))
+                .occupiedBeds(bedByStatus.getOrDefault(AccommodationStatus.OCCUPIED, 0L))
+                .reservedBeds(bedByStatus.getOrDefault(AccommodationStatus.RESERVED, 0L))
+                .availableRooms(roomByStatus.getOrDefault(AccommodationStatus.AVAILABLE, 0L))
+                .occupiedRooms(roomByStatus.getOrDefault(AccommodationStatus.OCCUPIED, 0L))
+                .reservedRooms(roomByStatus.getOrDefault(AccommodationStatus.RESERVED, 0L))
+                .availableUnits(unitByStatus.getOrDefault(AccommodationStatus.AVAILABLE, 0L))
+                .occupiedUnits(unitByStatus.getOrDefault(AccommodationStatus.OCCUPIED, 0L))
+                .reservedUnits(unitByStatus.getOrDefault(AccommodationStatus.RESERVED, 0L))
                 .build();
+    }
+
+    private static Map<AccommodationStatus, Long> statusMap(List<Object[]> rows) {
+        Map<AccommodationStatus, Long> totals = new EnumMap<>(AccommodationStatus.class);
+        for (Object[] row : rows) {
+            totals.put((AccommodationStatus) row[0], (Long) row[1]);
+        }
+        return totals;
     }
 
     /**
      * Bed-level status counts for PG/hostel layouts; unit-level for rental-only buildings.
      * Never merges room + bed + unit rows — that triple-counts a single occupied bed.
      */
-    private StatusCountsResponse aggregateStatusCounts(UUID buildingId, long bedCount, long unitCount) {
-        Map<AccommodationStatus, Long> totals = new EnumMap<>(AccommodationStatus.class);
-        for (AccommodationStatus status : AccommodationStatus.values()) {
-            totals.put(status, 0L);
-        }
-
+    private static StatusCountsResponse aggregateStatusCounts(
+            long bedCount,
+            long unitCount,
+            Map<AccommodationStatus, Long> bedByStatus,
+            Map<AccommodationStatus, Long> roomByStatus,
+            Map<AccommodationStatus, Long> unitByStatus) {
+        Map<AccommodationStatus, Long> totals;
         if (bedCount > 0) {
-            mergeStatusRows(totals, summaryRepository.countBedStatuses(buildingId));
+            totals = bedByStatus;
         } else if (unitCount > 0) {
-            mergeStatusRows(totals, summaryRepository.countUnitStatuses(buildingId));
+            totals = unitByStatus;
         } else {
-            mergeStatusRows(totals, summaryRepository.countRoomStatuses(buildingId));
+            totals = roomByStatus;
         }
 
         return StatusCountsResponse.builder()
-                .available(totals.get(AccommodationStatus.AVAILABLE))
-                .occupied(totals.get(AccommodationStatus.OCCUPIED))
-                .reserved(totals.get(AccommodationStatus.RESERVED))
-                .maintenance(totals.get(AccommodationStatus.MAINTENANCE))
-                .blocked(totals.get(AccommodationStatus.BLOCKED))
+                .available(totals.getOrDefault(AccommodationStatus.AVAILABLE, 0L))
+                .occupied(totals.getOrDefault(AccommodationStatus.OCCUPIED, 0L))
+                .reserved(totals.getOrDefault(AccommodationStatus.RESERVED, 0L))
+                .maintenance(totals.getOrDefault(AccommodationStatus.MAINTENANCE, 0L))
+                .blocked(totals.getOrDefault(AccommodationStatus.BLOCKED, 0L))
                 .build();
-    }
-
-    private void mergeStatusRows(Map<AccommodationStatus, Long> totals, List<Object[]> rows) {
-        for (Object[] row : rows) {
-            AccommodationStatus status = (AccommodationStatus) row[0];
-            long count = (Long) row[1];
-            totals.merge(status, count, Long::sum);
-        }
     }
 }

@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -16,7 +17,13 @@ public interface MealPollResponseRepository extends JpaRepository<MealPollRespon
 
     List<MealPollResponseEntity> findAllByPollIdAndMemberId(UUID pollId, UUID memberId);
 
-    void deleteByPollIdAndMemberId(UUID pollId, UUID memberId);
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(
+            """
+            DELETE FROM MealPollResponseEntity r
+            WHERE r.poll.id = :pollId AND r.member.id = :memberId
+            """)
+    void deleteByPollIdAndMemberId(@Param("pollId") UUID pollId, @Param("memberId") UUID memberId);
 
     List<MealPollResponseEntity> findByPollId(UUID pollId);
 

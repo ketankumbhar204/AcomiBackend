@@ -48,10 +48,11 @@ public class PaymentController {
             @RequestParam(required = false) UUID memberId,
             @RequestParam(required = false) SpacePaymentStatus status,
             @RequestParam(required = false) SpacePaymentType paymentType,
-            @RequestParam(required = false) SpacePaymentCategory paymentCategory) {
+            @RequestParam(required = false) SpacePaymentCategory paymentCategory,
+            @RequestParam(required = false, defaultValue = "true") boolean sync) {
         UUID callerId = SecurityUtils.getCurrentUserId();
         SpacePaymentListResponse response = spacePaymentService.listPayments(
-                spaceId, callerId, month, memberId, status, paymentType, paymentCategory);
+                spaceId, callerId, month, memberId, status, paymentType, paymentCategory, sync);
         return ResponseEntity.ok(ApiResponse.success("Payments fetched successfully", response));
     }
 

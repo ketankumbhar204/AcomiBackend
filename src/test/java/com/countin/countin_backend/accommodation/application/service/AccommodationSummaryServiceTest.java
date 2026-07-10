@@ -88,12 +88,6 @@ class AccommodationSummaryServiceTest {
         when(summaryRepository.countBedStatuses(buildingId))
                 .thenReturn(List.<Object[]>of(new Object[] {AccommodationStatus.AVAILABLE, 90L}));
         when(summaryRepository.countUnitStatuses(buildingId)).thenReturn(List.of());
-        when(summaryRepository.countBedsByStatus(buildingId, AccommodationStatus.AVAILABLE)).thenReturn(90L);
-        when(summaryRepository.countBedsByStatus(buildingId, AccommodationStatus.OCCUPIED)).thenReturn(0L);
-        when(summaryRepository.countRoomsByStatus(buildingId, AccommodationStatus.AVAILABLE)).thenReturn(30L);
-        when(summaryRepository.countRoomsByStatus(buildingId, AccommodationStatus.OCCUPIED)).thenReturn(0L);
-        when(summaryRepository.countUnitsByStatus(buildingId, AccommodationStatus.AVAILABLE)).thenReturn(0L);
-        when(summaryRepository.countUnitsByStatus(buildingId, AccommodationStatus.OCCUPIED)).thenReturn(0L);
 
         BuildingSummaryResponse response = summaryService.getBuildingSummary(spaceId, buildingId, callerId);
 

@@ -6,6 +6,9 @@ public enum MemberPaymentStatus {
     PAID("PAID"),
     PARTIAL("PARTIAL"),
     PENDING("PENDING"),
+    UNDER_REVIEW("UNDER_REVIEW"),
+    UPDATE_REQUESTED("UPDATE_REQUESTED"),
+    REJECTED("REJECTED"),
     NONE("NONE");
 
     private final String value;

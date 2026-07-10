@@ -19,7 +19,14 @@ public interface SpacePaymentRepository extends JpaRepository<SpacePaymentEntity
             SELECT p FROM SpacePaymentEntity p
             JOIN FETCH p.member m
             LEFT JOIN FETCH m.user
-            LEFT JOIN FETCH p.occupancy
+            LEFT JOIN FETCH p.occupancy o
+            LEFT JOIN FETCH o.space
+            LEFT JOIN FETCH o.building
+            LEFT JOIN FETCH o.floor
+            LEFT JOIN FETCH o.unit u
+            LEFT JOIN FETCH u.floor
+            LEFT JOIN FETCH o.room r
+            LEFT JOIN FETCH o.bed
             WHERE p.id = :paymentId AND p.space.id = :spaceId
             """)
     Optional<SpacePaymentEntity> findByIdAndSpaceId(
@@ -28,7 +35,14 @@ public interface SpacePaymentRepository extends JpaRepository<SpacePaymentEntity
     @Query("""
             SELECT p FROM SpacePaymentEntity p
             JOIN FETCH p.member
-            LEFT JOIN FETCH p.occupancy
+            LEFT JOIN FETCH p.occupancy o
+            LEFT JOIN FETCH o.space
+            LEFT JOIN FETCH o.building
+            LEFT JOIN FETCH o.floor
+            LEFT JOIN FETCH o.unit u
+            LEFT JOIN FETCH u.floor
+            LEFT JOIN FETCH o.room r
+            LEFT JOIN FETCH o.bed
             WHERE p.space.id = :spaceId
               AND p.month = :month
               AND (:memberId IS NULL OR p.member.id = :memberId)
@@ -51,4 +65,13 @@ public interface SpacePaymentRepository extends JpaRepository<SpacePaymentEntity
             String month,
             SpacePaymentType paymentType,
             SpacePaymentCategory paymentCategory);
+
+    @Query("""
+            SELECT p FROM SpacePaymentEntity p
+            JOIN FETCH p.member m
+            LEFT JOIN FETCH m.user
+            WHERE p.space.id = :spaceId AND p.month = :month
+            """)
+    List<SpacePaymentEntity> findBySpaceIdAndMonth(
+            @Param("spaceId") UUID spaceId, @Param("month") String month);
 }

@@ -47,6 +47,7 @@ public class MealEligibilityService {
                 .occupiedMemberIdsForDate(space, targetDate)
                 .orElse(null);
         List<MealParticipationEntity> participations = participationRepository.findAllNonStoppedBySpaceId(spaceId);
+        Set<MealType> publishedTypes = dailyMenuService.publishedMealTypes(spaceId, targetDate);
         List<MealEligibilitySlotResponse> slots = new ArrayList<>();
         Set<UUID> distinctEligibleMemberIds = new HashSet<>();
 
@@ -82,7 +83,7 @@ public class MealEligibilityService {
                     .mealType(mealType)
                     .eligibleCount(eligibleCount)
                     .pausedCount(pausedCount)
-                    .published(dailyMenuService.isPublished(spaceId, targetDate, mealType))
+                    .published(publishedTypes.contains(mealType))
                     .byPlan(byPlan)
                     .build());
         }

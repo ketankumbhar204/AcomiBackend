@@ -152,6 +152,32 @@ class MealComboServiceTest {
     }
 
     @Test
+    void updateComboPrice_persistsPerSpaceCombo() {
+        stubOwnerMembership();
+        SpaceEntity space = space();
+        UUID comboId = UUID.randomUUID();
+        MealComboEntity combo = MealComboEntity.builder()
+                .space(space)
+                .name("Standard Lunch Thali")
+                .isActive(true)
+                .build();
+        combo.setId(comboId);
+        when(mealComboRepository.findByIdAndSpaceId(comboId, spaceId)).thenReturn(Optional.of(combo));
+        when(mealComboRepository.save(combo)).thenReturn(combo);
+        when(mealComboItemRepository.findByComboIdWithItems(comboId)).thenReturn(List.of());
+
+        var request = new com.countin.countin_backend.meal.api.dto.request.UpdateMealComboPriceRequest();
+        request.setPrice(new java.math.BigDecimal("120.00"));
+
+        var response = mealComboService.updateComboPrice(spaceId, comboId, callerId, request);
+
+        assertThat(response.getPrice()).isEqualByComparingTo("120.00");
+        assertThat(combo.getPrice()).isEqualByComparingTo("120.00");
+        verify(mealComboRepository).save(combo);
+        verify(mealComboItemRepository, org.mockito.Mockito.never()).deleteByComboId(comboId);
+    }
+
+    @Test
     void deactivateCombo_setsInactive() {
         stubOwnerMembership();
         SpaceEntity space = space();

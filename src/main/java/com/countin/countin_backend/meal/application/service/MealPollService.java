@@ -590,6 +590,18 @@ public class MealPollService {
         }
 
         MealPollOptionEntity option = loadOptionForPoll(poll, selection.getSelectedOptionId());
+        List<MealPollResponseEntity> existing =
+                responseRepository.findAllByPollIdAndMemberId(poll.getId(), member.getId());
+        if (existing.size() == 1
+                && existing.get(0).getSelectedOption().getId().equals(option.getId())) {
+            MealPollResponseEntity response = existing.get(0);
+            response.setQuantity(1);
+            response.setRespondedAt(LocalDateTime.now());
+            response.setSource(MealPollResponseSource.APP);
+            responseRepository.save(response);
+            return;
+        }
+
         responseRepository.deleteByPollIdAndMemberId(poll.getId(), member.getId());
         responseRepository.save(MealPollResponseEntity.builder()
                 .poll(poll)

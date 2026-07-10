@@ -19,6 +19,9 @@ public final class SpacePermissionPolicy {
         boolean staff = role == MembershipRole.STAFF;
         boolean ownerOrManager = owner || manager;
 
+        boolean tenantOrCustomer =
+                role == MembershipRole.TENANT || role == MembershipRole.CUSTOMER;
+
         return SpacePermissionsResponse.builder()
                 .canViewAccommodation(accommodationApplicable && (owner || manager || staff))
                 .canManageAccommodation(accommodationApplicable && ownerOrManager)
@@ -31,6 +34,9 @@ public final class SpacePermissionPolicy {
                 .canViewMeals(true)
                 .canManageMealParticipation(ownerOrManager)
                 .canViewOwnMealParticipation(true)
+                .canRaiseComplaint(ownerOrManager || tenantOrCustomer)
+                .canViewAllComplaints(ownerOrManager)
+                .canManageComplaints(ownerOrManager)
                 .build();
     }
 }

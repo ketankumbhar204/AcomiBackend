@@ -49,10 +49,25 @@ public class DashboardAttentionService {
             int pendingPaymentsCount,
             BigDecimal overdueAmount,
             String currencyCode) {
+        return resolveAttention(
+                spaceId, callerId, tomorrow, pendingPaymentsCount, overdueAmount, currencyCode, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<DashboardAttentionItemResponse> resolveAttention(
+            UUID spaceId,
+            UUID callerId,
+            LocalDate tomorrow,
+            int pendingPaymentsCount,
+            BigDecimal overdueAmount,
+            String currencyCode,
+            MealEligibilitySummaryResponse sharedEligibility,
+            List<MealPollResponse> sharedPolls) {
         List<DashboardAttentionItemResponse> attention = new ArrayList<>();
 
         resolveSubscriptionActivationAttention(spaceId, callerId).ifPresent(attention::add);
-        resolveMenuAttention(spaceId, callerId, tomorrow).ifPresent(attention::add);
+        resolveMenuAttention(spaceId, callerId, tomorrow, sharedEligibility, sharedPolls)
+                .ifPresent(attention::add);
 
         if (pendingPaymentsCount > 0) {
             attention.add(DashboardAttentionItemResponse.builder()
@@ -101,11 +116,24 @@ public class DashboardAttentionService {
     }
 
     private Optional<DashboardAttentionItemResponse> resolveMenuAttention(
-            UUID spaceId, UUID callerId, LocalDate tomorrow) {
+            UUID spaceId,
+            UUID callerId,
+            LocalDate tomorrow,
+            MealEligibilitySummaryResponse sharedEligibility,
+            List<MealPollResponse> sharedPolls) {
+        SpaceMembershipEntity membership = mealAccessService.requireViewMeals(spaceId, callerId);
+        if (!mealAccessService.canManageMeals(membership)) {
+            return Optional.empty();
+        }
+
         List<DailyMenuEntity> menus =
                 dailyMenuRepository.findBySpaceAndDate(spaceId, tomorrow, false, DailyMenuStatus.DRAFT);
-        MealEligibilitySummaryResponse eligibility = mealEligibilityService.getSummary(spaceId, callerId, tomorrow);
-        List<MealPollResponse> polls = mealPollService.getPollsForDate(spaceId, callerId, tomorrow).getPolls();
+        MealEligibilitySummaryResponse eligibility = sharedEligibility != null
+                ? sharedEligibility
+                : mealEligibilityService.getSummary(spaceId, callerId, tomorrow);
+        List<MealPollResponse> polls = sharedPolls != null
+                ? sharedPolls
+                : mealPollService.getPollsForDate(spaceId, callerId, tomorrow).getPolls();
 
         List<MealType> plannedTypes = MEAL_TYPES.stream()
                 .filter(mealType -> isMealPlanned(menus, mealType))

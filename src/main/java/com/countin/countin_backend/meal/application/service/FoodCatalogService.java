@@ -4,6 +4,7 @@ import com.countin.countin_backend.common.exception.BusinessException;
 import com.countin.countin_backend.common.exception.ResourceNotFoundException;
 import com.countin.countin_backend.meal.api.dto.request.CreateFoodCategoryRequest;
 import com.countin.countin_backend.meal.api.dto.request.CreateFoodItemRequest;
+import com.countin.countin_backend.meal.api.dto.request.UpdateFoodItemDefaultPriceRequest;
 import com.countin.countin_backend.meal.api.dto.request.UpdateFoodItemRequest;
 import com.countin.countin_backend.meal.api.dto.response.FoodCategoryResponse;
 import com.countin.countin_backend.meal.api.dto.response.FoodItemResponse;
@@ -19,6 +20,7 @@ import com.countin.countin_backend.meal.infrastructure.persistence.repository.Sp
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.SpaceFoodItemSettingsRepository;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
@@ -80,7 +82,12 @@ public class FoodCatalogService {
         List<FoodItemEntity> items = categoryId == null
                 ? foodItemRepository.findAllVisibleForSpace(spaceId)
                 : foodItemRepository.findVisibleForSpaceInCategory(spaceId, categoryId);
-        return items.stream().map(FoodItemResponse::from).toList();
+        Map<UUID, SpaceFoodItemSettingsEntity> settingsByItemId =
+                spaceFoodItemSettingsRepository.findAllBySpaceId(spaceId).stream()
+                        .collect(Collectors.toMap(SpaceFoodItemSettingsEntity::getItemId, settings -> settings));
+        return items.stream()
+                .map(item -> toItemResponse(item, settingsByItemId.get(item.getId())))
+                .toList();
     }
 
     @Transactional
@@ -97,9 +104,39 @@ public class FoodCatalogService {
                 .isCustom(true)
                 .foodType(resolveFoodType(request.getFoodType()))
                 .build());
-        return FoodItemResponse.from(foodItemRepository
-                .findByIdWithCategory(item.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("FoodItem", "id", item.getId())));
+        return toItemResponse(
+                foodItemRepository
+                        .findByIdWithCategory(item.getId())
+                        .orElseThrow(() -> new ResourceNotFoundException("FoodItem", "id", item.getId())),
+                null);
+    }
+
+    @Transactional
+    public FoodItemResponse updateItemDefaultPrice(
+            UUID spaceId, UUID itemId, UUID callerId, UpdateFoodItemDefaultPriceRequest request) {
+        mealAccessService.requireManageMeals(spaceId, callerId);
+        FoodItemEntity item = foodItemRepository
+                .findByIdWithCategory(itemId)
+                .orElseThrow(() -> new ResourceNotFoundException("FoodItem", "id", itemId));
+        ensureItemVisibleForSpace(spaceId, item);
+
+        String currencyCode = request.getCurrencyCode() != null && !request.getCurrencyCode().isBlank()
+                ? request.getCurrencyCode().trim().toUpperCase()
+                : "INR";
+        LocalDateTime now = LocalDateTime.now();
+        SpaceFoodItemSettingsEntity settings = spaceFoodItemSettingsRepository
+                .findBySpaceIdAndItemId(spaceId, itemId)
+                .orElse(SpaceFoodItemSettingsEntity.builder()
+                        .spaceId(spaceId)
+                        .itemId(itemId)
+                        .isEnabled(true)
+                        .updatedAt(now)
+                        .build());
+        settings.setDefaultPrice(request.getPrice());
+        settings.setCurrencyCode(currencyCode);
+        settings.setUpdatedAt(now);
+        spaceFoodItemSettingsRepository.save(settings);
+        return toItemResponse(item, settings);
     }
 
     @Transactional
@@ -115,7 +152,7 @@ public class FoodCatalogService {
         if (request.getFoodType() != null) {
             item.setFoodType(request.getFoodType());
         }
-        return FoodItemResponse.from(foodItemRepository.save(item));
+        return toItemResponse(foodItemRepository.save(item), null);
     }
 
     @Transactional
@@ -230,5 +267,29 @@ public class FoodCatalogService {
 
     private FoodType resolveFoodType(FoodType foodType) {
         return foodType != null ? foodType : FoodType.VEG;
+    }
+
+    private FoodItemResponse toItemResponse(FoodItemEntity item, SpaceFoodItemSettingsEntity settings) {
+        BigDecimal defaultPrice = settings != null ? settings.getDefaultPrice() : null;
+        String currencyCode = settings != null ? settings.getCurrencyCode() : null;
+        return FoodItemResponse.from(item, defaultPrice, currencyCode);
+    }
+
+    private void ensureItemVisibleForSpace(UUID spaceId, FoodItemEntity item) {
+        if (!item.isActive()) {
+            throw new BusinessException("Food item is not active");
+        }
+        if (item.getScope() == FoodScope.SPACE
+                && (item.getSpace() == null || !item.getSpace().getId().equals(spaceId))) {
+            throw new BusinessException("Food item does not belong to this space", HttpStatus.FORBIDDEN);
+        }
+        if (item.getScope() == FoodScope.GLOBAL) {
+            spaceFoodItemSettingsRepository
+                    .findBySpaceIdAndItemId(spaceId, item.getId())
+                    .filter(settings -> !settings.isEnabled())
+                    .ifPresent(settings -> {
+                        throw new BusinessException("Food item is disabled for this space");
+                    });
+        }
     }
 }

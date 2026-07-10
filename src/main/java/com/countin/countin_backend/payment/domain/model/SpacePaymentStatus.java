@@ -5,5 +5,6 @@ public enum SpacePaymentStatus {
     PROOF_UPLOADED,
     UNDER_REVIEW,
     PAID,
-    REJECTED
+    REJECTED,
+    UPDATE_REQUESTED
 }

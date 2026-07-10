@@ -5,6 +5,7 @@ import com.countin.countin_backend.common.exception.ResourceNotFoundException;
 import com.countin.countin_backend.meal.api.dto.request.CreateComboInlineItemRequest;
 import com.countin.countin_backend.meal.api.dto.request.CreateFoodItemRequest;
 import com.countin.countin_backend.meal.api.dto.request.CreateMealComboRequest;
+import com.countin.countin_backend.meal.api.dto.request.UpdateMealComboPriceRequest;
 import com.countin.countin_backend.meal.api.dto.request.UpdateMealComboRequest;
 import com.countin.countin_backend.meal.api.dto.response.MealComboResponse;
 import com.countin.countin_backend.meal.domain.policy.FoodTypeResolver;
@@ -77,6 +78,17 @@ public class MealComboService {
         mealComboItemRepository.deleteByComboId(comboId);
         saveComboItems(spaceId, callerId, combo, request.getItemIds(), request.getNewItems());
         applyComboFoodType(combo);
+        mealComboRepository.save(combo);
+        return MealComboResponse.from(combo, mealComboItemRepository.findByComboIdWithItems(combo.getId()));
+    }
+
+    @Transactional
+    public MealComboResponse updateComboPrice(
+            UUID spaceId, UUID comboId, UUID callerId, UpdateMealComboPriceRequest request) {
+        mealAccessService.requireManageMeals(spaceId, callerId);
+        MealComboEntity combo = loadCombo(spaceId, comboId);
+        combo.setPrice(resolvePrice(request.getPrice()));
+        combo.setCurrencyCode(MealPriceValidator.resolveCurrencyCode(request.getCurrencyCode()));
         mealComboRepository.save(combo);
         return MealComboResponse.from(combo, mealComboItemRepository.findByComboIdWithItems(combo.getId()));
     }

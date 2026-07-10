@@ -124,31 +124,17 @@ public class MealHeadcountService {
 
 
         List<MealHeadcountSlotResponse> slots = new ArrayList<>();
-
-        for (MealType mealType : MealType.values()) {
-
-            pollRepository
-
-                    .findBySpaceIdAndPollDateAndMealType(spaceId, targetDate, mealType)
-
-                    .ifPresent(poll -> slots.add(MealHeadcountSlotResponse.builder()
-
-                            .mealType(mealType)
-
-                            .pollId(poll.getId())
-
-                            .pollStatus(poll.getStatus())
-
-                            .mealsToPrepare(countMealsToPrepare(poll.getId(), quantityMode))
-
-                            .build()));
-
+        for (MealPollEntity poll :
+                pollRepository.findBySpaceIdAndPollDateOrderByMealTypeAsc(spaceId, targetDate)) {
+            slots.add(MealHeadcountSlotResponse.builder()
+                    .mealType(poll.getMealType())
+                    .pollId(poll.getId())
+                    .pollStatus(poll.getStatus())
+                    .mealsToPrepare(countMealsToPrepare(poll.getId(), quantityMode))
+                    .build());
         }
 
-
-
         return MealHeadcountDayResponse.builder().date(targetDate).slots(slots).build();
-
     }
 
 
