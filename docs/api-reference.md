@@ -356,7 +356,7 @@ Returns an empty array if the user has no memberships (not an error).
 }
 ```
 
-Invitations expire after **7 days** (`expiresAt`).
+Invitations expire after **365 days** (`expiresAt`).
 
 **Failure examples**
 

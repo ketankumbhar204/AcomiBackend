@@ -50,6 +50,13 @@ public class DailyMenuEntity extends BaseEntity {
     @Column(name = "published_at")
     private LocalDateTime publishedAt;
 
+    /**
+     * JSON snapshot of notes + options as last shared with customers.
+     * Used while status is MODIFIED so live edits are not customer-visible yet.
+     */
+    @Column(name = "published_snapshot", columnDefinition = "TEXT")
+    private String publishedSnapshot;
+
     private String notes;
 
     @Builder.Default

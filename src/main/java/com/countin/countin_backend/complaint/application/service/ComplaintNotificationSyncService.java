@@ -60,9 +60,27 @@ public class ComplaintNotificationSyncService {
     @Transactional
     public void onComplaintCreated(SpaceComplaintEntity complaint) {
         UUID spaceId = complaint.getSpace().getId();
+        UUID creatorId = complaint.getCreatedByUserId();
         for (UUID managerId : managerUserIds(spaceId)) {
             String key = actionDedupeKey(NotificationType.COMPLAINT_PENDING, complaint.getId(), managerId);
             publishManagerAction(spaceId, managerId, complaint, key);
+            // Informational row so the owner inbox / Global Recent Activity also show the raise.
+            // Pending Actions continue to use COMPLAINT_PENDING (ACTION_REQUIRED) only.
+            notificationService.publish(PublishNotificationCommand.builder()
+                    .spaceId(spaceId)
+                    .userId(managerId)
+                    .actorId(creatorId)
+                    .entityType(NotificationEntityType.COMPLAINT)
+                    .entityId(complaint.getId())
+                    .notificationType(NotificationType.COMPLAINT_CREATED)
+                    .category(NotificationCategory.INFORMATION)
+                    .priority(mapPriority(complaint.getPriority()))
+                    .title("New complaint")
+                    .message(complaint.getTitle())
+                    .actionLabel("View Complaint")
+                    .actionRoute("ComplaintDetail")
+                    .dedupeKey(infoDedupeKey(NotificationType.COMPLAINT_CREATED, complaint.getId(), managerId))
+                    .build());
         }
     }
 
@@ -167,14 +185,14 @@ public class ComplaintNotificationSyncService {
                     .actorId(commenterId)
                     .entityType(NotificationEntityType.COMPLAINT)
                     .entityId(complaint.getId())
-                    .notificationType(NotificationType.COMPLAINT_CREATED)
+                    .notificationType(NotificationType.COMPLAINT_COMMENTED)
                     .category(NotificationCategory.INFORMATION)
                     .priority(NotificationPriority.LOW)
                     .title("New comment on your complaint")
                     .message(complaint.getTitle())
                     .actionLabel("View Complaint")
                     .actionRoute("ComplaintDetail")
-                    .dedupeKey("INFO:COMPLAINT_COMMENT:" + complaint.getId() + ":" + creatorId + ":"
+                    .dedupeKey("INFO:COMPLAINT_COMMENTED:" + complaint.getId() + ":" + creatorId + ":"
                             + System.currentTimeMillis() / 60_000)
                     .build());
         }
@@ -186,14 +204,14 @@ public class ComplaintNotificationSyncService {
                         .actorId(commenterId)
                         .entityType(NotificationEntityType.COMPLAINT)
                         .entityId(complaint.getId())
-                        .notificationType(NotificationType.COMPLAINT_CREATED)
+                        .notificationType(NotificationType.COMPLAINT_COMMENTED)
                         .category(NotificationCategory.INFORMATION)
                         .priority(NotificationPriority.LOW)
-                        .title("Tenant commented on complaint")
+                        .title("New comment on complaint")
                         .message(complaint.getTitle())
                         .actionLabel("View Complaint")
                         .actionRoute("ComplaintDetail")
-                        .dedupeKey("INFO:COMPLAINT_COMMENT:" + complaint.getId() + ":" + managerId + ":"
+                        .dedupeKey("INFO:COMPLAINT_COMMENTED:" + complaint.getId() + ":" + managerId + ":"
                                 + System.currentTimeMillis() / 60_000)
                         .build());
             }
@@ -211,11 +229,13 @@ public class ComplaintNotificationSyncService {
                     continue;
                 }
                 if (!expectedDedupeKeys.contains(open.getDedupeKey())) {
-                    notificationService.resolveOpenForEntity(
+                    // Resolve only this manager's row — never wipe assignee (STAFF) actions.
+                    notificationService.resolveOpenForEntityUsers(
                             spaceId,
                             NotificationEntityType.COMPLAINT,
                             open.getEntityId(),
-                            NotificationType.COMPLAINT_PENDING);
+                            NotificationType.COMPLAINT_PENDING,
+                            List.of(managerId));
                 }
             }
         }

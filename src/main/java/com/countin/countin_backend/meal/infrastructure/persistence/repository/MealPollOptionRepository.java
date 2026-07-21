@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -17,6 +18,7 @@ public interface MealPollOptionRepository extends JpaRepository<MealPollOptionEn
             SELECT o FROM MealPollOptionEntity o
             LEFT JOIN FETCH o.dailyMenuEntry e
             LEFT JOIN FETCH e.combo
+            LEFT JOIN FETCH e.item
             WHERE o.poll.id = :pollId
             ORDER BY o.sortOrder ASC
             """)
@@ -30,4 +32,8 @@ public interface MealPollOptionRepository extends JpaRepository<MealPollOptionEn
             AND o.dailyMenuEntry.id IS NOT NULL
             """)
     Set<UUID> findReferencedEntryIdsByDailyMenuId(@Param("dailyMenuId") UUID dailyMenuId);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("DELETE FROM MealPollOptionEntity o WHERE o.poll.id = :pollId")
+    void deleteByPollId(@Param("pollId") UUID pollId);
 }

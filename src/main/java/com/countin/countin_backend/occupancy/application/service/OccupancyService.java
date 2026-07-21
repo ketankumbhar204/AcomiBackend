@@ -8,6 +8,7 @@ import com.countin.countin_backend.meal.application.service.MealOccupancyBridgeS
 import com.countin.countin_backend.member.domain.model.MemberCategory;
 import com.countin.countin_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.countin.countin_backend.member.infrastructure.persistence.repository.MemberRepository;
+import com.countin.countin_backend.notification.application.service.OccupancyNotificationSyncService;
 import com.countin.countin_backend.occupancy.api.dto.request.AllocateOccupancyRequest;
 import com.countin.countin_backend.occupancy.api.dto.request.CancelReservationRequest;
 import com.countin.countin_backend.occupancy.api.dto.request.MoveInOccupancyRequest;
@@ -60,6 +61,7 @@ public class OccupancyService {
     private final OccupancyContractSnapshotService contractSnapshotService;
     private final MealOccupancyBridgeService mealOccupancyBridgeService;
     private final OccupancyAmenityService occupancyAmenityService;
+    private final OccupancyNotificationSyncService occupancyNotificationSyncService;
 
     @Transactional
     public OccupancyResponse reserve(UUID spaceId, UUID callerId, ReserveOccupancyRequest request) {
@@ -104,6 +106,7 @@ public class OccupancyService {
         memberRepository.save(member);
 
         recordHistory(occupancy, OccupancyHistoryEvent.RESERVED, null, targetSnapshot(target), actor, now, request.getRemarks());
+        occupancyNotificationSyncService.onReservationCreated(occupancy);
         return toResponse(occupancy);
     }
 
@@ -157,6 +160,7 @@ public class OccupancyService {
 
         recordHistory(occupancy, OccupancyHistoryEvent.MOVE_IN, targetSnapshot(occupancy), targetSnapshot(occupancy), actor, now, body.getRemarks());
         mealOccupancyBridgeService.onOccupancyActivated(occupancy, actor, body.isCreateMealParticipation());
+        occupancyNotificationSyncService.onMoveInCompleted(occupancy);
         return toResponse(occupancy);
     }
 
@@ -184,6 +188,7 @@ public class OccupancyService {
         refreshMemberOccupancyStatus(occupancy.getMember(), spaceId);
 
         recordHistory(occupancy, OccupancyHistoryEvent.RESERVATION_CANCELLED, fromTarget, null, actor, now, body.getRemarks());
+        occupancyNotificationSyncService.onReservationCancelled(occupancy);
         return toResponse(occupancy);
     }
 
@@ -333,6 +338,7 @@ public class OccupancyService {
                 now,
                 request.getRemarks());
 
+        occupancyNotificationSyncService.onMoveOutCompleted(occupancy);
         return toResponse(occupancy);
     }
 

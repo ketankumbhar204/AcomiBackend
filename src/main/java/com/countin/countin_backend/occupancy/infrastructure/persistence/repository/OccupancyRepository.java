@@ -184,4 +184,28 @@ public interface OccupancyRepository extends JpaRepository<OccupancyEntity, UUID
             @Param("endDate") LocalDate endDate,
             @Param("monthStartTime") LocalDateTime monthStartTime,
             @Param("monthEndExclusive") LocalDateTime monthEndExclusive);
+
+    @Query("""
+            SELECT o FROM OccupancyEntity o
+            JOIN FETCH o.member
+            WHERE o.space.id = :spaceId
+              AND o.status = :status
+              AND o.moveInDate = :moveInDate
+            """)
+    List<OccupancyEntity> findBySpaceIdAndStatusAndMoveInDate(
+            @Param("spaceId") UUID spaceId,
+            @Param("status") OccupancyStatus status,
+            @Param("moveInDate") LocalDate moveInDate);
+
+    @Query("""
+            SELECT o FROM OccupancyEntity o
+            JOIN FETCH o.member
+            WHERE o.space.id = :spaceId
+              AND o.status = :status
+              AND o.expectedExitDate = :exitDate
+            """)
+    List<OccupancyEntity> findBySpaceIdAndStatusAndExpectedExitDate(
+            @Param("spaceId") UUID spaceId,
+            @Param("status") OccupancyStatus status,
+            @Param("exitDate") LocalDate exitDate);
 }

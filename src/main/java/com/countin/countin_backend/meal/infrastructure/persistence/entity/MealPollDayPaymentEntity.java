@@ -4,6 +4,7 @@ import com.countin.countin_backend.common.model.BaseEntity;
 import com.countin.countin_backend.meal.domain.model.MealPollPaymentChoice;
 import com.countin.countin_backend.meal.domain.model.MealPollPaymentStatus;
 import com.countin.countin_backend.member.infrastructure.persistence.entity.MemberEntity;
+import com.countin.countin_backend.payment.domain.model.SpacePaymentMethod;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -55,6 +56,16 @@ public class MealPollDayPaymentEntity extends BaseEntity {
     @Column(name = "proof_image_url", columnDefinition = "TEXT")
     private String proofImageUrl;
 
+    @Column(name = "reference_number", length = 100)
+    private String referenceNumber;
+
+    @Column(name = "remarks", columnDefinition = "TEXT")
+    private String remarks;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_method", length = 20)
+    private SpacePaymentMethod paymentMethod;
+
     @Column(name = "proof_submitted_at")
     private java.time.LocalDateTime proofSubmittedAt;
 
@@ -76,4 +87,15 @@ public class MealPollDayPaymentEntity extends BaseEntity {
     @Builder.Default
     @Column(name = "prepaid_overflow_payment", nullable = false)
     private boolean prepaidOverflowPayment = false;
+
+    /** Current meal total for this member/day (pay-per-meal snapshot). */
+    @Column(name = "charged_amount", precision = 12, scale = 2)
+    private BigDecimal chargedAmount;
+
+    /**
+     * Optional bulk-payment reference when multiple day payments share one proof upload.
+     * Example: MP-20260713-001
+     */
+    @Column(name = "payment_batch_id", length = 64)
+    private String paymentBatchId;
 }

@@ -53,6 +53,11 @@ public class DailyMenuEntryEntity extends BaseEntity {
     @Column(name = "is_available", nullable = false)
     private boolean isAvailable = true;
 
+    /** Mess-only add-on; independent from the same item offered as a main dish. */
+    @Builder.Default
+    @Column(name = "is_extra", nullable = false)
+    private boolean isExtra = false;
+
     @Column(precision = 10, scale = 2)
     private BigDecimal price;
 

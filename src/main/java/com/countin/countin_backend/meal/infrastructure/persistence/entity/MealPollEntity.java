@@ -1,6 +1,7 @@
 package com.countin.countin_backend.meal.infrastructure.persistence.entity;
 
 import com.countin.countin_backend.common.model.BaseEntity;
+import com.countin.countin_backend.meal.domain.model.MealPollCloseSource;
 import com.countin.countin_backend.meal.domain.model.MealPollStatus;
 import com.countin.countin_backend.meal.domain.model.MealType;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
@@ -56,4 +57,12 @@ public class MealPollEntity extends BaseEntity {
 
     @Column(name = "closed_at")
     private LocalDateTime closedAt;
+
+    /** Wall-clock close deadline in the space timezone. */
+    @Column(name = "poll_close_at")
+    private LocalDateTime pollCloseAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "close_source", length = 20)
+    private MealPollCloseSource closeSource;
 }

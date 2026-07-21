@@ -28,6 +28,9 @@ public class DailyMenuOptionResponse {
     @JsonProperty("isAvailable")
     private boolean available;
 
+    @JsonProperty("isExtra")
+    private boolean extra;
+
     public static DailyMenuOptionResponse from(DailyMenuEntryEntity entity) {
         return from(entity, Collections.emptyList());
     }
@@ -50,6 +53,7 @@ public class DailyMenuOptionResponse {
                 .price(resolvePrice(entity))
                 .currencyCode(resolveCurrencyCode(entity))
                 .available(entity.isAvailable())
+                .extra(entity.isExtra())
                 .packageItems(items.isEmpty() ? null : items)
                 .build();
     }

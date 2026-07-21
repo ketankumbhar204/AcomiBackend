@@ -31,6 +31,8 @@ import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,6 +40,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class SpacePaymentService {
+
+    private static final Logger log = LoggerFactory.getLogger(SpacePaymentService.class);
 
     private final SpacePaymentRepository paymentRepository;
     private final SpacePaymentTimelineEventRepository timelineEventRepository;
@@ -47,6 +51,8 @@ public class SpacePaymentService {
     private final SpaceRepository spaceRepository;
     private final OccupancyTargetLabelBuilder occupancyTargetLabelBuilder;
     private final PaymentNotificationSyncService paymentNotificationSyncService;
+    private final MealDaySpacePaymentBridge mealDaySpacePaymentBridge;
+    private final PaymentMonthSnapshotService snapshotService;
 
     @Transactional
     public SpacePaymentListResponse listPayments(
@@ -70,12 +76,45 @@ public class SpacePaymentService {
             SpacePaymentStatus status,
             SpacePaymentType paymentType,
             SpacePaymentCategory paymentCategory,
-            boolean syncExpected) {
+                boolean syncExpected) {
+        return listPayments(
+                spaceId,
+                callerId,
+                monthParam,
+                memberIdParam,
+                status,
+                paymentType,
+                paymentCategory,
+                syncExpected,
+                syncExpected);
+    }
+
+    /**
+     * @param syncExpected run expected-payment generation (write-on-read)
+     * @param backfillPending mirror outstanding meal day proofs into space_payments
+     */
+    @Transactional
+    public SpacePaymentListResponse listPayments(
+            UUID spaceId,
+            UUID callerId,
+            String monthParam,
+            UUID memberIdParam,
+            SpacePaymentStatus status,
+            SpacePaymentType paymentType,
+            SpacePaymentCategory paymentCategory,
+            boolean syncExpected,
+            boolean backfillPending) {
         SpaceMembershipEntity membership = accessService.requireActiveMembership(spaceId, callerId);
         YearMonth month = parseMonth(monthParam);
 
         if (syncExpected) {
             generationService.syncExpectedPayments(spaceId, callerId, month);
+        }
+
+        // Mirror outstanding Mess day proofs into daily SpacePayment rows so
+        // Pending Review is not empty while meal_poll_day_payments are PENDING_APPROVAL.
+        if (backfillPending) {
+            mealDaySpacePaymentBridge.backfillPendingApprovalsForMonth(spaceId, month, callerId);
         }
 
         UUID memberFilter = memberIdParam;
@@ -125,7 +164,7 @@ public class SpacePaymentService {
                     status == SpacePaymentStatus.REJECTED || status == SpacePaymentStatus.UPDATE_REQUESTED);
         }
         if (status == SpacePaymentStatus.UNDER_REVIEW || status == SpacePaymentStatus.PROOF_UPLOADED) {
-            return updatePendingProof(payment, request);
+            return updatePendingProof(payment, callerId, request);
         }
 
         throw new BusinessException("Payment proof cannot be submitted in the current status", HttpStatus.BAD_REQUEST);
@@ -158,12 +197,15 @@ public class SpacePaymentService {
                 callerId);
         timelineService.record(payment, PaymentTimelineEventType.UNDER_REVIEW, null, callerId);
         paymentNotificationSyncService.onProofSubmitted(payment, callerId, resubmit);
+        refreshSnapshotQuietly(payment, callerId);
 
         return toResponse(payment);
     }
 
     private SpacePaymentResponse updatePendingProof(
-            SpacePaymentEntity payment, SubmitSpacePaymentProofRequest request) {
+            SpacePaymentEntity payment,
+            UUID callerId,
+            SubmitSpacePaymentProofRequest request) {
         validateProofImageIfPresent(request.getProofImageBase64());
 
         if (request.getProofImageBase64() != null && !request.getProofImageBase64().isBlank()) {
@@ -177,6 +219,7 @@ public class SpacePaymentService {
         paymentRepository.save(payment);
 
         syncLatestProofEventRemarks(payment.getId(), payment.getRemarks());
+        refreshSnapshotQuietly(payment, callerId);
 
         return toResponse(payment);
     }
@@ -237,7 +280,26 @@ public class SpacePaymentService {
             paymentNotificationSyncService.onRejected(payment, callerId, request.getRemarks());
         }
 
+        mealDaySpacePaymentBridge.syncDayPaymentFromSpaceReview(payment);
+        refreshSnapshotQuietly(payment, callerId);
+
         return toResponse(payment);
+    }
+
+    private void refreshSnapshotQuietly(SpacePaymentEntity payment, UUID callerId) {
+        UUID spaceId = payment.getSpace().getId();
+        String month = payment.getMonth();
+        try {
+            // Flush mutation so ledger rebuild sees PAID/REJECTED in this same transaction.
+            paymentRepository.flush();
+            snapshotService.refreshAfterMutation(spaceId, callerId, month);
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "payment_snapshot_refresh_failed spaceId={} month={}",
+                    spaceId,
+                    month,
+                    ex);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -308,8 +370,14 @@ public class SpacePaymentService {
         }
     }
 
+    /** Maps entity → API DTO including occupancy target label. */
+    public SpacePaymentResponse toPublicResponse(SpacePaymentEntity entity) {
+        return toResponse(entity);
+    }
+
     private SpacePaymentResponse toResponse(SpacePaymentEntity entity) {
-        SpacePaymentResponse response = SpacePaymentResponse.from(entity);
+        List<LocalDate> mealDates = mealDaySpacePaymentBridge.resolveMealDates(entity);
+        SpacePaymentResponse response = SpacePaymentResponse.from(entity, mealDates);
         OccupancyEntity occupancy = entity.getOccupancy();
         if (occupancy == null) {
             return response;
@@ -342,6 +410,8 @@ public class SpacePaymentService {
                 .reviewedAt(response.getReviewedAt())
                 .paymentDate(response.getPaymentDate())
                 .targetLabel(label)
+                .paymentBatchId(response.getPaymentBatchId())
+                .mealDates(response.getMealDates())
                 .createdAt(response.getCreatedAt())
                 .updatedAt(response.getUpdatedAt())
                 .build();

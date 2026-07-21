@@ -18,4 +18,7 @@ public class CreateFoodItemRequest {
     private String name;
 
     private FoodType foodType;
+
+    /** Mess-only: create item already marked as a Menu Library extra. */
+    private Boolean isExtra;
 }

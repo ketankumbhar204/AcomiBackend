@@ -5,7 +5,10 @@ import com.countin.countin_backend.dashboard.api.dto.response.DashboardAttention
 import com.countin.countin_backend.dashboard.application.service.DashboardAttentionService;
 import com.countin.countin_backend.dashboard.domain.model.DashboardAttentionKind;
 import com.countin.countin_backend.meal.application.service.MealAccessService;
+import com.countin.countin_backend.member.domain.model.MembershipRole;
+import com.countin.countin_backend.member.domain.model.MembershipStatus;
 import com.countin.countin_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
+import com.countin.countin_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
 import com.countin.countin_backend.notification.api.dto.response.NotificationResponse;
 import com.countin.countin_backend.notification.api.dto.response.PendingActionGroupResponse;
 import com.countin.countin_backend.notification.api.dto.response.PendingActionsSummaryResponse;
@@ -32,7 +35,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Action Center: unresolved {@link NotificationCategory#ACTION_REQUIRED} notifications only.
- * Syncs payment actions from the payment store before aggregating so counts stay aligned.
+ * Syncs payment / complaint / invitation / occupancy / meal actions from domain stores
+ * before aggregating so counts stay aligned.
  */
 @Service
 @RequiredArgsConstructor
@@ -45,7 +49,11 @@ public class PendingActionService {
             NotificationType.MEAL_RESPONSES_BELOW_THRESHOLD,
             NotificationType.SUBSCRIPTION_ACTIVATION_PENDING);
 
-    /** Owner/manager Action Center types that must never surface for tenants/customers. */
+    /**
+     * Owner/manager Action Center types that must never surface for tenants/customers.
+     * Complaint / invitation types are handled separately for TENANT/CUSTOMER so STAFF
+     * assignees can still receive complaint actions when they are not meal managers.
+     */
     private static final Set<NotificationType> OWNER_OPERATOR_ACTION_TYPES = EnumSet.of(
             NotificationType.MENU_NOT_PLANNED,
             NotificationType.MENU_DRAFT_PENDING_PUBLISH,
@@ -55,32 +63,43 @@ public class PendingActionService {
             NotificationType.PAYMENT_NEEDS_REVIEW,
             NotificationType.PAYMENT_NEEDS_UPDATE,
             NotificationType.PAYMENT_OVERDUE,
+            NotificationType.MOVE_IN_SCHEDULED_TODAY,
+            NotificationType.MOVE_OUT_SCHEDULED_TODAY,
+            NotificationType.RESERVATION_STARTING_TODAY);
+
+    private static final Set<NotificationType> TENANT_HIDDEN_ACTION_TYPES = EnumSet.of(
             NotificationType.COMPLAINT_PENDING,
             NotificationType.COMPLAINT_OVERDUE);
+
+    private static final String INVITEE_INVITATION_ROUTE = "AcceptInvitations";
 
     private final NotificationService notificationService;
     private final PaymentNotificationSyncService paymentNotificationSyncService;
     private final ComplaintNotificationSyncService complaintNotificationSyncService;
+    private final InvitationNotificationSyncService invitationNotificationSyncService;
+    private final OccupancyNotificationSyncService occupancyNotificationSyncService;
     private final DashboardAttentionService dashboardAttentionService;
     private final MealAccessService mealAccessService;
+    private final SpaceMembershipRepository membershipRepository;
 
     @Transactional
     public PendingActionsSummaryResponse getPendingActions(UUID spaceId, UUID userId, String month) {
         String resolvedMonth = month != null && !month.isBlank() ? month : YearMonth.now().toString();
-        paymentNotificationSyncService.syncSpaceMonth(spaceId, resolvedMonth);
-        complaintNotificationSyncService.syncSpace(spaceId);
+        syncAll(spaceId, userId, resolvedMonth);
 
         SpaceMembershipEntity membership = mealAccessService.requireViewMeals(spaceId, userId);
         boolean canManageMeals = mealAccessService.canManageMeals(membership);
-        if (canManageMeals) {
-            syncOperationalAttention(spaceId, userId);
-        } else {
-            // Clear owner-only meal/ops/payment/complaint actions incorrectly left on tenant accounts.
-            clearOwnerOperatorActionsForUser(spaceId, userId);
-        }
+        MembershipRole role = membership.getRole();
+        boolean isTenantOrCustomer = role == MembershipRole.TENANT || role == MembershipRole.CUSTOMER;
 
         List<SpaceNotificationEntity> open = notificationService.listOpenActions(spaceId, userId);
-        if (!canManageMeals) {
+        if (isTenantOrCustomer) {
+            open = open.stream()
+                    .filter(n -> !OWNER_OPERATOR_ACTION_TYPES.contains(n.getNotificationType()))
+                    .filter(n -> !TENANT_HIDDEN_ACTION_TYPES.contains(n.getNotificationType()))
+                    .filter(PendingActionService::isTenantVisibleInvitationOrOther)
+                    .toList();
+        } else if (!canManageMeals) {
             open = open.stream()
                     .filter(n -> !OWNER_OPERATOR_ACTION_TYPES.contains(n.getNotificationType()))
                     .toList();
@@ -125,19 +144,21 @@ public class PendingActionService {
     @Transactional
     public void syncSpaceActions(UUID spaceId, UUID userId, String month) {
         String resolvedMonth = month != null && !month.isBlank() ? month : YearMonth.now().toString();
+        syncAll(spaceId, userId, resolvedMonth);
+    }
+
+    private void syncAll(UUID spaceId, UUID userId, String resolvedMonth) {
         paymentNotificationSyncService.syncSpaceMonth(spaceId, resolvedMonth);
         complaintNotificationSyncService.syncSpace(spaceId);
+        invitationNotificationSyncService.syncSpace(spaceId);
+        occupancyNotificationSyncService.syncSpace(spaceId);
 
         SpaceMembershipEntity membership = mealAccessService.requireViewMeals(spaceId, userId);
         if (mealAccessService.canManageMeals(membership)) {
-            syncOperationalAttention(spaceId, userId);
+            syncOperationalAttentionForManagers(spaceId);
         } else {
             clearOwnerOperatorActionsForUser(spaceId, userId);
         }
-    }
-
-    private void clearOperationalActionsForUser(UUID spaceId, UUID userId) {
-        notificationService.resolveOpenTypesForUser(spaceId, userId, OPERATIONAL_TYPES);
     }
 
     private void clearOwnerOperatorActionsForUser(UUID spaceId, UUID userId) {
@@ -150,11 +171,25 @@ public class PendingActionService {
         clearOwnerOperatorActionsForUser(spaceId, userId);
     }
 
-    private void syncOperationalAttention(UUID spaceId, UUID userId) {
-        // Reuse existing attention resolution for meals/subscription — do not invent new business rules.
-        // Pass 0 for payment overdue so payment actions come only from PaymentNotificationSyncService.
+    /**
+     * Fan-out meal/subscription attention actions to every OWNER/MANAGER so Action Center
+     * counts match across operators (previously only the requesting user received rows).
+     */
+    private void syncOperationalAttentionForManagers(UUID spaceId) {
+        List<UUID> managerIds = membershipRepository
+                .findBySpaceIdAndStatus(spaceId, MembershipStatus.ACTIVE)
+                .stream()
+                .filter(m -> m.getRole() == MembershipRole.OWNER || m.getRole() == MembershipRole.MANAGER)
+                .map(m -> m.getUser().getId())
+                .distinct()
+                .toList();
+        if (managerIds.isEmpty()) {
+            return;
+        }
+
+        UUID attentionCaller = managerIds.get(0);
         List<DashboardAttentionItemResponse> attention = dashboardAttentionService.resolveAttention(
-                spaceId, userId, LocalDate.now().plusDays(1), 0, null, null);
+                spaceId, attentionCaller, LocalDate.now().plusDays(1), 0, null, null);
 
         Map<NotificationType, DashboardAttentionItemResponse> desired = new EnumMap<>(NotificationType.class);
         for (DashboardAttentionItemResponse item : attention) {
@@ -173,21 +208,23 @@ public class PendingActionService {
         for (Map.Entry<NotificationType, DashboardAttentionItemResponse> entry : desired.entrySet()) {
             NotificationType type = entry.getKey();
             DashboardAttentionItemResponse item = entry.getValue();
-            String dedupeKey = type.name() + ":SPACE:" + spaceId + ":" + userId;
-            notificationService.publish(PublishNotificationCommand.builder()
-                    .spaceId(spaceId)
-                    .userId(userId)
-                    .entityType(entityTypeFor(type))
-                    .entityId(spaceId)
-                    .notificationType(type)
-                    .category(NotificationCategory.ACTION_REQUIRED)
-                    .priority(NotificationPriority.HIGH)
-                    .title(groupTitle(type))
-                    .message(operationalMessage(type, item))
-                    .actionLabel(operationalActionLabel(type))
-                    .actionRoute(operationalRoute(type))
-                    .dedupeKey(dedupeKey)
-                    .build());
+            for (UUID managerId : managerIds) {
+                String dedupeKey = type.name() + ":SPACE:" + spaceId + ":" + managerId;
+                notificationService.publish(PublishNotificationCommand.builder()
+                        .spaceId(spaceId)
+                        .userId(managerId)
+                        .entityType(entityTypeFor(type))
+                        .entityId(spaceId)
+                        .notificationType(type)
+                        .category(NotificationCategory.ACTION_REQUIRED)
+                        .priority(NotificationPriority.HIGH)
+                        .title(groupTitle(type))
+                        .message(operationalMessage(type, item))
+                        .actionLabel(operationalActionLabel(type))
+                        .actionRoute(operationalRoute(type))
+                        .dedupeKey(dedupeKey)
+                        .build());
+            }
         }
     }
 
@@ -198,7 +235,7 @@ public class PendingActionService {
             case READY_TO_SHARE -> NotificationType.MENU_DRAFT_PENDING_PUBLISH;
             case POLL_OPEN -> NotificationType.MEAL_RESPONSES_BELOW_THRESHOLD;
             case SUBSCRIPTION_ACTIVATION_PENDING -> NotificationType.SUBSCRIPTION_ACTIVATION_PENDING;
-            case PAYMENTS_OVERDUE -> null; // payments synced separately from payment store
+            case PAYMENTS_OVERDUE -> null;
         };
     }
 
@@ -211,12 +248,20 @@ public class PendingActionService {
         };
     }
 
+    private static boolean isTenantVisibleInvitationOrOther(SpaceNotificationEntity notification) {
+        if (notification.getNotificationType() != NotificationType.PENDING_INVITATION) {
+            return true;
+        }
+        String route = notification.getActionRoute();
+        return route != null && INVITEE_INVITATION_ROUTE.equalsIgnoreCase(route.trim());
+    }
+
     private static String groupTitle(NotificationType type) {
         return switch (type) {
             case PAYMENT_NEEDS_REVIEW -> "Payment Reviews";
             case PAYMENT_NEEDS_UPDATE -> "Needs Update";
             case PAYMENT_UPDATE_REQUESTED -> "Payment requires update";
-            case PAYMENT_OVERDUE -> "Payments Due";
+            case PAYMENT_OVERDUE -> "Pending Payments";
             case MENU_NOT_PLANNED -> "Menu Not Planned";
             case MENU_DRAFT_PENDING_PUBLISH -> "Menu Ready to Publish";
             case MEAL_POLL_NOT_PUBLISHED -> "Meal Not Published";

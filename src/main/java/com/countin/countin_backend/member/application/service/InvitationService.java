@@ -16,6 +16,7 @@ import com.countin.countin_backend.member.infrastructure.persistence.entity.Spac
 import com.countin.countin_backend.member.infrastructure.persistence.repository.InvitationRepository;
 import com.countin.countin_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
 import com.countin.countin_backend.meal.application.service.MealParticipationService;
+import com.countin.countin_backend.notification.application.service.InvitationNotificationSyncService;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import com.countin.countin_backend.user.infrastructure.persistence.entity.UserEntity;
@@ -39,6 +40,7 @@ public class InvitationService {
     private final MemberMasterService memberMasterService;
     private final InvitationProvisioner invitationProvisioner;
     private final MealParticipationService mealParticipationService;
+    private final InvitationNotificationSyncService invitationNotificationSyncService;
 
     @Transactional
     public InvitationResponse createInvitation(CreateInvitationRequest request) {
@@ -70,6 +72,7 @@ public class InvitationService {
                 .orElseThrow(() -> new BusinessException(
                         "User already has an active membership in this space", HttpStatus.CONFLICT));
 
+        invitationNotificationSyncService.onInvitationCreated(invitation);
         return InvitationResponse.from(invitation);
     }
 
@@ -100,6 +103,7 @@ public class InvitationService {
         if (LocalDateTime.now().isAfter(invitation.getExpiresAt())) {
             invitation.setStatus(InvitationStatus.EXPIRED);
             invitationRepository.save(invitation);
+            invitationNotificationSyncService.onInvitationCancelledOrExpired(invitation);
             throw new BusinessException("Invitation has expired");
         }
 
@@ -137,6 +141,8 @@ public class InvitationService {
         MemberEntity member = memberMasterService.linkMemberToMembership(
                 membership, user.getFullName(), user.getMobileNumber());
         mealParticipationService.enrollDefaultForMemberIfEligible(member, user);
+
+        invitationNotificationSyncService.onInvitationAccepted(invitation, userId);
 
         return SpaceMembershipResponse.from(membership);
     }

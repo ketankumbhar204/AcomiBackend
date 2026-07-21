@@ -30,12 +30,20 @@ public class FoodItemResponse {
     private BigDecimal defaultPrice;
     private String currencyCode;
 
+    @JsonProperty("isExtra")
+    private boolean extra;
+
     public static FoodItemResponse from(FoodItemEntity entity) {
-        return from(entity, null, null);
+        return from(entity, null, null, false);
     }
 
     public static FoodItemResponse from(
             FoodItemEntity entity, BigDecimal defaultPrice, String currencyCode) {
+        return from(entity, defaultPrice, currencyCode, false);
+    }
+
+    public static FoodItemResponse from(
+            FoodItemEntity entity, BigDecimal defaultPrice, String currencyCode, boolean isExtra) {
         return FoodItemResponse.builder()
                 .itemId(entity.getId())
                 .categoryId(entity.getCategory().getId())
@@ -47,6 +55,7 @@ public class FoodItemResponse {
                 .foodType(entity.getFoodType())
                 .defaultPrice(defaultPrice)
                 .currencyCode(currencyCode)
+                .extra(isExtra)
                 .build();
     }
 }

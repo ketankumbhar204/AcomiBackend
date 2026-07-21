@@ -28,4 +28,11 @@ public class MealPollDayResponse {
     private java.math.BigDecimal myPrepaidOverflowAmount;
     private java.math.BigDecimal myPrepaidDebitedAmount;
     private Boolean myPrepaidOverflowPayment;
+    /** Persisted meal total for this member/day. */
+    private BigDecimal myPaymentChargedAmount;
+    /**
+     * Ephemeral delta from this submit only (Paid meal edits). Not stored.
+     * Positive = additional due on next bill; negative = credit.
+     */
+    private BigDecimal myPaymentAdjustment;
 }

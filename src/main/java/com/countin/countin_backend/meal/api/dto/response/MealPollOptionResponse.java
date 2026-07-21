@@ -1,9 +1,11 @@
 package com.countin.countin_backend.meal.api.dto.response;
 
 import com.countin.countin_backend.meal.domain.model.DailyMenuEntryType;
+import com.countin.countin_backend.meal.domain.model.FoodType;
 import com.countin.countin_backend.meal.domain.model.MealPollOptionType;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.DailyMenuEntryEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.MealPollOptionEntity;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import java.util.UUID;
 import lombok.Builder;
@@ -21,6 +23,10 @@ public class MealPollOptionResponse {
     private UUID dailyMenuEntryId;
     private BigDecimal price;
     private String currencyCode;
+    private FoodType foodType;
+
+    @JsonProperty("isExtra")
+    private boolean extra;
 
     public static MealPollOptionResponse from(MealPollOptionEntity option) {
         DailyMenuEntryEntity entry = option.getDailyMenuEntry();
@@ -33,7 +39,22 @@ public class MealPollOptionResponse {
                 .dailyMenuEntryId(entry != null ? entry.getId() : null)
                 .price(resolvePrice(entry))
                 .currencyCode(resolveCurrencyCode(entry))
+                .foodType(resolveFoodType(entry))
+                .extra(entry != null && entry.isExtra())
                 .build();
+    }
+
+    private static FoodType resolveFoodType(DailyMenuEntryEntity entity) {
+        if (entity == null) {
+            return null;
+        }
+        if (entity.getEntryType() == DailyMenuEntryType.COMBO && entity.getCombo() != null) {
+            return entity.getCombo().getFoodType();
+        }
+        if (entity.getEntryType() == DailyMenuEntryType.ITEM && entity.getItem() != null) {
+            return entity.getItem().getFoodType();
+        }
+        return null;
     }
 
     private static BigDecimal resolvePrice(DailyMenuEntryEntity entity) {

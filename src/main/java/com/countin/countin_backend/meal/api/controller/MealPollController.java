@@ -4,8 +4,11 @@ import com.countin.countin_backend.common.security.SecurityUtils;
 import com.countin.countin_backend.common.web.ApiResponse;
 import com.countin.countin_backend.meal.api.dto.request.ApproveMealPollPaymentRequest;
 import com.countin.countin_backend.meal.api.dto.request.RejectMealPollPaymentRequest;
+import com.countin.countin_backend.meal.api.dto.request.SubmitBulkMealPollPaymentProofRequest;
 import com.countin.countin_backend.meal.api.dto.request.SubmitMealPollPaymentProofRequest;
 import com.countin.countin_backend.meal.api.dto.request.SubmitMealPollResponsesRequest;
+import com.countin.countin_backend.meal.api.dto.request.UpdateMealPollCloseAtRequest;
+import com.countin.countin_backend.meal.api.dto.response.BulkMealPollPaymentProofResponse;
 import com.countin.countin_backend.meal.api.dto.response.MealPollDayResponse;
 import com.countin.countin_backend.meal.api.dto.response.MealPollResponse;
 import com.countin.countin_backend.meal.application.service.MealPollService;
@@ -21,6 +24,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -74,6 +78,19 @@ public class MealPollController {
                 "Meal poll closed successfully", mealPollService.closePoll(spaceId, callerId, date, mealType)));
     }
 
+    @PutMapping("/{date}/{mealType}/close-at")
+    public ResponseEntity<ApiResponse<MealPollResponse>> updateCloseAt(
+            @PathVariable UUID spaceId,
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,
+            @PathVariable MealType mealType,
+            @RequestBody @Valid UpdateMealPollCloseAtRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Poll closing time updated",
+                mealPollService.updatePollCloseAt(
+                        spaceId, callerId, date, mealType, request.getPollCloseAt())));
+    }
+
     @PostMapping("/{date}/responses")
     public ResponseEntity<ApiResponse<MealPollDayResponse>> submitResponses(
             @PathVariable UUID spaceId,
@@ -94,6 +111,16 @@ public class MealPollController {
         return ResponseEntity.ok(ApiResponse.success(
                 "Payment proof submitted successfully",
                 mealPollService.submitPaymentProof(spaceId, callerId, date, request)));
+    }
+
+    @PostMapping("/payment-proof/bulk")
+    public ResponseEntity<ApiResponse<BulkMealPollPaymentProofResponse>> submitBulkPaymentProof(
+            @PathVariable UUID spaceId,
+            @RequestBody @Valid SubmitBulkMealPollPaymentProofRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Bulk payment proof submitted successfully",
+                mealPollService.submitBulkPaymentProof(spaceId, callerId, request)));
     }
 
     @PostMapping("/{date}/payments/{memberId}/approve")

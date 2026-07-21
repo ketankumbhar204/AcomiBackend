@@ -12,6 +12,8 @@ public class DashboardFinancialSummaryResponse {
 
     private BigDecimal expectedCharges;
     private BigDecimal collected;
+    /** Submitted proofs awaiting owner review — not customer-pending and not collected. */
+    private BigDecimal underReview;
     private BigDecimal pending;
     private String currencyCode;
     private DashboardFinancialSource source;

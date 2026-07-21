@@ -40,4 +40,9 @@ public class MealComboItemEntity {
     @Builder.Default
     @Column(name = "sort_order", nullable = false)
     private int sortOrder = 0;
+
+    /** Units of this catalog item included in the combo (informational; default 1). */
+    @Builder.Default
+    @Column(nullable = false)
+    private int quantity = 1;
 }

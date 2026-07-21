@@ -25,6 +25,10 @@ public interface MealPollResponseRepository extends JpaRepository<MealPollRespon
             """)
     void deleteByPollIdAndMemberId(@Param("pollId") UUID pollId, @Param("memberId") UUID memberId);
 
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("DELETE FROM MealPollResponseEntity r WHERE r.poll.id = :pollId")
+    void deleteByPollId(@Param("pollId") UUID pollId);
+
     List<MealPollResponseEntity> findByPollId(UUID pollId);
 
     @Query(
@@ -46,7 +50,10 @@ public interface MealPollResponseRepository extends JpaRepository<MealPollRespon
     @Query(
             """
             SELECT r FROM MealPollResponseEntity r
-            JOIN FETCH r.selectedOption
+            JOIN FETCH r.selectedOption o
+            LEFT JOIN FETCH o.dailyMenuEntry e
+            LEFT JOIN FETCH e.combo
+            LEFT JOIN FETCH e.item
             JOIN FETCH r.poll p
             WHERE r.member.id = :memberId
               AND p.space.id = :spaceId

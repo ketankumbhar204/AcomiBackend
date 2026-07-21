@@ -13,6 +13,7 @@ import com.countin.countin_backend.dashboard.application.support.PrepaidBalanceB
 import com.countin.countin_backend.dashboard.application.support.SpacePaymentLedgerSupport;
 import com.countin.countin_backend.dashboard.domain.model.DashboardFinancialSource;
 import com.countin.countin_backend.dashboard.domain.model.MemberPaymentStatus;
+import com.countin.countin_backend.payment.application.support.PaymentMonthCountsSupport;
 import com.countin.countin_backend.meal.application.support.MealBillingResolver;
 import com.countin.countin_backend.meal.application.support.MealPricingPolicy;
 import com.countin.countin_backend.meal.domain.model.MealParticipationStatus;
@@ -116,14 +117,9 @@ public class SpaceBillingService {
         return buildLedger(spaceId, callerId, monthParam).getSummary();
     }
 
+    /** Members who still need customer payment action (excludes under-review / owner queue). */
     public int countPendingPayments(List<MemberPaymentLedgerRowResponse> rows) {
-        return (int) rows.stream()
-                .filter(row -> row.getStatus() == MemberPaymentStatus.PENDING
-                        || row.getStatus() == MemberPaymentStatus.PARTIAL
-                        || row.getStatus() == MemberPaymentStatus.UNDER_REVIEW
-                        || row.getStatus() == MemberPaymentStatus.UPDATE_REQUESTED
-                        || row.getStatus() == MemberPaymentStatus.REJECTED)
-                .count();
+        return PaymentMonthCountsSupport.countPendingMembers(rows);
     }
 
     private MemberPaymentLedgerRowResponse buildRow(
@@ -153,7 +149,10 @@ public class SpaceBillingService {
                 expectedCharges = expectedCharges.add(mealContribution.getExpected());
                 hasExpected = true;
             }
-            if (mealContribution.getCollected() != null) {
+            // After MealDaySpacePaymentBridge, MEAL space_payments are the payment SoT — skip
+            // meal-activity paidAmount to avoid double-counting approved day payments.
+            boolean hasMealSpacePayments = spacePaymentLedgerSupport.hasMealSpacePayments(memberPayments);
+            if (!hasMealSpacePayments && mealContribution.getCollected() != null) {
                 collected = collected.add(mealContribution.getCollected());
                 hasCollected = true;
             }
@@ -177,9 +176,13 @@ public class SpaceBillingService {
             hasCollected = true;
         }
 
+        BigDecimal underReviewAmount = spacePaymentLedgerSupport.sumUnderReviewAmount(memberPayments);
         BigDecimal expected = hasExpected ? expectedCharges : null;
         BigDecimal collectedAmount = hasCollected ? collected : null;
-        BigDecimal pending = computePending(expected, collectedAmount);
+        BigDecimal underReview =
+                underReviewAmount.compareTo(BigDecimal.ZERO) > 0 ? underReviewAmount : null;
+        BigDecimal pending =
+                spacePaymentLedgerSupport.computePendingAmount(expected, collectedAmount, underReview);
 
         MemberPaymentLedgerRowResponse.MemberPaymentLedgerRowResponseBuilder rowBuilder =
                 MemberPaymentLedgerRowResponse.builder()
@@ -187,10 +190,11 @@ public class SpaceBillingService {
                         .memberName(member.getFullName())
                         .expectedCharges(expected)
                         .collected(collectedAmount)
+                        .underReview(underReview)
                         .pending(pending)
                         .currencyCode(currencyCode)
                         .status(spacePaymentLedgerSupport.resolveRowStatus(
-                                expected, collectedAmount, memberPayments))
+                                expected, collectedAmount, underReview, memberPayments))
                         .mealBillingType(memberBillingType);
 
         if (memberBillingType == MealBillingType.PREPAID_BALANCE) {
@@ -241,9 +245,11 @@ public class SpaceBillingService {
 
         BigDecimal expected;
         BigDecimal collected;
+        BigDecimal underReview;
         if (messSpace && hasPrepaidMembers && !hasPayPerMealMembers) {
             expected = null;
             collected = prepaidBalance != null ? prepaidBalance.getAmountCollected() : null;
+            underReview = null;
         } else {
             List<MemberPaymentLedgerRowResponse> payPerMealRows = messSpace
                     ? rows.stream()
@@ -254,6 +260,8 @@ public class SpaceBillingService {
                     payPerMealRows.stream().map(MemberPaymentLedgerRowResponse::getExpectedCharges).toList());
             collected = sumNullable(
                     payPerMealRows.stream().map(MemberPaymentLedgerRowResponse::getCollected).toList());
+            underReview = sumNullable(
+                    payPerMealRows.stream().map(MemberPaymentLedgerRowResponse::getUnderReview).toList());
         }
 
         String currencyCode = rows.stream()
@@ -267,7 +275,8 @@ public class SpaceBillingService {
         return DashboardFinancialSummaryResponse.builder()
                 .expectedCharges(expected)
                 .collected(collected)
-                .pending(computePending(expected, collected))
+                .underReview(underReview)
+                .pending(spacePaymentLedgerSupport.computePendingAmount(expected, collected, underReview))
                 .currencyCode(currencyCode)
                 .source(resolveSource(space, hasMealParticipation))
                 .mealBillingType(space.getMealBillingType())
@@ -335,16 +344,6 @@ public class SpaceBillingService {
             byMember.put(occupancy.getMember().getId(), occupancy);
         }
         return byMember;
-    }
-
-    private BigDecimal computePending(BigDecimal expected, BigDecimal collected) {
-        if (expected == null) {
-            return null;
-        }
-        if (collected == null) {
-            return expected.max(BigDecimal.ZERO);
-        }
-        return expected.subtract(collected).max(BigDecimal.ZERO);
     }
 
     private BigDecimal sumNullable(List<BigDecimal> values) {

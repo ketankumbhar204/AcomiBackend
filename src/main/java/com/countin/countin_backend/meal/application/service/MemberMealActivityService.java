@@ -105,7 +105,8 @@ public class MemberMealActivityService {
 
         Map<LocalDate, Map<MealType, Boolean>> publishedByDate = new HashMap<>();
         for (DailyMenuEntity menu : publishedMenus) {
-            if (menu.getStatus() != DailyMenuStatus.PUBLISHED) {
+            if (menu.getStatus() != DailyMenuStatus.PUBLISHED
+                    && menu.getStatus() != DailyMenuStatus.MODIFIED) {
                 continue;
             }
             publishedByDate
@@ -169,8 +170,12 @@ public class MemberMealActivityService {
                     skippedMeals += 1;
                 }
             }
-            boolean hasActivity = slots.stream()
-                    .anyMatch(slot -> slot.getStatus() != MemberMealActivitySlotStatus.INACTIVE);
+            boolean hasActivity = slots.stream().anyMatch(slot -> {
+                MemberMealActivitySlotStatus status = slot.getStatus();
+                return status == MemberMealActivitySlotStatus.ACCEPTED
+                        || status == MemberMealActivitySlotStatus.PENDING
+                        || status == MemberMealActivitySlotStatus.SKIPPED;
+            });
 
             BigDecimal dayTotal = slots.stream()
                     .map(MemberMealActivitySlotResponse::getSlotAmount)
@@ -392,9 +397,16 @@ public class MemberMealActivityService {
 
     private MemberMealActivityDayPaymentResponse toPaymentResponse(MealPollDayPaymentEntity payment) {
         return MemberMealActivityDayPaymentResponse.builder()
+                .id(payment.getId())
+                .pollDate(payment.getPollDate())
                 .paymentChoice(payment.getPaymentChoice())
                 .paymentStatus(payment.getPaymentStatus())
+                .chargedAmount(payment.getChargedAmount())
+                .paymentBatchId(payment.getPaymentBatchId())
                 .proofImageUrl(payment.getProofImageUrl())
+                .referenceNumber(payment.getReferenceNumber())
+                .remarks(payment.getRemarks())
+                .paymentMethod(payment.getPaymentMethod())
                 .rejectionReason(payment.getRejectionReason())
                 .proofSubmittedAt(payment.getProofSubmittedAt())
                 .proofReviewedAt(payment.getProofReviewedAt())

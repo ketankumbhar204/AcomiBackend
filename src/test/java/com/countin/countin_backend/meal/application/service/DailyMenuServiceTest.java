@@ -43,6 +43,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -96,7 +97,8 @@ class DailyMenuServiceTest {
                 mealComboService,
                 foodCatalogService,
                 spaceRepository,
-                new MealAccessService(new SpaceMembershipResolver(spaceMembershipRepository), memberRepository));
+                new MealAccessService(new SpaceMembershipResolver(spaceMembershipRepository), memberRepository),
+                new ObjectMapper());
         spaceId = UUID.randomUUID();
         callerId = UUID.randomUUID();
         itemId = UUID.randomUUID();
@@ -120,7 +122,7 @@ class DailyMenuServiceTest {
         DailyMenuEntity published = menu(MealType.DINNER, DailyMenuStatus.PUBLISHED);
         when(dailyMenuRepository.findBySpaceAndDate(spaceId, menuDate, false, DailyMenuStatus.PUBLISHED))
                 .thenReturn(List.of(draft, published));
-        when(dailyMenuEntryRepository.findByDailyMenuId(any())).thenReturn(List.of());
+        when(dailyMenuEntryRepository.findByDailyMenuIdIn(any())).thenReturn(List.of());
 
         var menus = dailyMenuService.getMenusByDate(spaceId, callerId, menuDate);
 
@@ -134,7 +136,7 @@ class DailyMenuServiceTest {
         DailyMenuEntity published = menu(MealType.LUNCH, DailyMenuStatus.PUBLISHED);
         when(dailyMenuRepository.findBySpaceAndDate(spaceId, menuDate, true, DailyMenuStatus.PUBLISHED))
                 .thenReturn(List.of(published));
-        when(dailyMenuEntryRepository.findByDailyMenuId(published.getId())).thenReturn(List.of());
+        when(dailyMenuEntryRepository.findByDailyMenuIdIn(any())).thenReturn(List.of());
 
         var menus = dailyMenuService.getMenusByDate(spaceId, callerId, menuDate);
 
@@ -148,7 +150,7 @@ class DailyMenuServiceTest {
         DailyMenuEntity published = menu(MealType.BREAKFAST, DailyMenuStatus.PUBLISHED);
         when(dailyMenuRepository.findBySpaceAndDate(eq(spaceId), any(LocalDate.class), eq(true), eq(DailyMenuStatus.PUBLISHED)))
                 .thenReturn(List.of(published));
-        when(dailyMenuEntryRepository.findByDailyMenuId(published.getId())).thenReturn(List.of());
+        when(dailyMenuEntryRepository.findByDailyMenuIdIn(any())).thenReturn(List.of());
 
         var menus = dailyMenuService.getTodayMenus(spaceId, callerId);
 
@@ -231,13 +233,14 @@ class DailyMenuServiceTest {
     }
 
     @Test
-    void upsertMenu_allowsInPlacePublishedEdit() {
+    void upsertMenu_marksPublishedAsModifiedAndCapturesSnapshot() {
         stubOwnerMembership();
         when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space()));
         DailyMenuEntity published = menu(MealType.LUNCH, DailyMenuStatus.PUBLISHED);
         when(dailyMenuRepository.findBySpaceDateAndType(spaceId, menuDate, MealType.LUNCH))
                 .thenReturn(Optional.of(published));
         when(dailyMenuRepository.save(published)).thenReturn(published);
+        when(dailyMenuEntryRepository.findByDailyMenuIdIn(any())).thenReturn(List.of());
         stubEmptySync(published.getId());
 
         UpsertDailyMenuRequest request = new UpsertDailyMenuRequest();
@@ -245,7 +248,9 @@ class DailyMenuServiceTest {
 
         var response = dailyMenuService.upsertMenu(spaceId, callerId, menuDate, MealType.LUNCH, request);
 
-        assertThat(response.getStatus()).isEqualTo(DailyMenuStatus.PUBLISHED);
+        assertThat(response.getStatus()).isEqualTo(DailyMenuStatus.MODIFIED);
+        assertThat(published.getStatus()).isEqualTo(DailyMenuStatus.MODIFIED);
+        assertThat(published.getPublishedSnapshot()).isNotBlank();
     }
 
     @Test
@@ -365,7 +370,7 @@ class DailyMenuServiceTest {
                 .isAvailable(true)
                 .build();
         persistedEntry.setId(UUID.randomUUID());
-        when(dailyMenuEntryRepository.findByDailyMenuId(savedMenu.getId())).thenReturn(List.of(persistedEntry));
+        when(dailyMenuEntryRepository.findByDailyMenuIdIn(any())).thenReturn(List.of(persistedEntry));
 
         var response = dailyMenuService.getMenu(spaceId, callerId, menuDate, MealType.LUNCH);
 

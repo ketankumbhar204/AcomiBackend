@@ -5,6 +5,7 @@ import com.countin.countin_backend.common.web.ApiResponse;
 import com.countin.countin_backend.meal.api.dto.request.CreateFoodCategoryRequest;
 import com.countin.countin_backend.meal.api.dto.request.CreateFoodItemRequest;
 import com.countin.countin_backend.meal.api.dto.request.UpdateFoodItemDefaultPriceRequest;
+import com.countin.countin_backend.meal.api.dto.request.UpdateFoodItemExtraRequest;
 import com.countin.countin_backend.meal.api.dto.request.UpdateFoodItemRequest;
 import com.countin.countin_backend.meal.api.dto.response.FoodCategoryResponse;
 import com.countin.countin_backend.meal.api.dto.response.FoodItemResponse;
@@ -103,5 +104,16 @@ public class FoodCatalogController {
         UUID callerId = SecurityUtils.getCurrentUserId();
         foodCatalogService.deactivateItem(spaceId, itemId, callerId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/food-items/{itemId}/extra")
+    public ResponseEntity<ApiResponse<FoodItemResponse>> updateItemExtra(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID itemId,
+            @RequestBody @Valid UpdateFoodItemExtraRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Food item extra flag updated successfully",
+                foodCatalogService.updateItemExtra(spaceId, itemId, callerId, request)));
     }
 }

@@ -5,6 +5,7 @@ import com.countin.countin_backend.common.exception.ResourceNotFoundException;
 import com.countin.countin_backend.meal.api.dto.request.CreateComboInlineItemRequest;
 import com.countin.countin_backend.meal.api.dto.request.CreateFoodItemRequest;
 import com.countin.countin_backend.meal.api.dto.request.CreateMealComboRequest;
+import com.countin.countin_backend.meal.api.dto.request.MealComboItemQuantityRequest;
 import com.countin.countin_backend.meal.api.dto.request.UpdateMealComboPriceRequest;
 import com.countin.countin_backend.meal.api.dto.request.UpdateMealComboRequest;
 import com.countin.countin_backend.meal.api.dto.response.MealComboResponse;
@@ -13,12 +14,15 @@ import com.countin.countin_backend.meal.infrastructure.persistence.entity.MealCo
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.MealComboItemEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.MealComboItemRepository;
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.MealComboRepository;
+import com.countin.countin_backend.space.domain.model.SpaceType;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -57,7 +61,13 @@ public class MealComboService {
                 .currencyCode(MealPriceValidator.resolveCurrencyCode(request.getCurrencyCode()))
                 .isActive(true)
                 .build());
-        saveComboItems(spaceId, callerId, combo, request.getItemIds(), request.getNewItems());
+        saveComboItems(
+                space,
+                callerId,
+                combo,
+                request.getItemIds(),
+                request.getNewItems(),
+                request.getItemQuantities());
         applyComboFoodType(combo);
         mealComboRepository.save(combo);
         return MealComboResponse.from(combo, mealComboItemRepository.findByComboIdWithItems(combo.getId()));
@@ -66,6 +76,7 @@ public class MealComboService {
     @Transactional
     public MealComboResponse updateCombo(UUID spaceId, UUID comboId, UUID callerId, UpdateMealComboRequest request) {
         mealAccessService.requireManageMeals(spaceId, callerId);
+        SpaceEntity space = loadSpace(spaceId);
         MealComboEntity combo = loadCombo(spaceId, comboId);
         combo.setName(request.getName().trim());
         combo.setDescription(request.getDescription());
@@ -76,7 +87,13 @@ public class MealComboService {
         }
         mealComboRepository.save(combo);
         mealComboItemRepository.deleteByComboId(comboId);
-        saveComboItems(spaceId, callerId, combo, request.getItemIds(), request.getNewItems());
+        saveComboItems(
+                space,
+                callerId,
+                combo,
+                request.getItemIds(),
+                request.getNewItems(),
+                request.getItemQuantities());
         applyComboFoodType(combo);
         mealComboRepository.save(combo);
         return MealComboResponse.from(combo, mealComboItemRepository.findByComboIdWithItems(combo.getId()));
@@ -108,20 +125,44 @@ public class MealComboService {
     }
 
     private void saveComboItems(
-            UUID spaceId,
+            SpaceEntity space,
             UUID callerId,
             MealComboEntity combo,
             List<UUID> itemIds,
-            List<CreateComboInlineItemRequest> newItems) {
+            List<CreateComboInlineItemRequest> newItems,
+            List<MealComboItemQuantityRequest> itemQuantities) {
+        UUID spaceId = space.getId();
         List<UUID> resolvedItemIds = resolveItemIds(spaceId, callerId, itemIds, newItems);
+        Map<UUID, Integer> quantityByItemId = resolveQuantityMap(space, itemQuantities);
         int sortOrder = 0;
         for (UUID itemId : resolvedItemIds) {
+            int quantity = quantityByItemId.getOrDefault(itemId, 1);
             mealComboItemRepository.save(MealComboItemEntity.builder()
                     .combo(combo)
                     .item(foodCatalogService.loadEnabledItemForSpace(spaceId, itemId))
                     .sortOrder(sortOrder++)
+                    .quantity(quantity)
                     .build());
         }
+    }
+
+    private Map<UUID, Integer> resolveQuantityMap(
+            SpaceEntity space, List<MealComboItemQuantityRequest> itemQuantities) {
+        Map<UUID, Integer> quantityByItemId = new HashMap<>();
+        if (space.getType() != SpaceType.MESS || itemQuantities == null) {
+            return quantityByItemId;
+        }
+        for (MealComboItemQuantityRequest row : itemQuantities) {
+            if (row == null || row.getItemId() == null) {
+                continue;
+            }
+            int quantity = row.getQuantity() == null ? 1 : row.getQuantity();
+            if (quantity < 1) {
+                throw new BusinessException("Combo item quantity must be at least 1");
+            }
+            quantityByItemId.put(row.getItemId(), quantity);
+        }
+        return quantityByItemId;
     }
 
     private List<UUID> resolveItemIds(

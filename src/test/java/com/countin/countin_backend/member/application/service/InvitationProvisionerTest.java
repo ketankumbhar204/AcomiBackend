@@ -83,6 +83,9 @@ class InvitationProvisionerTest {
         verify(invitationRepository).save(captor.capture());
         assertThat(captor.getValue().getMobileNumber()).isEqualTo("9876543210");
         assertThat(captor.getValue().getRole()).isEqualTo(MembershipRole.CUSTOMER);
+        assertThat(captor.getValue().getExpiresAt())
+                .isAfter(LocalDateTime.now().plusDays(364))
+                .isBefore(LocalDateTime.now().plusDays(366));
     }
 
     @Test

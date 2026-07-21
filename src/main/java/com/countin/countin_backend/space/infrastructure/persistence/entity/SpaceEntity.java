@@ -5,6 +5,7 @@ import com.countin.countin_backend.space.domain.model.GenderPolicy;
 import com.countin.countin_backend.space.domain.model.MealBillingType;
 import com.countin.countin_backend.space.domain.model.PrepaidBalanceUnit;
 import com.countin.countin_backend.space.domain.model.SpaceType;
+import com.countin.countin_backend.meal.domain.model.PollCloseDayOffset;
 import com.countin.countin_backend.user.infrastructure.persistence.entity.UserEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -16,6 +17,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
+import java.time.LocalTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -77,4 +79,35 @@ public class SpaceEntity extends BaseEntity {
     @Builder.Default
     @Column(name = "prepaid_fallback_to_pay_per_meal", nullable = false)
     private boolean prepaidFallbackToPayPerMeal = true;
+
+    @Builder.Default
+    @Column(nullable = false, length = 64)
+    private String timezone = "Asia/Kolkata";
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "poll_close_breakfast_day_offset", nullable = false, length = 20)
+    private PollCloseDayOffset pollCloseBreakfastDayOffset = PollCloseDayOffset.PREVIOUS_DAY;
+
+    @Builder.Default
+    @Column(name = "poll_close_breakfast_time", nullable = false)
+    private LocalTime pollCloseBreakfastTime = LocalTime.of(20, 0);
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "poll_close_lunch_day_offset", nullable = false, length = 20)
+    private PollCloseDayOffset pollCloseLunchDayOffset = PollCloseDayOffset.SAME_DAY;
+
+    @Builder.Default
+    @Column(name = "poll_close_lunch_time", nullable = false)
+    private LocalTime pollCloseLunchTime = LocalTime.of(8, 0);
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "poll_close_dinner_day_offset", nullable = false, length = 20)
+    private PollCloseDayOffset pollCloseDinnerDayOffset = PollCloseDayOffset.SAME_DAY;
+
+    @Builder.Default
+    @Column(name = "poll_close_dinner_time", nullable = false)
+    private LocalTime pollCloseDinnerTime = LocalTime.of(13, 0);
 }

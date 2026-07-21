@@ -34,7 +34,14 @@ import lombok.Setter;
         uniqueConstraints =
                 @UniqueConstraint(
                         name = "uq_space_payments_period",
-                        columnNames = {"space_id", "member_id", "month", "payment_type", "payment_category"}))
+                        columnNames = {
+                            "space_id",
+                            "member_id",
+                            "month",
+                            "payment_type",
+                            "payment_category",
+                            "due_date"
+                        }))
 @Getter
 @Setter
 @NoArgsConstructor
@@ -113,4 +120,8 @@ public class SpacePaymentEntity extends BaseEntity {
 
     @Column(name = "target_label", length = 200)
     private String targetLabel;
+
+    /** Shared id when several meal days were paid with one proof (bulk submit). */
+    @Column(name = "payment_batch_id", length = 64)
+    private String paymentBatchId;
 }

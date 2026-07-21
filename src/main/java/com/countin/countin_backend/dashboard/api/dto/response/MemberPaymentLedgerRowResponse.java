@@ -16,6 +16,8 @@ public class MemberPaymentLedgerRowResponse {
     private String memberName;
     private BigDecimal expectedCharges;
     private BigDecimal collected;
+    /** Submitted proofs awaiting owner review. */
+    private BigDecimal underReview;
     private BigDecimal pending;
     private String currencyCode;
     private MemberPaymentStatus status;

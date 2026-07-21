@@ -33,4 +33,7 @@ public class DailyMenuOptionRequest {
 
     private int sortOrder;
     private boolean isAvailable = true;
+
+    /** Mess-only add-on flag; ignored / rejected for non-Mess spaces. */
+    private boolean isExtra = false;
 }

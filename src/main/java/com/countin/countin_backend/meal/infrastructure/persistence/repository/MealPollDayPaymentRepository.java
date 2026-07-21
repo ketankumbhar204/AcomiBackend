@@ -11,6 +11,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface MealPollDayPaymentRepository extends JpaRepository<MealPollDayPaymentEntity, UUID> {
 
+    List<MealPollDayPaymentEntity> findByPaymentBatchId(String paymentBatchId);
+
     Optional<MealPollDayPaymentEntity> findBySpaceIdAndMemberIdAndPollDate(
             UUID spaceId, UUID memberId, LocalDate pollDate);
 
@@ -28,4 +30,17 @@ public interface MealPollDayPaymentRepository extends JpaRepository<MealPollDayP
             @Param("spaceId") UUID spaceId,
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);
+
+    @Query(
+            """
+            SELECT p FROM MealPollDayPaymentEntity p
+            JOIN FETCH p.member
+            JOIN FETCH p.space
+            WHERE p.space.id = :spaceId
+              AND p.pollDate BETWEEN :from AND :to
+              AND p.paymentStatus = com.countin.countin_backend.meal.domain.model.MealPollPaymentStatus.PENDING_APPROVAL
+            ORDER BY p.pollDate ASC, p.member.fullName ASC
+            """)
+    List<MealPollDayPaymentEntity> findPendingApprovalInDateRange(
+            @Param("spaceId") UUID spaceId, @Param("from") LocalDate from, @Param("to") LocalDate to);
 }

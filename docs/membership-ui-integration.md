@@ -563,7 +563,7 @@ Soft-deletes the member (`active = false`). Returns **`204 No Content`**.
 
 #### Success — `201`
 
-Returns `InvitationResponse` with `status: "PENDING"` and `expiresAt` (7 days).
+Returns `InvitationResponse` with `status: "PENDING"` and `expiresAt` (365 days).
 
 ---
 

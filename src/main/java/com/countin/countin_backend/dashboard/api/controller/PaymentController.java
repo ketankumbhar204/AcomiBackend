@@ -7,9 +7,15 @@ import com.countin.countin_backend.dashboard.application.service.DashboardAccess
 import com.countin.countin_backend.dashboard.application.service.SpaceBillingService;
 import com.countin.countin_backend.payment.api.dto.request.ReviewSpacePaymentRequest;
 import com.countin.countin_backend.payment.api.dto.request.SubmitSpacePaymentProofRequest;
+import com.countin.countin_backend.payment.api.dto.response.OwnerPaymentsMonthResponse;
 import com.countin.countin_backend.payment.api.dto.response.PaymentTimelineResponse;
+import com.countin.countin_backend.payment.api.dto.response.PaymentsCardsPageResponse;
+import com.countin.countin_backend.payment.api.dto.response.PaymentsMembersPageResponse;
+import com.countin.countin_backend.payment.api.dto.response.PaymentsSummaryResponse;
 import com.countin.countin_backend.payment.api.dto.response.SpacePaymentListResponse;
 import com.countin.countin_backend.payment.api.dto.response.SpacePaymentResponse;
+import com.countin.countin_backend.payment.application.service.OwnerPaymentsMonthService;
+import com.countin.countin_backend.payment.application.service.PaymentsQueryService;
 import com.countin.countin_backend.payment.application.service.SpacePaymentService;
 import com.countin.countin_backend.payment.domain.model.SpacePaymentCategory;
 import com.countin.countin_backend.payment.domain.model.SpacePaymentStatus;
@@ -18,6 +24,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -39,9 +46,13 @@ public class PaymentController {
     private final DashboardAccessService dashboardAccessService;
     private final SpaceBillingService spaceBillingService;
     private final SpacePaymentService spacePaymentService;
+    private final OwnerPaymentsMonthService ownerPaymentsMonthService;
+    private final PaymentsQueryService paymentsQueryService;
 
     @GetMapping
-    @Operation(summary = "List space payments", description = "Returns universal payment records for the selected month.")
+    @Operation(
+            summary = "List space payments",
+            description = "Read-only by default (sync=false). Pass sync=true only for explicit refresh.")
     public ResponseEntity<ApiResponse<SpacePaymentListResponse>> listPayments(
             @PathVariable UUID spaceId,
             @RequestParam(required = false) String month,
@@ -49,18 +60,90 @@ public class PaymentController {
             @RequestParam(required = false) SpacePaymentStatus status,
             @RequestParam(required = false) SpacePaymentType paymentType,
             @RequestParam(required = false) SpacePaymentCategory paymentCategory,
-            @RequestParam(required = false, defaultValue = "true") boolean sync) {
+            @RequestParam(required = false, defaultValue = "false") boolean sync) {
         UUID callerId = SecurityUtils.getCurrentUserId();
         SpacePaymentListResponse response = spacePaymentService.listPayments(
                 spaceId, callerId, month, memberId, status, paymentType, paymentCategory, sync);
         return ResponseEntity.ok(ApiResponse.success("Payments fetched successfully", response));
     }
 
+    @GetMapping("/summary")
+    @Operation(
+            summary = "Payments month summary",
+            description = "Lightweight KPIs + tab counts. Never runs payment sync.")
+    public ResponseEntity<ApiResponse<PaymentsSummaryResponse>> getSummary(
+            @PathVariable UUID spaceId, @RequestParam(required = false) String month) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Payments summary fetched successfully",
+                paymentsQueryService.getSummary(spaceId, callerId, month)));
+    }
+
+    @GetMapping("/members")
+    @Operation(summary = "Paginated member payment ledger rows")
+    public ResponseEntity<ApiResponse<PaymentsMembersPageResponse>> getMembers(
+            @PathVariable UUID spaceId,
+            @RequestParam(required = false) String month,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String sort,
+            @RequestParam(required = false, defaultValue = "0") int page,
+            @RequestParam(required = false, defaultValue = "20") int size) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Payment members fetched successfully",
+                paymentsQueryService.getMembers(spaceId, callerId, month, q, status, sort, page, size)));
+    }
+
+    @GetMapping("/review")
+    @Operation(
+            summary = "Paginated payment review queue",
+            description = "queue=SUBMITTED|NEEDS_UPDATE|PENDING_REVIEW (default PENDING_REVIEW)")
+    public ResponseEntity<ApiResponse<PaymentsCardsPageResponse>> getReview(
+            @PathVariable UUID spaceId,
+            @RequestParam(required = false) String month,
+            @RequestParam(required = false, defaultValue = "PENDING_REVIEW") String queue,
+            @RequestParam(required = false, defaultValue = "0") int page,
+            @RequestParam(required = false, defaultValue = "20") int size) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Payment review queue fetched successfully",
+                paymentsQueryService.getPaymentCards(spaceId, callerId, month, queue, page, size)));
+    }
+
+    @GetMapping("/history")
+    @Operation(
+            summary = "Paginated payment history",
+            description = "queue defaults to HISTORY (PAID+REJECTED). Use PAID or REJECTED to narrow.")
+    public ResponseEntity<ApiResponse<PaymentsCardsPageResponse>> getHistory(
+            @PathVariable UUID spaceId,
+            @RequestParam(required = false) String month,
+            @RequestParam(required = false, defaultValue = "HISTORY") String queue,
+            @RequestParam(required = false, defaultValue = "0") int page,
+            @RequestParam(required = false, defaultValue = "20") int size) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Payment history fetched successfully",
+                paymentsQueryService.getPaymentCards(spaceId, callerId, month, queue, page, size)));
+    }
+
+    @PostMapping("/sync")
+    @Operation(
+            summary = "Synchronize expected payments for a month",
+            description = "Write command: generates expected rows and backfills meal-day proofs. "
+                    + "Not used by default screen opens.")
+    public ResponseEntity<ApiResponse<Map<String, String>>> syncMonth(
+            @PathVariable UUID spaceId, @RequestParam(required = false) String month) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        ownerPaymentsMonthService.syncMonth(spaceId, callerId, month);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Payments synchronized successfully", Map.of("month", month != null ? month : "")));
+    }
+
     @GetMapping("/ledger")
     @Operation(
             summary = "Get member payment ledger",
-            description = "Returns per-member expected charges, collected amounts, and pending balances "
-                    + "for the selected month.")
+            description = "Deprecated for UI screens — prefer /payments/summary and /payments/members.")
     public ResponseEntity<ApiResponse<MemberPaymentLedgerResponse>> getLedger(
             @PathVariable UUID spaceId,
             @RequestParam(required = false) String month) {
@@ -68,6 +151,24 @@ public class PaymentController {
         dashboardAccessService.requireManagePayments(spaceId, callerId);
         MemberPaymentLedgerResponse response = spaceBillingService.buildLedger(spaceId, callerId, month);
         return ResponseEntity.ok(ApiResponse.success("Payment ledger fetched successfully", response));
+    }
+
+    @GetMapping("/owner-month")
+    @Operation(
+            summary = "Owner Payments month aggregate (legacy)",
+            description = "Deprecated. Prefer /summary + /members + /review. "
+                    + "Read-only by default; pass sync=true to run sync commands first.")
+    public ResponseEntity<ApiResponse<OwnerPaymentsMonthResponse>> getOwnerMonth(
+            @PathVariable UUID spaceId,
+            @RequestParam(required = false) String month,
+            @RequestParam(required = false, defaultValue = "false") boolean sync) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        if (sync) {
+            ownerPaymentsMonthService.syncMonth(spaceId, callerId, month);
+        }
+        OwnerPaymentsMonthResponse response =
+                ownerPaymentsMonthService.buildOwnerMonth(spaceId, callerId, month);
+        return ResponseEntity.ok(ApiResponse.success("Owner payments month fetched successfully", response));
     }
 
     @GetMapping("/{paymentId}")

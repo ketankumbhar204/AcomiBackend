@@ -7,11 +7,11 @@ import com.countin.countin_backend.meal.api.dto.response.MealSharePreviewSlotRes
 import com.countin.countin_backend.meal.domain.model.DailyMenuEntryType;
 import com.countin.countin_backend.meal.domain.model.DailyMenuStatus;
 import com.countin.countin_backend.meal.domain.model.MealType;
+import com.countin.countin_backend.meal.application.support.ComboItemDetailFormatter;
 import com.countin.countin_backend.meal.domain.policy.MealPollEligibilityPolicy;
 import com.countin.countin_backend.meal.domain.policy.MealOccupancyPolicy;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.DailyMenuEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.DailyMenuEntryEntity;
-import com.countin.countin_backend.meal.infrastructure.persistence.entity.MealComboItemEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.entity.MealParticipationEntity;
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.DailyMenuEntryRepository;
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.DailyMenuRepository;
@@ -74,7 +74,9 @@ public class MealSharePreviewService {
         for (MealType type : targetTypes) {
             Optional<DailyMenuEntity> publishedMenu = dailyMenuRepository
                     .findBySpaceDateAndType(spaceId, menuDate, type)
-                    .filter(menu -> !menu.isDeleted() && menu.getStatus() == DailyMenuStatus.PUBLISHED);
+                    .filter(menu -> !menu.isDeleted()
+                            && (menu.getStatus() == DailyMenuStatus.PUBLISHED
+                                    || menu.getStatus() == DailyMenuStatus.MODIFIED));
 
             if (publishedMenu.isPresent()) {
                 DailyMenuEntity menu = publishedMenu.get();
@@ -135,10 +137,8 @@ public class MealSharePreviewService {
         BigDecimal price = null;
         String currencyCode = entry.getCurrencyCode();
         if (entry.getEntryType() == DailyMenuEntryType.COMBO && entry.getCombo() != null) {
-            detail = mealComboItemRepository.findByComboIdWithItems(entry.getCombo().getId()).stream()
-                    .map(MealComboItemEntity::getItem)
-                    .map(item -> item.getName())
-                    .collect(Collectors.joining(" · "));
+            detail = ComboItemDetailFormatter.join(
+                    mealComboItemRepository.findByComboIdWithItems(entry.getCombo().getId()), " · ");
             price = entry.getCombo().getPrice();
             currencyCode = entry.getCombo().getCurrencyCode();
         } else if (entry.getEntryType() == DailyMenuEntryType.PACKAGE) {

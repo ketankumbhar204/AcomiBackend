@@ -22,6 +22,7 @@ import com.countin.countin_backend.meal.application.service.MealOccupancyBridgeS
 import com.countin.countin_backend.member.domain.model.MemberGender;
 import com.countin.countin_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.countin.countin_backend.member.infrastructure.persistence.repository.MemberRepository;
+import com.countin.countin_backend.notification.application.service.OccupancyNotificationSyncService;
 import com.countin.countin_backend.occupancy.api.dto.request.AllocateOccupancyRequest;
 import com.countin.countin_backend.occupancy.api.dto.request.CancelReservationRequest;
 import com.countin.countin_backend.occupancy.api.dto.request.MoveInOccupancyRequest;
@@ -86,6 +87,9 @@ class OccupancyServiceTest {
 
     @Mock
     private OccupancyAmenityService occupancyAmenityService;
+
+    @Mock
+    private OccupancyNotificationSyncService occupancyNotificationSyncService;
 
     @InjectMocks
     private OccupancyService occupancyService;

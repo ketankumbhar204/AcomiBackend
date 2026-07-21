@@ -37,6 +37,11 @@ public class SpaceFoodItemSettingsEntity {
     @Column(name = "is_enabled", nullable = false)
     private boolean isEnabled = true;
 
+    /** Mess-only: item is available to enable as a meal add-on from Menu Library. */
+    @Builder.Default
+    @Column(name = "is_extra", nullable = false)
+    private boolean isExtra = false;
+
     @Column(name = "default_price", precision = 10, scale = 2)
     private java.math.BigDecimal defaultPrice;
 

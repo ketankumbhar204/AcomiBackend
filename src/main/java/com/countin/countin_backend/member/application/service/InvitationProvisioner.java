@@ -20,7 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class InvitationProvisioner {
 
-    private static final int INVITATION_EXPIRY_DAYS = 7;
+    private static final int INVITATION_EXPIRY_DAYS = 365;
 
     private final InvitationRepository invitationRepository;
     private final UserRepository userRepository;
@@ -28,7 +28,7 @@ public class InvitationProvisioner {
 
     /**
      * Creates a pending invitation when absent. Idempotent — skips when the invitee already has
-     * active membership or a pending invitation exists for the space.
+     * active membership. If a pending invitation already exists, refreshes its expiry.
      */
     @Transactional
     public Optional<InvitationEntity> ensurePendingInvitation(
@@ -45,7 +45,11 @@ public class InvitationProvisioner {
         if (invitationRepository.existsBySpaceIdAndMobileNumberAndStatus(
                 space.getId(), normalizedMobile, InvitationStatus.PENDING)) {
             return invitationRepository
-                    .findBySpaceIdAndMobileNumberAndStatus(space.getId(), normalizedMobile, InvitationStatus.PENDING);
+                    .findBySpaceIdAndMobileNumberAndStatus(space.getId(), normalizedMobile, InvitationStatus.PENDING)
+                    .map(existing -> {
+                        existing.setExpiresAt(LocalDateTime.now().plusDays(INVITATION_EXPIRY_DAYS));
+                        return invitationRepository.save(existing);
+                    });
         }
 
         InvitationEntity invitation = InvitationEntity.builder()

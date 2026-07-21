@@ -20,7 +20,9 @@ public interface DailyMenuRepository extends JpaRepository<DailyMenuEntity, UUID
             WHERE d.space.id = :spaceId
               AND d.menuDate BETWEEN :from AND :to
               AND d.isDeleted = false
-              AND (:publishedOnly = false OR d.status = com.countin.countin_backend.meal.domain.model.DailyMenuStatus.PUBLISHED)
+              AND (:publishedOnly = false OR d.status IN (
+                    com.countin.countin_backend.meal.domain.model.DailyMenuStatus.PUBLISHED,
+                    com.countin.countin_backend.meal.domain.model.DailyMenuStatus.MODIFIED))
             ORDER BY d.menuDate ASC, d.mealType ASC
             """)
     List<DailyMenuEntity> findBySpaceAndDateRange(
@@ -46,7 +48,9 @@ public interface DailyMenuRepository extends JpaRepository<DailyMenuEntity, UUID
             WHERE d.space.id = :spaceId
               AND d.menuDate = :menuDate
               AND d.isDeleted = false
-              AND (:publishedOnly = false OR d.status = :status)
+              AND (:publishedOnly = false OR d.status IN (
+                    com.countin.countin_backend.meal.domain.model.DailyMenuStatus.PUBLISHED,
+                    com.countin.countin_backend.meal.domain.model.DailyMenuStatus.MODIFIED))
             ORDER BY d.mealType ASC
             """)
     List<DailyMenuEntity> findBySpaceAndDate(

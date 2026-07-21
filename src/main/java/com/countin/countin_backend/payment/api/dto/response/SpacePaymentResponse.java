@@ -9,6 +9,7 @@ import com.countin.countin_backend.payment.infrastructure.persistence.entity.Spa
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Getter;
@@ -40,10 +41,18 @@ public class SpacePaymentResponse {
     private LocalDateTime reviewedAt;
     private LocalDate paymentDate;
     private String targetLabel;
+    /** Present when this payment covers multiple meal days from one bulk proof. */
+    private String paymentBatchId;
+    /** Meal day dates covered by this payment (what was paid). */
+    private List<LocalDate> mealDates;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
     public static SpacePaymentResponse from(SpacePaymentEntity entity) {
+        return from(entity, null);
+    }
+
+    public static SpacePaymentResponse from(SpacePaymentEntity entity, List<LocalDate> mealDates) {
         return SpacePaymentResponse.builder()
                 .paymentId(entity.getId())
                 .spaceId(entity.getSpace().getId())
@@ -68,6 +77,8 @@ public class SpacePaymentResponse {
                 .reviewedAt(entity.getReviewedAt())
                 .paymentDate(entity.getPaymentDate())
                 .targetLabel(entity.getTargetLabel())
+                .paymentBatchId(entity.getPaymentBatchId())
+                .mealDates(mealDates)
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();

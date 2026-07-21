@@ -5,6 +5,8 @@ import com.countin.countin_backend.common.exception.ResourceNotFoundException;
 import com.countin.countin_backend.meal.api.dto.request.CopyDailyMenuRequest;
 import com.countin.countin_backend.meal.api.dto.request.DailyMenuOptionRequest;
 import com.countin.countin_backend.meal.api.dto.request.UpsertDailyMenuRequest;
+import com.countin.countin_backend.meal.application.support.PublishedMenuSnapshot;
+import com.countin.countin_backend.meal.api.dto.response.DailyMenuOptionResponse;
 import com.countin.countin_backend.meal.api.dto.response.DailyMenuResponse;
 import com.countin.countin_backend.meal.domain.model.DailyMenuEntryType;
 import com.countin.countin_backend.meal.domain.model.DailyMenuStatus;
@@ -19,8 +21,11 @@ import com.countin.countin_backend.meal.infrastructure.persistence.repository.Da
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.DailyMenuRepository;
 import com.countin.countin_backend.meal.infrastructure.persistence.repository.MealPollOptionRepository;
 import com.countin.countin_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
+import com.countin.countin_backend.space.domain.model.SpaceType;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -35,6 +40,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -43,6 +50,7 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class DailyMenuService {
 
+    private static final Logger log = LoggerFactory.getLogger(DailyMenuService.class);
     private static final int MAX_DATE_RANGE_DAYS = 31;
 
     private final DailyMenuRepository dailyMenuRepository;
@@ -53,44 +61,53 @@ public class DailyMenuService {
     private final FoodCatalogService foodCatalogService;
     private final SpaceRepository spaceRepository;
     private final MealAccessService mealAccessService;
+    private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
     public List<DailyMenuResponse> listMenus(UUID spaceId, UUID callerId, LocalDate from, LocalDate to) {
         SpaceMembershipEntity membership = mealAccessService.requireViewMeals(spaceId, callerId);
         validateDateRange(from, to);
         boolean publishedOnly = !mealAccessService.canManageMeals(membership);
-        return toResponses(dailyMenuRepository.findBySpaceAndDateRange(spaceId, from, to, publishedOnly));
+        return toResponses(
+                dailyMenuRepository.findBySpaceAndDateRange(spaceId, from, to, publishedOnly),
+                publishedOnly);
     }
 
     @Transactional(readOnly = true)
     public List<DailyMenuResponse> getTodayMenus(UUID spaceId, UUID callerId) {
         mealAccessService.requireViewMeals(spaceId, callerId);
-        return toResponses(dailyMenuRepository.findBySpaceAndDate(
-                spaceId, LocalDate.now(), true, DailyMenuStatus.PUBLISHED));
+        return toResponses(
+                dailyMenuRepository.findBySpaceAndDate(
+                        spaceId, LocalDate.now(), true, DailyMenuStatus.PUBLISHED),
+                true);
     }
 
     @Transactional(readOnly = true)
     public List<DailyMenuResponse> getMenusByDate(UUID spaceId, UUID callerId, LocalDate date) {
         SpaceMembershipEntity membership = mealAccessService.requireViewMeals(spaceId, callerId);
         boolean publishedOnly = !mealAccessService.canManageMeals(membership);
-        return toResponses(dailyMenuRepository.findBySpaceAndDate(
-                spaceId, date, publishedOnly, DailyMenuStatus.PUBLISHED));
+        return toResponses(
+                dailyMenuRepository.findBySpaceAndDate(
+                        spaceId, date, publishedOnly, DailyMenuStatus.PUBLISHED),
+                publishedOnly);
     }
 
     @Transactional(readOnly = true)
     public DailyMenuResponse getMenu(UUID spaceId, UUID callerId, LocalDate date, MealType mealType) {
         SpaceMembershipEntity membership = mealAccessService.requireViewMeals(spaceId, callerId);
         DailyMenuEntity menu = loadMenu(spaceId, date, mealType);
-        if (!mealAccessService.canManageMeals(membership)
-                && menu.getStatus() != DailyMenuStatus.PUBLISHED) {
+        boolean customerView = !mealAccessService.canManageMeals(membership);
+        if (customerView
+                && menu.getStatus() != DailyMenuStatus.PUBLISHED
+                && menu.getStatus() != DailyMenuStatus.MODIFIED) {
             throw new BusinessException("Daily menu is not published yet", HttpStatus.NOT_FOUND);
         }
-        return toResponse(menu);
+        return toResponse(menu, customerView);
     }
 
     /**
-     * Upserts a daily menu. New menus start as DRAFT. Published menus can be edited in-place without
-     * reverting to draft (MVP published-edit policy).
+     * Upserts a daily menu. New menus start as DRAFT. Editing a PUBLISHED menu freezes the last
+     * shared snapshot and marks the menu MODIFIED until the owner shares again.
      */
     @Transactional
     public DailyMenuResponse upsertMenu(
@@ -111,38 +128,51 @@ public class DailyMenuService {
             menu.setDeleted(false);
             menu.setStatus(DailyMenuStatus.DRAFT);
             menu.setPublishedAt(null);
+            menu.setPublishedSnapshot(null);
+        }
+
+        if (menu.getStatus() == DailyMenuStatus.PUBLISHED) {
+            // Freeze customer-visible copy before applying owner edits.
+            capturePublishedSnapshot(menu);
+            menu.setStatus(DailyMenuStatus.MODIFIED);
         }
 
         menu.setNotes(request.getNotes());
         menu = dailyMenuRepository.save(menu);
         List<DailyMenuOptionRequest> options =
                 request.getOptions() != null ? request.getOptions() : Collections.emptyList();
+        validateExtraOptions(space, options);
         syncEntries(spaceId, menu, options);
-        return toResponse(menu);
+        return toResponse(menu, false);
     }
 
     @Transactional
     public DailyMenuResponse publishMenu(UUID spaceId, UUID callerId, LocalDate date, MealType mealType) {
         mealAccessService.requireManageMeals(spaceId, callerId);
         DailyMenuEntity menu = loadMenu(spaceId, date, mealType);
-        if (menu.getStatus() == DailyMenuStatus.PUBLISHED) {
-            return toResponse(menu);
-        }
         List<DailyMenuEntryEntity> entries = dailyMenuEntryRepository.findByDailyMenuId(menu.getId());
         if (entries.stream().noneMatch(DailyMenuEntryEntity::isAvailable)) {
             throw new BusinessException(
                     "At least one available option is required to publish", HttpStatus.BAD_REQUEST);
         }
+        if (menu.getStatus() == DailyMenuStatus.PUBLISHED) {
+            // Refresh snapshot / timestamp so Share Again stays intentional after drifts.
+            capturePublishedSnapshot(menu);
+            menu.setPublishedAt(LocalDateTime.now());
+            return toResponse(dailyMenuRepository.save(menu), false);
+        }
         menu.setStatus(DailyMenuStatus.PUBLISHED);
         menu.setPublishedAt(LocalDateTime.now());
-        return toResponse(dailyMenuRepository.save(menu));
+        capturePublishedSnapshot(menu);
+        return toResponse(dailyMenuRepository.save(menu), false);
     }
 
     @Transactional
     public void deleteDraftMenu(UUID spaceId, UUID callerId, LocalDate date, MealType mealType) {
         mealAccessService.requireManageMeals(spaceId, callerId);
         DailyMenuEntity menu = loadMenu(spaceId, date, mealType);
-        if (menu.getStatus() == DailyMenuStatus.PUBLISHED) {
+        if (menu.getStatus() == DailyMenuStatus.PUBLISHED
+                || menu.getStatus() == DailyMenuStatus.MODIFIED) {
             throw new BusinessException("Published menus cannot be deleted", HttpStatus.CONFLICT);
         }
         menu.setDeleted(true);
@@ -201,6 +231,7 @@ public class DailyMenuService {
                     .label(sourceEntry.getLabel())
                     .sortOrder(sourceEntry.getSortOrder())
                     .isAvailable(sourceEntry.isAvailable())
+                    .isExtra(sourceEntry.isExtra())
                     .price(sourceEntry.getPrice())
                     .currencyCode(sourceEntry.getCurrencyCode())
                     .build());
@@ -209,14 +240,14 @@ public class DailyMenuService {
             }
         }
 
-        return toResponse(target);
+        return toResponse(target, false);
     }
 
     public boolean isPublished(UUID spaceId, LocalDate date, MealType mealType) {
         return publishedMealTypes(spaceId, date).contains(mealType);
     }
 
-    /** One query for all published meal types on a date (avoids 3× findBySpaceDateAndType). */
+    /** One query for all customer-visible (shared or modified-with-snapshot) meal types on a date. */
     public Set<MealType> publishedMealTypes(UUID spaceId, LocalDate date) {
         return dailyMenuRepository
                 .findBySpaceAndDate(spaceId, date, true, DailyMenuStatus.PUBLISHED)
@@ -225,7 +256,7 @@ public class DailyMenuService {
                 .collect(Collectors.toCollection(() -> EnumSet.noneOf(MealType.class)));
     }
 
-    private List<DailyMenuResponse> toResponses(List<DailyMenuEntity> menus) {
+    private List<DailyMenuResponse> toResponses(List<DailyMenuEntity> menus, boolean customerView) {
         if (menus.isEmpty()) {
             return List.of();
         }
@@ -260,16 +291,35 @@ public class DailyMenuService {
 
         List<DailyMenuResponse> responses = new ArrayList<>(menus.size());
         for (DailyMenuEntity menu : menus) {
+            if (customerView
+                    && menu.getStatus() == DailyMenuStatus.MODIFIED
+                    && menu.getPublishedSnapshot() != null
+                    && !menu.getPublishedSnapshot().isBlank()) {
+                PublishedMenuSnapshot snapshot = readSnapshot(menu.getPublishedSnapshot());
+                if (snapshot != null) {
+                    // Customers keep seeing the last shared menu as PUBLISHED until reshare.
+                    responses.add(DailyMenuResponse.builder()
+                            .dailyMenuId(menu.getId())
+                            .menuDate(menu.getMenuDate())
+                            .mealType(menu.getMealType())
+                            .status(DailyMenuStatus.PUBLISHED)
+                            .publishedAt(menu.getPublishedAt())
+                            .notes(snapshot.getNotes())
+                            .options(snapshot.toOptionResponses())
+                            .build());
+                    continue;
+                }
+            }
+
             List<DailyMenuEntryEntity> entries =
                     entriesByMenuId.getOrDefault(menu.getId(), List.of());
-            List<com.countin.countin_backend.meal.api.dto.response.DailyMenuOptionResponse> options =
-                    new ArrayList<>(entries.size());
+            List<DailyMenuOptionResponse> options = new ArrayList<>(entries.size());
             for (DailyMenuEntryEntity entry : entries) {
                 if (entry.getEntryType() == DailyMenuEntryType.PACKAGE) {
-                    options.add(com.countin.countin_backend.meal.api.dto.response.DailyMenuOptionResponse.from(
+                    options.add(DailyMenuOptionResponse.from(
                             entry, packageItemsByEntryId.getOrDefault(entry.getId(), List.of())));
                 } else {
-                    options.add(com.countin.countin_backend.meal.api.dto.response.DailyMenuOptionResponse.from(entry));
+                    options.add(DailyMenuOptionResponse.from(entry));
                 }
             }
             responses.add(DailyMenuResponse.builder()
@@ -285,8 +335,8 @@ public class DailyMenuService {
         return responses;
     }
 
-    private DailyMenuResponse toResponse(DailyMenuEntity menu) {
-        List<DailyMenuResponse> responses = toResponses(List.of(menu));
+    private DailyMenuResponse toResponse(DailyMenuEntity menu, boolean customerView) {
+        List<DailyMenuResponse> responses = toResponses(List.of(menu), customerView);
         return responses.isEmpty()
                 ? DailyMenuResponse.builder()
                         .dailyMenuId(menu.getId())
@@ -298,6 +348,26 @@ public class DailyMenuService {
                         .options(List.of())
                         .build()
                 : responses.get(0);
+    }
+
+    private void capturePublishedSnapshot(DailyMenuEntity menu) {
+        DailyMenuResponse live = toResponse(menu, false);
+        PublishedMenuSnapshot snapshot =
+                PublishedMenuSnapshot.from(live.getNotes(), live.getOptions());
+        try {
+            menu.setPublishedSnapshot(objectMapper.writeValueAsString(snapshot));
+        } catch (JsonProcessingException ex) {
+            log.warn("daily_menu_snapshot_write_failed menuId={}", menu.getId(), ex);
+        }
+    }
+
+    private PublishedMenuSnapshot readSnapshot(String json) {
+        try {
+            return objectMapper.readValue(json, PublishedMenuSnapshot.class);
+        } catch (JsonProcessingException ex) {
+            log.warn("daily_menu_snapshot_read_failed", ex);
+            return null;
+        }
     }
 
     private DailyMenuEntity loadMenu(UUID spaceId, LocalDate date, MealType mealType) {
@@ -403,7 +473,43 @@ public class DailyMenuService {
         if (existingIds.size() != requestedIds.size()) {
             return false;
         }
+        if (entry.isExtra() != option.isExtra()) {
+            return false;
+        }
         return new HashSet<>(existingIds).equals(new HashSet<>(requestedIds));
+    }
+
+    private void validateExtraOptions(SpaceEntity space, List<DailyMenuOptionRequest> options) {
+        boolean anyExtra = options.stream().anyMatch(DailyMenuOptionRequest::isExtra);
+        if (!anyExtra) {
+            return;
+        }
+        if (space.getType() != SpaceType.MESS) {
+            throw new BusinessException(
+                    "Meal extras are only supported for Mess spaces", HttpStatus.BAD_REQUEST);
+        }
+        for (DailyMenuOptionRequest option : options) {
+            if (!option.isExtra()) {
+                continue;
+            }
+            DailyMenuEntryType entryType = resolveEntryType(option);
+            if (entryType != DailyMenuEntryType.PACKAGE) {
+                throw new BusinessException(
+                        "Meal extras must be PACKAGE entries from the item catalog",
+                        HttpStatus.BAD_REQUEST);
+            }
+            List<UUID> itemIds = option.getItemIds() == null ? List.of() : option.getItemIds();
+            if (itemIds.size() != 1) {
+                throw new BusinessException(
+                        "Meal extras must reference exactly one catalog item", HttpStatus.BAD_REQUEST);
+            }
+            UUID itemId = itemIds.get(0);
+            if (!foodCatalogService.isConfiguredExtra(space.getId(), itemId)) {
+                throw new BusinessException(
+                        "Enable this item as an Extra in Menu Library before adding it to a meal",
+                        HttpStatus.BAD_REQUEST);
+            }
+        }
     }
 
     private DailyMenuEntryType applyScalarsToEntry(
@@ -427,6 +533,7 @@ public class DailyMenuService {
         entry.setLabel(option.getLabel().trim());
         entry.setSortOrder(option.getSortOrder());
         entry.setAvailable(option.isAvailable());
+        entry.setExtra(option.isExtra());
         if (entryType == DailyMenuEntryType.PACKAGE) {
             MealPriceValidator.validateOptionalPrice(option.getPrice());
             entry.setPrice(option.getPrice());
@@ -434,6 +541,7 @@ public class DailyMenuService {
         } else {
             entry.setPrice(null);
             entry.setCurrencyCode("INR");
+            entry.setExtra(false);
         }
         return entryType;
     }

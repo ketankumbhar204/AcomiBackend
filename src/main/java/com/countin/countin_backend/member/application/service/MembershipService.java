@@ -9,6 +9,7 @@ import com.countin.countin_backend.member.domain.model.MembershipStatus;
 import com.countin.countin_backend.member.infrastructure.persistence.entity.InvitationEntity;
 import com.countin.countin_backend.member.infrastructure.persistence.repository.InvitationRepository;
 import com.countin.countin_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
+import com.countin.countin_backend.notification.application.service.InvitationNotificationSyncService;
 import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import java.util.List;
 import java.util.UUID;
@@ -26,6 +27,7 @@ public class MembershipService {
     private final SpaceRepository spaceRepository;
     private final SpaceMembershipRepository spaceMembershipRepository;
     private final InvitationRepository invitationRepository;
+    private final InvitationNotificationSyncService invitationNotificationSyncService;
 
     @Transactional(readOnly = true)
     public List<PendingInvitationResponse> getPendingInvitations(UUID spaceId, UUID callerId) {
@@ -51,6 +53,7 @@ public class MembershipService {
 
         invitation.setStatus(InvitationStatus.CANCELLED);
         invitationRepository.save(invitation);
+        invitationNotificationSyncService.onInvitationCancelledOrExpired(invitation);
     }
 
     private void assertSpaceExists(UUID spaceId) {
