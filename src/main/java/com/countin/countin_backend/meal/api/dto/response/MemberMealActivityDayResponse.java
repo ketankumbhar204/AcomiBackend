@@ -22,6 +22,9 @@ public class MemberMealActivityDayResponse {
     private BigDecimal dayTotal;
     private String currencyCode;
     private MealPollPaymentStatus paymentStatus;
+    private String paymentBatchId;
+    /** Immutable human-readable payment reference when a payment exists for the day. */
+    private String paymentReference;
 
     private List<MemberMealActivitySlotResponse> slots;
 }

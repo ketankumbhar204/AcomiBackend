@@ -53,6 +53,7 @@ public class SpacePaymentService {
     private final PaymentNotificationSyncService paymentNotificationSyncService;
     private final MealDaySpacePaymentBridge mealDaySpacePaymentBridge;
     private final PaymentMonthSnapshotService snapshotService;
+    private final PaymentReferenceService paymentReferenceService;
 
     @Transactional
     public SpacePaymentListResponse listPayments(
@@ -183,6 +184,11 @@ public class SpacePaymentService {
         if (request.getPaymentMethod() != null) {
             payment.setPaymentMethod(request.getPaymentMethod());
         }
+        payment.setPaymentReference(
+                paymentReferenceService.ensureReference(
+                        payment.getPaymentReference(),
+                        payment.getSpace().getId(),
+                        LocalDate.now()));
         payment.setPaymentStatus(SpacePaymentStatus.UNDER_REVIEW);
         payment.setRejectionReason(null);
         payment.setRejectionCode(null);
@@ -411,6 +417,7 @@ public class SpacePaymentService {
                 .paymentDate(response.getPaymentDate())
                 .targetLabel(label)
                 .paymentBatchId(response.getPaymentBatchId())
+                .paymentReference(response.getPaymentReference())
                 .mealDates(response.getMealDates())
                 .createdAt(response.getCreatedAt())
                 .updatedAt(response.getUpdatedAt())

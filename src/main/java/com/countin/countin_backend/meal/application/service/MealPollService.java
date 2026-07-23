@@ -24,7 +24,6 @@ import com.countin.countin_backend.meal.domain.model.MealPollPaymentStatus;
 import com.countin.countin_backend.meal.domain.model.MealPollResponseSource;
 import com.countin.countin_backend.meal.domain.model.MealPollStatus;
 import com.countin.countin_backend.meal.domain.model.MealType;
-import com.countin.countin_backend.payment.domain.model.SpacePaymentMethod;
 import com.countin.countin_backend.meal.domain.policy.MealPollEligibilityPolicy;
 import com.countin.countin_backend.meal.domain.policy.MemberSubscriptionPolicy;
 import com.countin.countin_backend.meal.application.support.MealBillingResolver;
@@ -65,6 +64,7 @@ import com.countin.countin_backend.notification.domain.model.NotificationEntityT
 import com.countin.countin_backend.notification.domain.model.NotificationPriority;
 import com.countin.countin_backend.notification.domain.model.NotificationType;
 import com.countin.countin_backend.payment.application.service.MealDaySpacePaymentBridge;
+import com.countin.countin_backend.payment.application.service.PaymentReferenceService;
 import com.countin.countin_backend.payment.domain.model.SpacePaymentMethod;
 import com.countin.countin_backend.space.domain.model.MealBillingType;
 import com.countin.countin_backend.space.domain.model.SpaceType;
@@ -113,6 +113,7 @@ public class MealPollService {
     private final NotificationService notificationService;
     private final SpaceMembershipRepository membershipRepository;
     private final MealDaySpacePaymentBridge mealDaySpacePaymentBridge;
+    private final PaymentReferenceService paymentReferenceService;
 
     @Transactional(readOnly = true)
     public MealPollDayResponse getPollsForDate(UUID spaceId, UUID callerId, LocalDate date) {
@@ -584,24 +585,31 @@ public class MealPollService {
         validateOptionalProofImage(request.getProofImageBase64());
         String proofUrl = normalizeProofImage(request.getProofImageBase64());
         String batchId = buildPaymentBatchId(LocalDate.now());
+        String sharedReference = null;
         ArrayList<MealPollDayPaymentEntity> updatedDays = new ArrayList<>();
 
         for (LocalDate pollDate : dates) {
-            updatedDays.add(applyProofToDayPayment(
+            MealPollDayPaymentEntity updated = applyProofToDayPayment(
                     space,
                     member,
                     pollDate,
                     proofUrl,
                     batchId,
+                    sharedReference,
                     callerId,
                     request.getReferenceNumber(),
                     request.getRemarks(),
-                    request.getPaymentMethod()));
+                    request.getPaymentMethod());
+            updatedDays.add(updated);
+            if (sharedReference == null) {
+                sharedReference = updated.getPaymentReference();
+            }
         }
         mealDaySpacePaymentBridge.mirrorBulkProofSubmitted(updatedDays, batchId, callerId);
 
         return BulkMealPollPaymentProofResponse.builder()
                 .paymentBatchId(batchId)
+                .paymentReference(sharedReference)
                 .dates(dates)
                 .updatedCount(dates.size())
                 .build();
@@ -613,6 +621,30 @@ public class MealPollService {
             LocalDate pollDate,
             String proofUrl,
             String paymentBatchId,
+            UUID callerId,
+            String referenceNumber,
+            String remarks,
+            SpacePaymentMethod paymentMethod) {
+        return applyProofToDayPayment(
+                space,
+                member,
+                pollDate,
+                proofUrl,
+                paymentBatchId,
+                null,
+                callerId,
+                referenceNumber,
+                remarks,
+                paymentMethod);
+    }
+
+    private MealPollDayPaymentEntity applyProofToDayPayment(
+            SpaceEntity space,
+            MemberEntity member,
+            LocalDate pollDate,
+            String proofUrl,
+            String paymentBatchId,
+            String paymentReference,
             UUID callerId,
             String referenceNumber,
             String remarks,
@@ -650,6 +682,14 @@ public class MealPollService {
         if (paymentBatchId != null) {
             payment.setPaymentBatchId(paymentBatchId);
         }
+        // Mint once; never overwrite an existing reference on resubmit.
+        String resolvedReference = paymentReferenceService.ensureReference(
+                payment.getPaymentReference() != null
+                        ? payment.getPaymentReference()
+                        : paymentReference,
+                space.getId(),
+                LocalDate.now());
+        payment.setPaymentReference(resolvedReference);
         if (payment.getChargedAmount() == null) {
             payment.setChargedAmount(computeMemberDayCharge(space.getId(), member.getId(), pollDate));
         }

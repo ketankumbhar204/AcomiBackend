@@ -10,6 +10,8 @@ import lombok.Getter;
 public class BulkMealPollPaymentProofResponse {
 
     private String paymentBatchId;
+    /** Immutable human-readable payment reference for the submitted batch. */
+    private String paymentReference;
     private List<LocalDate> dates;
     private int updatedCount;
 }

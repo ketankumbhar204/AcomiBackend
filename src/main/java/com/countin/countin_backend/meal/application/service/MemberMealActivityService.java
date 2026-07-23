@@ -201,6 +201,8 @@ public class MemberMealActivityService {
                     .dayTotal(dayTotal.compareTo(BigDecimal.ZERO) > 0 ? dayTotal : null)
                     .currencyCode("INR")
                     .paymentStatus(paymentStatus)
+                    .paymentBatchId(dayPayment != null ? dayPayment.getPaymentBatchId() : null)
+                    .paymentReference(dayPayment != null ? dayPayment.getPaymentReference() : null)
                     .slots(slots)
                     .build());
         }
@@ -403,6 +405,7 @@ public class MemberMealActivityService {
                 .paymentStatus(payment.getPaymentStatus())
                 .chargedAmount(payment.getChargedAmount())
                 .paymentBatchId(payment.getPaymentBatchId())
+                .paymentReference(payment.getPaymentReference())
                 .proofImageUrl(payment.getProofImageUrl())
                 .referenceNumber(payment.getReferenceNumber())
                 .remarks(payment.getRemarks())

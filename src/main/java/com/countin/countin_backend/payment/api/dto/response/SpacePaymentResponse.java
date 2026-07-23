@@ -43,6 +43,11 @@ public class SpacePaymentResponse {
     private String targetLabel;
     /** Present when this payment covers multiple meal days from one bulk proof. */
     private String paymentBatchId;
+    /**
+     * Immutable human-readable payment reference (e.g. PAY-20260720-000123).
+     * Prefer this over paymentBatchId / paymentId for customer and owner display.
+     */
+    private String paymentReference;
     /** Meal day dates covered by this payment (what was paid). */
     private List<LocalDate> mealDates;
     private LocalDateTime createdAt;
@@ -78,6 +83,7 @@ public class SpacePaymentResponse {
                 .paymentDate(entity.getPaymentDate())
                 .targetLabel(entity.getTargetLabel())
                 .paymentBatchId(entity.getPaymentBatchId())
+                .paymentReference(entity.getPaymentReference())
                 .mealDates(mealDates)
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())

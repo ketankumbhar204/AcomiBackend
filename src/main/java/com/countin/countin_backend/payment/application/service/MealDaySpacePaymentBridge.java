@@ -22,6 +22,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +39,8 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class MealDaySpacePaymentBridge {
 
+    private static final Logger log = LoggerFactory.getLogger(MealDaySpacePaymentBridge.class);
+
     private static final DateTimeFormatter DAY_TITLE =
             DateTimeFormatter.ofPattern("EEE, d MMM yyyy", Locale.ENGLISH);
     private static final DateTimeFormatter DAY_SHORT =
@@ -46,6 +50,7 @@ public class MealDaySpacePaymentBridge {
     private final MealPollDayPaymentRepository dayPaymentRepository;
     private final SpacePaymentTimelineService timelineService;
     private final PaymentNotificationSyncService paymentNotificationSyncService;
+    private final PaymentMonthSnapshotService snapshotService;
 
     @Transactional
     public void mirrorProofSubmitted(MealPollDayPaymentEntity dayPayment, UUID actorUserId) {
@@ -58,17 +63,16 @@ public class MealDaySpacePaymentBridge {
         }
         SpacePaymentEntity payment = upsertDailyMealPayment(dayPayment);
         applyProofFields(payment, dayPayment);
+        // Always refresh amount — existing PENDING rows may have been created with 0/null.
+        payment.setAmount(safeAmount(dayPayment.getChargedAmount()));
         boolean wasReview = isUnderReview(payment);
         payment.setPaymentStatus(SpacePaymentStatus.UNDER_REVIEW);
         clearReviewFields(payment);
         paymentRepository.save(payment);
         recordProofTimeline(payment, dayPayment.getRemarks(), actorUserId, wasReview);
         paymentNotificationSyncService.onProofSubmitted(payment, actorUserId, wasReview);
+        refreshSnapshotQuietly(payment, actorUserId);
     }
-
-    /**
-     * Mirror a multi-day proof into a single space payment (amount = sum of day charges).
-     */
     @Transactional
     public void mirrorBulkProofSubmitted(
             List<MealPollDayPaymentEntity> dayPayments, String batchId, UUID actorUserId) {
@@ -126,6 +130,7 @@ public class MealDaySpacePaymentBridge {
         paymentRepository.save(payment);
         recordProofTimeline(payment, first.getRemarks(), actorUserId, wasReview);
         paymentNotificationSyncService.onProofSubmitted(payment, actorUserId, wasReview);
+        refreshSnapshotQuietly(payment, actorUserId);
     }
 
     @Transactional
@@ -149,6 +154,7 @@ public class MealDaySpacePaymentBridge {
         timelineService.record(payment, PaymentTimelineEventType.APPROVED, null, actorUserId);
         timelineService.record(payment, PaymentTimelineEventType.PAID, null, actorUserId);
         paymentNotificationSyncService.onApproved(payment, actorUserId);
+        refreshSnapshotQuietly(payment, actorUserId);
     }
 
     @Transactional
@@ -169,6 +175,7 @@ public class MealDaySpacePaymentBridge {
         }
         timelineService.record(payment, PaymentTimelineEventType.REJECTED, reason, actorUserId);
         paymentNotificationSyncService.onRejected(payment, actorUserId, reason);
+        refreshSnapshotQuietly(payment, actorUserId);
     }
 
     /**
@@ -239,9 +246,28 @@ public class MealDaySpacePaymentBridge {
                     && (existing.getPaymentStatus() == SpacePaymentStatus.UNDER_REVIEW
                             || existing.getPaymentStatus() == SpacePaymentStatus.PROOF_UPLOADED
                             || existing.getPaymentStatus() == SpacePaymentStatus.PAID)) {
+                // Repair zero/null amounts so monthly Under Review KPI stays accurate.
+                BigDecimal charged = safeAmount(day.getChargedAmount());
+                if (charged.signum() > 0
+                        && (existing.getAmount() == null || existing.getAmount().signum() <= 0)) {
+                    existing.setAmount(charged);
+                    applyProofFields(existing, day);
+                    paymentRepository.save(existing);
+                }
                 continue;
             }
             mirrorProofSubmitted(day, actorUserId);
+        }
+        // Single rebuild after batch backfill (individual mirrors also refresh; keep final heal).
+        paymentRepository.flush();
+        try {
+            snapshotService.refreshAfterMutation(spaceId, actorUserId, month.toString());
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "payment_snapshot_refresh_failed spaceId={} month={}",
+                    spaceId,
+                    month,
+                    ex);
         }
     }
 
@@ -272,6 +298,11 @@ public class MealDaySpacePaymentBridge {
             day.setProofReviewedAt(null);
             day.setProofReviewedBy(null);
             day.setRejectionReason(null);
+        }
+        if ((day.getPaymentReference() == null || day.getPaymentReference().isBlank())
+                && payment.getPaymentReference() != null
+                && !payment.getPaymentReference().isBlank()) {
+            day.setPaymentReference(payment.getPaymentReference());
         }
     }
 
@@ -324,6 +355,12 @@ public class MealDaySpacePaymentBridge {
         payment.setReferenceNumber(dayPayment.getReferenceNumber());
         payment.setRemarks(dayPayment.getRemarks());
         payment.setPaymentMethod(dayPayment.getPaymentMethod());
+        // Copy immutable payment reference once; never overwrite if already set.
+        if ((payment.getPaymentReference() == null || payment.getPaymentReference().isBlank())
+                && dayPayment.getPaymentReference() != null
+                && !dayPayment.getPaymentReference().isBlank()) {
+            payment.setPaymentReference(dayPayment.getPaymentReference());
+        }
     }
 
     private void recordProofTimeline(
@@ -367,5 +404,23 @@ public class MealDaySpacePaymentBridge {
 
     private static BigDecimal safeAmount(BigDecimal amount) {
         return amount != null && amount.compareTo(BigDecimal.ZERO) > 0 ? amount : BigDecimal.ZERO;
+    }
+
+    private void refreshSnapshotQuietly(SpacePaymentEntity payment, UUID actorUserId) {
+        if (payment == null || payment.getSpace() == null) {
+            return;
+        }
+        UUID spaceId = payment.getSpace().getId();
+        String month = payment.getMonth();
+        try {
+            paymentRepository.flush();
+            snapshotService.refreshAfterMutation(spaceId, actorUserId, month);
+        } catch (RuntimeException ex) {
+            log.warn(
+                    "payment_snapshot_refresh_failed spaceId={} month={}",
+                    spaceId,
+                    month,
+                    ex);
+        }
     }
 }

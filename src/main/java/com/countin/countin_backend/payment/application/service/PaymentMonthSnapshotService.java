@@ -6,12 +6,15 @@ import com.countin.countin_backend.dashboard.api.dto.response.MemberPaymentLedge
 import com.countin.countin_backend.dashboard.api.dto.response.PrepaidBalanceSummaryResponse;
 import com.countin.countin_backend.dashboard.application.service.SpaceBillingService;
 import com.countin.countin_backend.dashboard.application.support.PayPerMealBillingCalculator;
+import com.countin.countin_backend.dashboard.application.support.SpacePaymentLedgerSupport;
 import com.countin.countin_backend.dashboard.domain.model.MemberPaymentStatus;
 import com.countin.countin_backend.payment.application.support.PaymentMonthCountsSupport;
+import com.countin.countin_backend.payment.infrastructure.persistence.entity.SpacePaymentEntity;
 import com.countin.countin_backend.payment.infrastructure.persistence.entity.SpacePaymentMemberMonthEntity;
 import com.countin.countin_backend.payment.infrastructure.persistence.entity.SpacePaymentMonthSummaryEntity;
 import com.countin.countin_backend.payment.infrastructure.persistence.repository.SpacePaymentMemberMonthRepository;
 import com.countin.countin_backend.payment.infrastructure.persistence.repository.SpacePaymentMonthSummaryRepository;
+import com.countin.countin_backend.payment.infrastructure.persistence.repository.SpacePaymentRepository;
 import java.math.BigDecimal;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -47,6 +50,8 @@ public class PaymentMonthSnapshotService {
     private final SpaceBillingService spaceBillingService;
     private final SpacePaymentMemberMonthRepository memberMonthRepository;
     private final SpacePaymentMonthSummaryRepository summaryRepository;
+    private final SpacePaymentRepository paymentRepository;
+    private final SpacePaymentLedgerSupport spacePaymentLedgerSupport;
     private final PayPerMealBillingCalculator payPerMealBillingCalculator;
 
     @Transactional
@@ -62,21 +67,46 @@ public class PaymentMonthSnapshotService {
     /**
      * Lazily materialize snapshot when missing. Not payment sync — only caches ledger math.
      * Concurrent callers block on the same lock and then see the existing summary row.
+     *
+     * <p>Also heals stale rows where meal-day proofs landed in the review queue without a
+     * snapshot rebuild (Under Review KPI stayed empty while Pending Review had items).
      */
     @Transactional
     public void ensureMonth(UUID spaceId, UUID callerId, YearMonth month) {
         String monthKey = month.toString();
-        if (summaryRepository.existsBySpaceIdAndMonth(spaceId, monthKey)) {
-            return;
-        }
         String lockKey = spaceId + "|" + monthKey;
         Object lock = rebuildLocks.computeIfAbsent(lockKey, ignored -> new Object());
         synchronized (lock) {
-            if (summaryRepository.existsBySpaceIdAndMonth(spaceId, monthKey)) {
+            if (!summaryRepository.existsBySpaceIdAndMonth(spaceId, monthKey)) {
+                rebuildMonthUnlocked(spaceId, callerId, month);
                 return;
             }
-            rebuildMonthUnlocked(spaceId, callerId, month);
+            if (needsUnderReviewHeal(spaceId, monthKey)) {
+                log.info(
+                        "payment_snapshot_under_review_heal spaceId={} month={}",
+                        spaceId,
+                        monthKey);
+                rebuildMonthUnlocked(spaceId, callerId, month);
+            }
         }
+    }
+
+    /**
+     * Snapshot underReview is empty/null but live UNDER_REVIEW / PROOF_UPLOADED payments have
+     * amounts — typically after meal proof mirror without {@link #refreshAfterMutation}.
+     */
+    private boolean needsUnderReviewHeal(UUID spaceId, String monthKey) {
+        SpacePaymentMonthSummaryEntity summary =
+                summaryRepository.findBySpaceIdAndMonth(spaceId, monthKey).orElse(null);
+        if (summary == null) {
+            return false;
+        }
+        BigDecimal snapUnderReview = summary.getUnderReview();
+        if (snapUnderReview != null && snapUnderReview.signum() > 0) {
+            return false;
+        }
+        List<SpacePaymentEntity> payments = paymentRepository.findBySpaceIdAndMonth(spaceId, monthKey);
+        return spacePaymentLedgerSupport.sumUnderReviewAmount(payments).signum() > 0;
     }
 
     /** Caller must hold rebuildLocks entry for space+month. */
@@ -125,12 +155,19 @@ public class PaymentMonthSnapshotService {
             int size) {
         String searchTerm = search == null ? "" : search.trim();
         boolean searchBlank = searchTerm.isBlank();
-        Set<MemberPaymentStatus> statuses = resolveStatusFilter(statusOrPreset);
+        // COLLECTED matches the summary KPI: any member with collected > 0 (status may still
+        // be UNDER_REVIEW / PENDING when only part of dues were approved).
+        boolean matchCollectedAmounts = isCollectedPreset(statusOrPreset);
+        Set<MemberPaymentStatus> statuses = matchCollectedAmounts
+                ? EnumSet.noneOf(MemberPaymentStatus.class)
+                : resolveStatusFilter(statusOrPreset);
         boolean statusesEmpty = statuses.isEmpty();
-        boolean matchUnderReviewAmounts = statuses.contains(MemberPaymentStatus.UNDER_REVIEW);
+        boolean matchUnderReviewAmounts =
+                !matchCollectedAmounts && statuses.contains(MemberPaymentStatus.UNDER_REVIEW);
         // Pending/Partial filters must exclude members whose residual is already covered by under review.
-        boolean excludeCoveredUnderReview = statuses.contains(MemberPaymentStatus.PENDING)
-                || statuses.contains(MemberPaymentStatus.PARTIAL);
+        boolean excludeCoveredUnderReview = !matchCollectedAmounts
+                && (statuses.contains(MemberPaymentStatus.PENDING)
+                        || statuses.contains(MemberPaymentStatus.PARTIAL));
 
         int safeSize = Math.min(Math.max(size, 1), 100);
         int safePage = Math.max(page, 0);
@@ -144,8 +181,17 @@ public class PaymentMonthSnapshotService {
                 statusesEmpty ? EnumSet.noneOf(MemberPaymentStatus.class) : statuses,
                 statusesEmpty,
                 matchUnderReviewAmounts,
+                matchCollectedAmounts,
                 excludeCoveredUnderReview,
                 pageable);
+    }
+
+    private static boolean isCollectedPreset(String statusOrPreset) {
+        if (statusOrPreset == null || statusOrPreset.isBlank()) {
+            return false;
+        }
+        String key = statusOrPreset.trim().toUpperCase(Locale.ROOT);
+        return "COLLECTED".equals(key) || "PRESET_COLLECTED".equals(key);
     }
 
     public static MemberPaymentLedgerRowResponse toRow(SpacePaymentMemberMonthEntity entity) {
@@ -320,8 +366,7 @@ public class PaymentMonthSnapshotService {
         String key = statusOrPreset.trim().toUpperCase(Locale.ROOT);
         return switch (key) {
             case "PENDING", "PRESET_PENDING" -> EnumSet.copyOf(PaymentMonthCountsSupport.PENDING_MEMBER_STATUSES);
-            case "COLLECTED", "PRESET_COLLECTED" -> EnumSet.of(
-                    MemberPaymentStatus.PAID, MemberPaymentStatus.PARTIAL);
+            case "COLLECTED", "PRESET_COLLECTED" -> EnumSet.noneOf(MemberPaymentStatus.class);
             case "UNDER_REVIEW", "PRESET_UNDER_REVIEW" -> EnumSet.of(MemberPaymentStatus.UNDER_REVIEW);
             default -> {
                 // Comma-separated statuses or single status name

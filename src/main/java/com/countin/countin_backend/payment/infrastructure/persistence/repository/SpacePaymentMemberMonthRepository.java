@@ -40,6 +40,10 @@ public interface SpacePaymentMemberMonthRepository
                        )
                   )
               AND (
+                    :matchCollectedAmounts = FALSE
+                    OR (e.collected IS NOT NULL AND e.collected > 0)
+                  )
+              AND (
                     :excludeCoveredUnderReview = FALSE
                     OR NOT (
                          e.underReview IS NOT NULL
@@ -56,6 +60,7 @@ public interface SpacePaymentMemberMonthRepository
             @Param("statuses") Collection<MemberPaymentStatus> statuses,
             @Param("statusesEmpty") boolean statusesEmpty,
             @Param("matchUnderReviewAmounts") boolean matchUnderReviewAmounts,
+            @Param("matchCollectedAmounts") boolean matchCollectedAmounts,
             @Param("excludeCoveredUnderReview") boolean excludeCoveredUnderReview,
             Pageable pageable);
 

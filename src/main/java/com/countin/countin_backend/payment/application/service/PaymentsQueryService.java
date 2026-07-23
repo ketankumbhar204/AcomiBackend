@@ -121,25 +121,39 @@ public class PaymentsQueryService {
         Page<SpacePaymentMemberMonthEntity> entityPage = snapshotService.pageMembers(
                 spaceId, month.toString(), search, statusFilter, sort, page, size);
 
+        boolean collectedPreset = statusFilter != null
+                && ("COLLECTED".equalsIgnoreCase(statusFilter.trim())
+                        || "PRESET_COLLECTED".equalsIgnoreCase(statusFilter.trim()));
+
         List<MemberPaymentLedgerRowResponse> content = entityPage.getContent().stream()
                 .map(PaymentMonthSnapshotService::toRow)
+                // Defense in depth: reconciled status can differ from stored snapshot status.
+                .filter(row -> !collectedPreset || isCollectedMemberRow(row))
                 .toList();
         Page<MemberPaymentLedgerRowResponse> mapped =
-                new PageImpl<>(content, entityPage.getPageable(), entityPage.getTotalElements());
+                new PageImpl<>(content, entityPage.getPageable(), collectedPreset ? content.size() : entityPage.getTotalElements());
 
         PaymentsMembersPageResponse response = PaymentsMembersPageResponse.builder()
                 .month(month.toString())
                 .page(PagedResponse.from(mapped))
                 .build();
         log.info(
-                "payments_members_done spaceId={} month={} page={} size={} total={} durationMs={}",
+                "payments_members_done spaceId={} month={} page={} size={} total={} statusFilter={} durationMs={}",
                 spaceId,
                 month,
                 page,
                 size,
-                entityPage.getTotalElements(),
+                mapped.getTotalElements(),
+                statusFilter,
                 System.currentTimeMillis() - started);
         return response;
+    }
+
+    /** Collected filter aligns with summary KPI: any member with collected > 0. */
+    private static boolean isCollectedMemberRow(MemberPaymentLedgerRowResponse row) {
+        return row != null
+                && row.getCollected() != null
+                && row.getCollected().signum() > 0;
     }
 
     @Transactional(readOnly = true)

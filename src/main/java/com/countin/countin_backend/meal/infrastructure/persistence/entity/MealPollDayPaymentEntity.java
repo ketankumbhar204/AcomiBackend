@@ -98,4 +98,11 @@ public class MealPollDayPaymentEntity extends BaseEntity {
      */
     @Column(name = "payment_batch_id", length = 64)
     private String paymentBatchId;
+
+    /**
+     * Immutable human-readable payment reference (e.g. PAY-20260720-000123).
+     * Minted once on first submission; never regenerated.
+     */
+    @Column(name = "payment_reference", length = 32)
+    private String paymentReference;
 }

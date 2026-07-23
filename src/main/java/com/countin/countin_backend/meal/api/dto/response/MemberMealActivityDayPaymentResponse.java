@@ -20,6 +20,8 @@ public class MemberMealActivityDayPaymentResponse {
     private MealPollPaymentStatus paymentStatus;
     private BigDecimal chargedAmount;
     private String paymentBatchId;
+    /** Immutable human-readable payment reference (e.g. PAY-20260720-000123). */
+    private String paymentReference;
     private String proofImageUrl;
     private String referenceNumber;
     private String remarks;
