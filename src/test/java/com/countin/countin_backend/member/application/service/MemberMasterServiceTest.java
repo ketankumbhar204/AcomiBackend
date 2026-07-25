@@ -13,6 +13,7 @@ import com.countin.countin_backend.common.exception.ResourceNotFoundException;
 import com.countin.countin_backend.member.api.dto.request.CreateMemberDocumentRequest;
 import com.countin.countin_backend.member.api.dto.request.CreateMemberNoteRequest;
 import com.countin.countin_backend.member.api.dto.request.CreateMemberRequest;
+import com.countin.countin_backend.member.api.dto.request.ImportMemberRequest;
 import com.countin.countin_backend.member.api.dto.request.UpdateDepositRequest;
 import com.countin.countin_backend.member.api.dto.request.UpdateEmergencyContactRequest;
 import com.countin.countin_backend.member.api.dto.request.UpdateMemberRequest;
@@ -20,6 +21,7 @@ import com.countin.countin_backend.member.api.dto.request.UpdateMemberStatusRequ
 import com.countin.countin_backend.member.api.dto.response.MemberDetailsResponse;
 import com.countin.countin_backend.member.api.dto.response.MemberDocumentResponse;
 import com.countin.countin_backend.member.api.dto.response.MemberHistoryResponse;
+import com.countin.countin_backend.member.api.dto.response.MemberImportCandidateResponse;
 import com.countin.countin_backend.member.api.dto.response.MemberNoteResponse;
 import com.countin.countin_backend.member.api.dto.response.MemberResponse;
 import com.countin.countin_backend.member.domain.model.DocumentVerificationStatus;
@@ -41,6 +43,7 @@ import com.countin.countin_backend.member.infrastructure.persistence.repository.
 import com.countin.countin_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
 import com.countin.countin_backend.meal.application.service.MealParticipationService;
 import com.countin.countin_backend.occupancy.application.service.OccupancyService;
+import com.countin.countin_backend.occupancy.domain.model.MemberOccupancyStatus;
 import com.countin.countin_backend.space.domain.model.SpaceType;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
@@ -625,6 +628,419 @@ class MemberMasterServiceTest {
         assertThat(responses).hasSize(1);
         assertThat(responses.get(0).getAction()).isEqualTo(MemberHistoryAction.STATUS_CHANGED);
         assertThat(responses.get(0).getOldValue()).isEqualTo("ACTIVE");
+    }
+
+    @Test
+    void searchImportCandidates_returnsEligibleTenants() {
+        UUID sourceSpaceId = UUID.randomUUID();
+        SpaceEntity sourceSpace = SpaceEntity.builder()
+                .owner(owner)
+                .name("PG B")
+                .type(SpaceType.PG)
+                .isActive(true)
+                .build();
+        sourceSpace.setId(sourceSpaceId);
+
+        MemberEntity sourceMember = MemberEntity.builder()
+                .space(sourceSpace)
+                .fullName("Rahul Patil")
+                .mobileNumber("9123456789")
+                .role(MembershipRole.TENANT)
+                .isActive(true)
+                .status(MemberStatus.ACTIVE)
+                .occupancyStatus(MemberOccupancyStatus.VACATED)
+                .depositAmount(BigDecimal.ZERO)
+                .depositPaid(BigDecimal.ZERO)
+                .depositRefunded(BigDecimal.ZERO)
+                .build();
+        sourceMember.setId(UUID.randomUUID());
+        sourceMember.setCreatedAt(LocalDateTime.now());
+
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, spaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                eq(ownerId),
+                eq(List.of(MembershipRole.OWNER, MembershipRole.MANAGER)),
+                any()))
+                .thenReturn(List.of(spaceId, sourceSpaceId));
+        when(memberRepository.searchImportCandidates(
+                eq(spaceId), eq(List.of(spaceId, sourceSpaceId)), eq(List.of(spaceId, sourceSpaceId)), eq(null)))
+                .thenReturn(List.of(sourceMember));
+
+        List<MemberImportCandidateResponse> result =
+                memberMasterService.searchImportCandidates(spaceId, ownerId, null);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getFullName()).isEqualTo("Rahul Patil");
+        assertThat(result.get(0).getSourceSpaceName()).isEqualTo("PG B");
+        assertThat(result.get(0).isAvailableForMoveIn()).isTrue();
+        assertThat(result.get(0).isAlreadyInTargetSpace()).isFalse();
+    }
+
+    @Test
+    void importMember_copiesTenantIntoTargetSpace() {
+        UUID sourceSpaceId = UUID.randomUUID();
+        UUID sourceMemberId = UUID.randomUUID();
+        SpaceEntity sourceSpace = SpaceEntity.builder()
+                .owner(owner)
+                .name("PG B")
+                .type(SpaceType.HOSTEL)
+                .isActive(true)
+                .build();
+        sourceSpace.setId(sourceSpaceId);
+
+        MemberEntity sourceMember = MemberEntity.builder()
+                .space(sourceSpace)
+                .fullName("Rahul Patil")
+                .mobileNumber("9123456789")
+                .role(MembershipRole.TENANT)
+                .gender(MemberGender.MALE)
+                .isActive(true)
+                .status(MemberStatus.ACTIVE)
+                .occupancyStatus(MemberOccupancyStatus.VACATED)
+                .emergencyContactName("Priya")
+                .emergencyContactRelation("Mother")
+                .emergencyContactMobile("9000000000")
+                .depositAmount(BigDecimal.ZERO)
+                .depositPaid(BigDecimal.ZERO)
+                .depositRefunded(BigDecimal.ZERO)
+                .build();
+        sourceMember.setId(sourceMemberId);
+        sourceMember.setCreatedAt(LocalDateTime.now());
+
+        ImportMemberRequest request = new ImportMemberRequest();
+        request.setSourceMemberId(sourceMemberId);
+
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, spaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, sourceSpaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(memberRepository.findByIdAndIsActiveTrue(sourceMemberId)).thenReturn(Optional.of(sourceMember));
+        when(spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                eq(ownerId),
+                eq(List.of(MembershipRole.OWNER, MembershipRole.MANAGER)),
+                any()))
+                .thenReturn(List.of(spaceId, sourceSpaceId));
+        when(memberRepository.existsBusyOccupancyForMobileAcrossSpaces(
+                eq("9123456789"), eq(List.of(spaceId, sourceSpaceId))))
+                .thenReturn(false);
+        when(memberRepository.findActiveBySpaceIdAndMobileNumber(spaceId, "9123456789"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.empty());
+        when(userRepository.findByMobileNumber("9123456789")).thenReturn(Optional.empty());
+        when(userRepository.findByIdAndIsActiveTrue(ownerId)).thenReturn(Optional.of(owner));
+        when(memberRepository.save(any(MemberEntity.class))).thenAnswer(invocation -> {
+            MemberEntity member = invocation.getArgument(0);
+            if (member.getId() == null) {
+                member.setId(memberId);
+                member.setCreatedAt(LocalDateTime.now());
+            }
+            return member;
+        });
+        when(memberRepository.findByIdAndSpaceIdAndActiveTrue(memberId, spaceId)).thenAnswer(invocation -> {
+            MemberEntity created = activeMember("Rahul Patil", "9123456789", MembershipRole.TENANT);
+            created.setGender(MemberGender.MALE);
+            return Optional.of(created);
+        });
+        when(memberDocumentRepository.findByMemberIdOrderByUploadedAtDesc(sourceMemberId))
+                .thenReturn(List.of());
+
+        MemberResponse response = memberMasterService.importMember(spaceId, ownerId, request);
+
+        assertThat(response.getMemberId()).isEqualTo(memberId);
+        assertThat(response.getFullName()).isEqualTo("Rahul Patil");
+        assertThat(response.getRole()).isEqualTo(MembershipRole.TENANT);
+        verify(invitationProvisioner)
+                .ensurePendingInvitation(eq(space), eq(owner), eq("9123456789"), eq(MembershipRole.TENANT));
+    }
+
+    @Test
+    void importMember_rejectsBusyResident() {
+        UUID sourceSpaceId = UUID.randomUUID();
+        UUID sourceMemberId = UUID.randomUUID();
+        SpaceEntity sourceSpace = SpaceEntity.builder()
+                .owner(owner)
+                .name("PG B")
+                .type(SpaceType.PG)
+                .isActive(true)
+                .build();
+        sourceSpace.setId(sourceSpaceId);
+
+        MemberEntity sourceMember = MemberEntity.builder()
+                .space(sourceSpace)
+                .fullName("Rahul Patil")
+                .mobileNumber("9123456789")
+                .role(MembershipRole.TENANT)
+                .isActive(true)
+                .status(MemberStatus.ACTIVE)
+                .occupancyStatus(MemberOccupancyStatus.VACATED)
+                .depositAmount(BigDecimal.ZERO)
+                .depositPaid(BigDecimal.ZERO)
+                .depositRefunded(BigDecimal.ZERO)
+                .build();
+        sourceMember.setId(sourceMemberId);
+
+        ImportMemberRequest request = new ImportMemberRequest();
+        request.setSourceMemberId(sourceMemberId);
+
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, spaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, sourceSpaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(memberRepository.findByIdAndIsActiveTrue(sourceMemberId)).thenReturn(Optional.of(sourceMember));
+        when(spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                eq(ownerId),
+                eq(List.of(MembershipRole.OWNER, MembershipRole.MANAGER)),
+                any()))
+                .thenReturn(List.of(spaceId, sourceSpaceId));
+        when(memberRepository.existsBusyOccupancyForMobileAcrossSpaces(
+                eq("9123456789"), eq(List.of(spaceId, sourceSpaceId))))
+                .thenReturn(true);
+
+        assertThatThrownBy(() -> memberMasterService.importMember(spaceId, ownerId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("active or reserved occupancy");
+        verify(invitationProvisioner, never()).ensurePendingInvitation(any(), any(), any(), any());
+    }
+
+    @Test
+    void searchImportCandidates_messTarget_returnsCustomersAndLodgingTenants() {
+        UUID messSpaceId = UUID.randomUUID();
+        SpaceEntity messSpace = SpaceEntity.builder()
+                .owner(owner)
+                .name("Mess B")
+                .type(SpaceType.MESS)
+                .isActive(true)
+                .build();
+        messSpace.setId(messSpaceId);
+
+        UUID sourceMessId = UUID.randomUUID();
+        SpaceEntity sourceMess = SpaceEntity.builder()
+                .owner(owner)
+                .name("Mess A")
+                .type(SpaceType.MESS)
+                .isActive(true)
+                .build();
+        sourceMess.setId(sourceMessId);
+
+        MemberEntity customer = MemberEntity.builder()
+                .space(sourceMess)
+                .fullName("Rahul Patil")
+                .mobileNumber("9123456789")
+                .role(MembershipRole.CUSTOMER)
+                .isActive(true)
+                .status(MemberStatus.ACTIVE)
+                .occupancyStatus(MemberOccupancyStatus.VACATED)
+                .depositAmount(BigDecimal.ZERO)
+                .depositPaid(BigDecimal.ZERO)
+                .depositRefunded(BigDecimal.ZERO)
+                .build();
+        customer.setId(UUID.randomUUID());
+        customer.setCreatedAt(LocalDateTime.now());
+
+        when(spaceRepository.findByIdAndIsActiveTrue(messSpaceId)).thenReturn(Optional.of(messSpace));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, messSpaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                eq(ownerId),
+                eq(List.of(MembershipRole.OWNER, MembershipRole.MANAGER)),
+                any()))
+                .thenReturn(List.of(messSpaceId, sourceMessId, spaceId));
+        when(memberRepository.searchMessImportCandidates(
+                eq(messSpaceId), eq(List.of(messSpaceId, sourceMessId, spaceId)), eq(null)))
+                .thenReturn(List.of(customer));
+
+        List<MemberImportCandidateResponse> result =
+                memberMasterService.searchImportCandidates(messSpaceId, ownerId, null);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getFullName()).isEqualTo("Rahul Patil");
+        assertThat(result.get(0).getSourceSpaceName()).isEqualTo("Mess A");
+        assertThat(result.get(0).getRole()).isEqualTo(MembershipRole.CUSTOMER);
+    }
+
+    @Test
+    void importMember_messTarget_createsCustomerFromMessSource() {
+        UUID messSpaceId = UUID.randomUUID();
+        SpaceEntity messSpace = SpaceEntity.builder()
+                .owner(owner)
+                .name("Mess B")
+                .type(SpaceType.MESS)
+                .isActive(true)
+                .build();
+        messSpace.setId(messSpaceId);
+
+        UUID sourceMessId = UUID.randomUUID();
+        UUID sourceMemberId = UUID.randomUUID();
+        SpaceEntity sourceMess = SpaceEntity.builder()
+                .owner(owner)
+                .name("Mess A")
+                .type(SpaceType.MESS)
+                .isActive(true)
+                .build();
+        sourceMess.setId(sourceMessId);
+
+        MemberEntity sourceMember = MemberEntity.builder()
+                .space(sourceMess)
+                .fullName("Rahul Patil")
+                .mobileNumber("9123456789")
+                .role(MembershipRole.CUSTOMER)
+                .gender(MemberGender.MALE)
+                .isActive(true)
+                .status(MemberStatus.ACTIVE)
+                .occupancyStatus(MemberOccupancyStatus.VACATED)
+                .depositAmount(BigDecimal.ZERO)
+                .depositPaid(BigDecimal.ZERO)
+                .depositRefunded(BigDecimal.ZERO)
+                .build();
+        sourceMember.setId(sourceMemberId);
+        sourceMember.setCreatedAt(LocalDateTime.now());
+
+        ImportMemberRequest request = new ImportMemberRequest();
+        request.setSourceMemberId(sourceMemberId);
+
+        when(spaceRepository.findByIdAndIsActiveTrue(messSpaceId)).thenReturn(Optional.of(messSpace));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, messSpaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, sourceMessId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(memberRepository.findByIdAndIsActiveTrue(sourceMemberId)).thenReturn(Optional.of(sourceMember));
+        when(spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                eq(ownerId),
+                eq(List.of(MembershipRole.OWNER, MembershipRole.MANAGER)),
+                any()))
+                .thenReturn(List.of(messSpaceId, sourceMessId));
+        when(memberRepository.findActiveBySpaceIdAndMobileNumber(messSpaceId, "9123456789"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.empty());
+        when(userRepository.findByMobileNumber("9123456789")).thenReturn(Optional.empty());
+        when(userRepository.findByIdAndIsActiveTrue(ownerId)).thenReturn(Optional.of(owner));
+        when(memberRepository.save(any(MemberEntity.class))).thenAnswer(invocation -> {
+            MemberEntity member = invocation.getArgument(0);
+            if (member.getId() == null) {
+                member.setId(memberId);
+                member.setCreatedAt(LocalDateTime.now());
+            }
+            return member;
+        });
+        when(memberRepository.findByIdAndSpaceIdAndActiveTrue(memberId, messSpaceId)).thenAnswer(invocation -> {
+            MemberEntity created = MemberEntity.builder()
+                    .space(messSpace)
+                    .fullName("Rahul Patil")
+                    .mobileNumber("9123456789")
+                    .role(MembershipRole.CUSTOMER)
+                    .isActive(true)
+                    .status(MemberStatus.ACTIVE)
+                    .depositAmount(BigDecimal.ZERO)
+                    .depositPaid(BigDecimal.ZERO)
+                    .depositRefunded(BigDecimal.ZERO)
+                    .build();
+            created.setId(memberId);
+            created.setCreatedAt(LocalDateTime.now());
+            return Optional.of(created);
+        });
+        when(memberDocumentRepository.findByMemberIdOrderByUploadedAtDesc(sourceMemberId))
+                .thenReturn(List.of());
+
+        MemberResponse response = memberMasterService.importMember(messSpaceId, ownerId, request);
+
+        assertThat(response.getMemberId()).isEqualTo(memberId);
+        assertThat(response.getRole()).isEqualTo(MembershipRole.CUSTOMER);
+        verify(invitationProvisioner)
+                .ensurePendingInvitation(eq(messSpace), eq(owner), eq("9123456789"), eq(MembershipRole.CUSTOMER));
+    }
+
+    @Test
+    void importMember_messTarget_createsCustomerFromLodgingTenant() {
+        UUID messSpaceId = UUID.randomUUID();
+        SpaceEntity messSpace = SpaceEntity.builder()
+                .owner(owner)
+                .name("Mess B")
+                .type(SpaceType.MESS)
+                .isActive(true)
+                .build();
+        messSpace.setId(messSpaceId);
+
+        UUID sourceMemberId = UUID.randomUUID();
+        MemberEntity sourceMember = MemberEntity.builder()
+                .space(space)
+                .fullName("Priya Sharma")
+                .mobileNumber("9988776655")
+                .role(MembershipRole.TENANT)
+                .isActive(true)
+                .status(MemberStatus.ACTIVE)
+                .occupancyStatus(MemberOccupancyStatus.ALLOCATED)
+                .depositAmount(BigDecimal.ZERO)
+                .depositPaid(BigDecimal.ZERO)
+                .depositRefunded(BigDecimal.ZERO)
+                .build();
+        sourceMember.setId(sourceMemberId);
+        sourceMember.setCreatedAt(LocalDateTime.now());
+
+        ImportMemberRequest request = new ImportMemberRequest();
+        request.setSourceMemberId(sourceMemberId);
+
+        when(spaceRepository.findByIdAndIsActiveTrue(messSpaceId)).thenReturn(Optional.of(messSpace));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, messSpaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, spaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(memberRepository.findByIdAndIsActiveTrue(sourceMemberId)).thenReturn(Optional.of(sourceMember));
+        when(spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                eq(ownerId),
+                eq(List.of(MembershipRole.OWNER, MembershipRole.MANAGER)),
+                any()))
+                .thenReturn(List.of(messSpaceId, spaceId));
+        when(memberRepository.findActiveBySpaceIdAndMobileNumber(messSpaceId, "9988776655"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.empty());
+        when(userRepository.findByMobileNumber("9988776655")).thenReturn(Optional.empty());
+        when(userRepository.findByIdAndIsActiveTrue(ownerId)).thenReturn(Optional.of(owner));
+        when(memberRepository.save(any(MemberEntity.class))).thenAnswer(invocation -> {
+            MemberEntity member = invocation.getArgument(0);
+            if (member.getId() == null) {
+                member.setId(memberId);
+                member.setCreatedAt(LocalDateTime.now());
+            }
+            return member;
+        });
+        when(memberRepository.findByIdAndSpaceIdAndActiveTrue(memberId, messSpaceId)).thenAnswer(invocation -> {
+            MemberEntity created = MemberEntity.builder()
+                    .space(messSpace)
+                    .fullName("Priya Sharma")
+                    .mobileNumber("9988776655")
+                    .role(MembershipRole.CUSTOMER)
+                    .isActive(true)
+                    .status(MemberStatus.ACTIVE)
+                    .depositAmount(BigDecimal.ZERO)
+                    .depositPaid(BigDecimal.ZERO)
+                    .depositRefunded(BigDecimal.ZERO)
+                    .build();
+            created.setId(memberId);
+            created.setCreatedAt(LocalDateTime.now());
+            return Optional.of(created);
+        });
+        when(memberDocumentRepository.findByMemberIdOrderByUploadedAtDesc(sourceMemberId))
+                .thenReturn(List.of());
+
+        MemberResponse response = memberMasterService.importMember(messSpaceId, ownerId, request);
+
+        assertThat(response.getRole()).isEqualTo(MembershipRole.CUSTOMER);
+        verify(invitationProvisioner)
+                .ensurePendingInvitation(eq(messSpace), eq(owner), eq("9988776655"), eq(MembershipRole.CUSTOMER));
     }
 
     private MemberEntity activeMember(String fullName, String mobile, MembershipRole role) {

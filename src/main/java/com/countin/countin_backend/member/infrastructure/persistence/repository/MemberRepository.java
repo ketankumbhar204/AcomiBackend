@@ -83,4 +83,112 @@ public interface MemberRepository extends JpaRepository<MemberEntity, UUID> {
               AND m.isActive = true
             """)
     List<MemberEntity> findActiveByUserId(@Param("userId") UUID userId);
+
+    @Query("""
+            SELECT m FROM MemberEntity m
+            JOIN FETCH m.space s
+            WHERE m.isActive = true
+              AND m.status IN (
+                  com.countin.countin_backend.member.domain.model.MemberStatus.ACTIVE,
+                  com.countin.countin_backend.member.domain.model.MemberStatus.VACATED
+              )
+              AND m.role = com.countin.countin_backend.member.domain.model.MembershipRole.TENANT
+              AND s.id IN :sourceSpaceIds
+              AND m.occupancyStatus = com.countin.countin_backend.occupancy.domain.model.MemberOccupancyStatus.VACATED
+              AND (
+                  :search IS NULL OR :search = ''
+                  OR LOWER(m.fullName) LIKE LOWER(CONCAT('%', :search, '%'))
+                  OR m.mobileNumber LIKE CONCAT('%', :search, '%')
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM MemberEntity busy
+                  WHERE busy.isActive = true
+                    AND busy.mobileNumber = m.mobileNumber
+                    AND busy.space.id IN :managedSpaceIds
+                    AND busy.occupancyStatus IN (
+                        com.countin.countin_backend.occupancy.domain.model.MemberOccupancyStatus.ALLOCATED,
+                        com.countin.countin_backend.occupancy.domain.model.MemberOccupancyStatus.RESERVED
+                    )
+              )
+              AND (
+                  s.id = :targetSpaceId
+                  OR NOT EXISTS (
+                      SELECT 1 FROM MemberEntity target
+                      WHERE target.space.id = :targetSpaceId
+                        AND target.isActive = true
+                        AND target.mobileNumber = m.mobileNumber
+                  )
+              )
+            ORDER BY m.fullName ASC, m.createdAt DESC
+            """)
+    List<MemberEntity> searchImportCandidates(
+            @Param("targetSpaceId") UUID targetSpaceId,
+            @Param("sourceSpaceIds") List<UUID> sourceSpaceIds,
+            @Param("managedSpaceIds") List<UUID> managedSpaceIds,
+            @Param("search") String search);
+
+    /**
+     * Mess customer import candidates: CUSTOMER from managed Mess spaces, or TENANT from
+     * managed lodging spaces (PG→Mess reuse). Concurrent Mess memberships are allowed
+     * (no occupancy busy filter). Excludes mobiles already present in the target Mess.
+     */
+    @Query("""
+            SELECT m FROM MemberEntity m
+            JOIN FETCH m.space s
+            WHERE m.isActive = true
+              AND m.status IN (
+                  com.countin.countin_backend.member.domain.model.MemberStatus.ACTIVE,
+                  com.countin.countin_backend.member.domain.model.MemberStatus.VACATED
+              )
+              AND (
+                  (
+                      s.type = com.countin.countin_backend.space.domain.model.SpaceType.MESS
+                      AND m.role = com.countin.countin_backend.member.domain.model.MembershipRole.CUSTOMER
+                  )
+                  OR (
+                      s.type IN (
+                          com.countin.countin_backend.space.domain.model.SpaceType.PG,
+                          com.countin.countin_backend.space.domain.model.SpaceType.HOSTEL,
+                          com.countin.countin_backend.space.domain.model.SpaceType.CO_LIVING,
+                          com.countin.countin_backend.space.domain.model.SpaceType.RENTAL
+                      )
+                      AND m.role = com.countin.countin_backend.member.domain.model.MembershipRole.TENANT
+                  )
+              )
+              AND s.id IN :sourceSpaceIds
+              AND (
+                  :search IS NULL OR :search = ''
+                  OR LOWER(m.fullName) LIKE LOWER(CONCAT('%', :search, '%'))
+                  OR m.mobileNumber LIKE CONCAT('%', :search, '%')
+              )
+              AND (
+                  s.id = :targetSpaceId
+                  OR NOT EXISTS (
+                      SELECT 1 FROM MemberEntity target
+                      WHERE target.space.id = :targetSpaceId
+                        AND target.isActive = true
+                        AND target.mobileNumber = m.mobileNumber
+                  )
+              )
+            ORDER BY m.fullName ASC, m.createdAt DESC
+            """)
+    List<MemberEntity> searchMessImportCandidates(
+            @Param("targetSpaceId") UUID targetSpaceId,
+            @Param("sourceSpaceIds") List<UUID> sourceSpaceIds,
+            @Param("search") String search);
+
+    @Query("""
+            SELECT CASE WHEN COUNT(m) > 0 THEN true ELSE false END
+            FROM MemberEntity m
+            WHERE m.isActive = true
+              AND m.mobileNumber = :mobileNumber
+              AND m.space.id IN :managedSpaceIds
+              AND m.occupancyStatus IN (
+                  com.countin.countin_backend.occupancy.domain.model.MemberOccupancyStatus.ALLOCATED,
+                  com.countin.countin_backend.occupancy.domain.model.MemberOccupancyStatus.RESERVED
+              )
+            """)
+    boolean existsBusyOccupancyForMobileAcrossSpaces(
+            @Param("mobileNumber") String mobileNumber,
+            @Param("managedSpaceIds") List<UUID> managedSpaceIds);
 }

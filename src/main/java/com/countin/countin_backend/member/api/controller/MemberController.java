@@ -5,6 +5,7 @@ import com.countin.countin_backend.common.web.ApiResponse;
 import com.countin.countin_backend.member.api.dto.request.CreateMemberDocumentRequest;
 import com.countin.countin_backend.member.api.dto.request.CreateMemberNoteRequest;
 import com.countin.countin_backend.member.api.dto.request.CreateMemberRequest;
+import com.countin.countin_backend.member.api.dto.request.ImportMemberRequest;
 import com.countin.countin_backend.member.api.dto.request.UpdateDepositRequest;
 import com.countin.countin_backend.member.api.dto.request.UpdateEmergencyContactRequest;
 import com.countin.countin_backend.member.api.dto.request.UpdateMemberRequest;
@@ -12,6 +13,7 @@ import com.countin.countin_backend.member.api.dto.request.UpdateMemberStatusRequ
 import com.countin.countin_backend.member.api.dto.response.MemberDetailsResponse;
 import com.countin.countin_backend.member.api.dto.response.MemberDocumentResponse;
 import com.countin.countin_backend.member.api.dto.response.MemberHistoryResponse;
+import com.countin.countin_backend.member.api.dto.response.MemberImportCandidateResponse;
 import com.countin.countin_backend.member.api.dto.response.MemberNoteResponse;
 import com.countin.countin_backend.member.api.dto.response.MemberResponse;
 import com.countin.countin_backend.member.api.dto.response.PendingInvitationResponse;
@@ -77,6 +79,35 @@ public class MemberController {
         List<MemberResponse> members =
                 memberMasterService.getMembers(spaceId, callerId, search, occupancyStatus);
         return ResponseEntity.ok(ApiResponse.success(members));
+    }
+
+    @GetMapping("/members/import-candidates")
+    @Operation(
+            summary = "Search reusable members",
+            description = "Lodging targets: eligible vacated TENANT residents from managed "
+                    + "accommodation spaces. Mess targets: CUSTOMER members from managed Mess spaces "
+                    + "and TENANT residents from managed lodging spaces (PG→Mess). OWNER/MANAGER only. "
+                    + "Never returns members outside the caller's managed portfolio.")
+    public ResponseEntity<ApiResponse<List<MemberImportCandidateResponse>>> searchImportCandidates(
+            @PathVariable UUID spaceId, @RequestParam(required = false) String search) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        List<MemberImportCandidateResponse> candidates =
+                memberMasterService.searchImportCandidates(spaceId, callerId, search);
+        return ResponseEntity.ok(ApiResponse.success(candidates));
+    }
+
+    @PostMapping("/members/import")
+    @Operation(
+            summary = "Import member from another managed space",
+            description = "Lodging: creates a TENANT by copying profile data. Mess: creates a CUSTOMER "
+                    + "from a Mess CUSTOMER or lodging TENANT. Idempotent when the mobile already exists "
+                    + "with the expected role. Does not copy occupancy, deposits, or meal participation. "
+                    + "OWNER or MANAGER only.")
+    public ResponseEntity<ApiResponse<MemberResponse>> importMember(
+            @PathVariable UUID spaceId, @RequestBody @Valid ImportMemberRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        MemberResponse response = memberMasterService.importMember(spaceId, callerId, request);
+        return ResponseEntity.ok(ApiResponse.success("Member imported successfully", response));
     }
 
     @GetMapping("/members/me")

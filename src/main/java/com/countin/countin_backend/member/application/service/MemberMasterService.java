@@ -7,6 +7,7 @@ import com.countin.countin_backend.meal.application.service.MealParticipationSer
 import com.countin.countin_backend.member.api.dto.request.CreateMemberDocumentRequest;
 import com.countin.countin_backend.member.api.dto.request.CreateMemberNoteRequest;
 import com.countin.countin_backend.member.api.dto.request.CreateMemberRequest;
+import com.countin.countin_backend.member.api.dto.request.ImportMemberRequest;
 import com.countin.countin_backend.member.api.dto.request.UpdateDepositRequest;
 import com.countin.countin_backend.member.api.dto.request.UpdateEmergencyContactRequest;
 import com.countin.countin_backend.member.api.dto.request.UpdateMemberRequest;
@@ -14,8 +15,10 @@ import com.countin.countin_backend.member.api.dto.request.UpdateMemberStatusRequ
 import com.countin.countin_backend.member.api.dto.response.MemberDetailsResponse;
 import com.countin.countin_backend.member.api.dto.response.MemberDocumentResponse;
 import com.countin.countin_backend.member.api.dto.response.MemberHistoryResponse;
+import com.countin.countin_backend.member.api.dto.response.MemberImportCandidateResponse;
 import com.countin.countin_backend.member.api.dto.response.MemberNoteResponse;
 import com.countin.countin_backend.member.api.dto.response.MemberResponse;
+import com.countin.countin_backend.member.domain.model.MemberGender;
 import com.countin.countin_backend.member.domain.model.MemberHistoryAction;
 import com.countin.countin_backend.member.domain.model.MemberStatus;
 import com.countin.countin_backend.member.domain.model.MembershipRole;
@@ -32,6 +35,8 @@ import com.countin.countin_backend.member.infrastructure.persistence.repository.
 import com.countin.countin_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
 import com.countin.countin_backend.occupancy.application.service.OccupancyService;
 import com.countin.countin_backend.occupancy.domain.model.MemberOccupancyStatus;
+import com.countin.countin_backend.space.domain.model.MealBillingType;
+import com.countin.countin_backend.space.domain.model.SpaceType;
 import com.countin.countin_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.countin.countin_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import com.countin.countin_backend.user.api.dto.response.UserResponse;
@@ -39,8 +44,10 @@ import com.countin.countin_backend.user.infrastructure.persistence.entity.UserEn
 import com.countin.countin_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +59,19 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class MemberMasterService {
+
+    private static final List<MembershipRole> OWNER_OR_MANAGER =
+            List.of(MembershipRole.OWNER, MembershipRole.MANAGER);
+
+    private static final List<SpaceType> ACCOMMODATION_SPACE_TYPES = List.of(
+            SpaceType.PG, SpaceType.HOSTEL, SpaceType.CO_LIVING, SpaceType.RENTAL);
+
+    /** Portfolio scope for Mess customer import: all space types the owner may manage. */
+    private static final List<SpaceType> MESS_IMPORT_SOURCE_TYPES = List.of(
+            SpaceType.MESS, SpaceType.PG, SpaceType.HOSTEL, SpaceType.CO_LIVING, SpaceType.RENTAL);
+
+    private static final Set<MemberStatus> IMPORTABLE_MEMBER_STATUSES =
+            EnumSet.of(MemberStatus.ACTIVE, MemberStatus.VACATED);
 
     private final SpaceRepository spaceRepository;
     private final MemberRepository memberRepository;
@@ -121,6 +141,193 @@ public class MemberMasterService {
                 : memberRepository.findBySpaceIdAndActiveTrue(spaceId);
 
         return members.stream().map(MemberResponse::from).toList();
+    }
+
+    /**
+     * Search reusable members for the target space.
+     * Lodging targets: vacated TENANTs across managed accommodation spaces.
+     * Mess targets: CUSTOMERs from managed Mess spaces and TENANTs from managed lodging
+     * (PG→Mess reuse). Concurrent Mess memberships are allowed.
+     */
+    @Transactional(readOnly = true)
+    public List<MemberImportCandidateResponse> searchImportCandidates(
+            UUID targetSpaceId, UUID callerId, String search) {
+        log.info(
+                "Searching import candidates: targetSpaceId={}, callerId={}, search={}",
+                targetSpaceId,
+                callerId,
+                search);
+
+        SpaceEntity targetSpace = loadActiveSpace(targetSpaceId);
+        assertOwnerOrManager(targetSpaceId, callerId);
+
+        if (targetSpace.getType() == SpaceType.MESS) {
+            return searchMessImportCandidates(targetSpace, callerId, search);
+        }
+
+        assertAccommodationSpace(targetSpace);
+
+        List<UUID> managedSpaceIds = spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                callerId, OWNER_OR_MANAGER, ACCOMMODATION_SPACE_TYPES);
+        if (managedSpaceIds.isEmpty() || !managedSpaceIds.contains(targetSpaceId)) {
+            return List.of();
+        }
+
+        String normalizedSearch = normalizeSearch(search);
+        List<MemberEntity> candidates = memberRepository.searchImportCandidates(
+                targetSpaceId, managedSpaceIds, managedSpaceIds, normalizedSearch);
+
+        return candidates.stream()
+                .map(member -> MemberImportCandidateResponse.from(member, targetSpaceId, true))
+                .toList();
+    }
+
+    private List<MemberImportCandidateResponse> searchMessImportCandidates(
+            SpaceEntity targetSpace, UUID callerId, String search) {
+        UUID targetSpaceId = targetSpace.getId();
+        List<UUID> managedSpaceIds = spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                callerId, OWNER_OR_MANAGER, MESS_IMPORT_SOURCE_TYPES);
+        if (managedSpaceIds.isEmpty() || !managedSpaceIds.contains(targetSpaceId)) {
+            return List.of();
+        }
+
+        String normalizedSearch = normalizeSearch(search);
+        List<MemberEntity> candidates = memberRepository.searchMessImportCandidates(
+                targetSpaceId, managedSpaceIds, normalizedSearch);
+
+        return candidates.stream()
+                .map(member -> MemberImportCandidateResponse.from(member, targetSpaceId, true))
+                .toList();
+    }
+
+    /**
+     * Copies an eligible member into the target space.
+     * Lodging: TENANT only; blocks busy occupancy.
+     * Mess: creates CUSTOMER from Mess CUSTOMER or lodging TENANT; allows concurrent Mess memberships.
+     * Does not copy occupancy, deposits, or meal participation. Copies profile basics,
+     * emergency contact, and document metadata when present.
+     * Idempotent when the mobile already exists in the target space with the expected role.
+     */
+    @Transactional
+    public MemberResponse importMember(UUID targetSpaceId, UUID callerId, ImportMemberRequest request) {
+        log.info(
+                "Importing member: targetSpaceId={}, callerId={}, sourceMemberId={}",
+                targetSpaceId,
+                callerId,
+                request.getSourceMemberId());
+
+        SpaceEntity targetSpace = loadActiveSpace(targetSpaceId);
+        assertOwnerOrManager(targetSpaceId, callerId);
+
+        if (targetSpace.getType() == SpaceType.MESS) {
+            return importMessCustomer(targetSpace, callerId, request);
+        }
+
+        assertAccommodationSpace(targetSpace);
+
+        MemberEntity source = memberRepository
+                .findByIdAndIsActiveTrue(request.getSourceMemberId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Member", "id", request.getSourceMemberId()));
+
+        UUID sourceSpaceId = source.getSpace().getId();
+        assertOwnerOrManager(sourceSpaceId, callerId);
+        assertAccommodationSpace(source.getSpace());
+        assertImportableSourceMember(source);
+
+        List<UUID> managedSpaceIds = spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                callerId, OWNER_OR_MANAGER, ACCOMMODATION_SPACE_TYPES);
+        if (!managedSpaceIds.contains(targetSpaceId) || !managedSpaceIds.contains(sourceSpaceId)) {
+            throw new BusinessException(
+                    "You do not manage both the source and target spaces", HttpStatus.FORBIDDEN);
+        }
+
+        String mobileNumber = source.getMobileNumber();
+        if (memberRepository.existsBusyOccupancyForMobileAcrossSpaces(mobileNumber, managedSpaceIds)) {
+            throw new BusinessException(
+                    "This resident currently has an active or reserved occupancy and cannot be moved in again",
+                    HttpStatus.CONFLICT);
+        }
+
+        Optional<MemberEntity> existingInTarget =
+                memberRepository.findActiveBySpaceIdAndMobileNumber(targetSpaceId, mobileNumber);
+        if (existingInTarget.isPresent()) {
+            MemberEntity existing = existingInTarget.get();
+            if (existing.getRole() != MembershipRole.TENANT) {
+                throw new BusinessException(
+                        "A non-tenant member with this mobile already exists in this space",
+                        HttpStatus.CONFLICT);
+            }
+            return MemberResponse.from(existing);
+        }
+
+        CreateMemberRequest createRequest = new CreateMemberRequest();
+        setCreateMemberFields(
+                createRequest,
+                source.getFullName(),
+                mobileNumber,
+                MembershipRole.TENANT,
+                source.getGender(),
+                source.getMealBillingType());
+
+        MemberResponse created = createMember(targetSpaceId, callerId, createRequest);
+        MemberEntity targetMember = memberRepository
+                .findByIdAndSpaceIdAndActiveTrue(created.getMemberId(), targetSpaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Member", "id", created.getMemberId()));
+
+        copyProfileExtras(source, targetMember, callerId);
+        return MemberResponse.from(targetMember);
+    }
+
+    private MemberResponse importMessCustomer(
+            SpaceEntity targetSpace, UUID callerId, ImportMemberRequest request) {
+        UUID targetSpaceId = targetSpace.getId();
+
+        MemberEntity source = memberRepository
+                .findByIdAndIsActiveTrue(request.getSourceMemberId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Member", "id", request.getSourceMemberId()));
+
+        UUID sourceSpaceId = source.getSpace().getId();
+        assertOwnerOrManager(sourceSpaceId, callerId);
+        assertMessImportableSourceMember(source);
+
+        List<UUID> managedSpaceIds = spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                callerId, OWNER_OR_MANAGER, MESS_IMPORT_SOURCE_TYPES);
+        if (!managedSpaceIds.contains(targetSpaceId) || !managedSpaceIds.contains(sourceSpaceId)) {
+            throw new BusinessException(
+                    "You do not manage both the source and target spaces", HttpStatus.FORBIDDEN);
+        }
+
+        String mobileNumber = source.getMobileNumber();
+        Optional<MemberEntity> existingInTarget =
+                memberRepository.findActiveBySpaceIdAndMobileNumber(targetSpaceId, mobileNumber);
+        if (existingInTarget.isPresent()) {
+            MemberEntity existing = existingInTarget.get();
+            if (existing.getRole() != MembershipRole.CUSTOMER) {
+                throw new BusinessException(
+                        "A non-customer member with this mobile already exists in this mess",
+                        HttpStatus.CONFLICT);
+            }
+            return MemberResponse.from(existing);
+        }
+
+        CreateMemberRequest createRequest = new CreateMemberRequest();
+        setCreateMemberFields(
+                createRequest,
+                source.getFullName(),
+                mobileNumber,
+                MembershipRole.CUSTOMER,
+                source.getGender(),
+                source.getMealBillingType());
+
+        MemberResponse created = createMember(targetSpaceId, callerId, createRequest);
+        MemberEntity targetMember = memberRepository
+                .findByIdAndSpaceIdAndActiveTrue(created.getMemberId(), targetSpaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Member", "id", created.getMemberId()));
+
+        copyProfileExtras(source, targetMember, callerId);
+        return MemberResponse.from(targetMember);
     }
 
     @Transactional(readOnly = true)
@@ -587,10 +794,113 @@ public class MemberMasterService {
 
     private void assertOwnerOrManager(UUID spaceId, UUID callerId) {
         boolean allowed = spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
-                callerId, spaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER));
+                callerId, spaceId, OWNER_OR_MANAGER);
         if (!allowed) {
             throw new BusinessException(
                     "Only OWNER or MANAGER can perform this action", HttpStatus.FORBIDDEN);
+        }
+    }
+
+    private void assertAccommodationSpace(SpaceEntity space) {
+        if (space.getType() == null || !ACCOMMODATION_SPACE_TYPES.contains(space.getType())) {
+            throw new BusinessException(
+                    "Resident import is only available for PG, Hostel, Co-living, and Rental spaces");
+        }
+    }
+
+    private void assertImportableSourceMember(MemberEntity source) {
+        if (source.getRole() != MembershipRole.TENANT) {
+            throw new BusinessException("Only TENANT residents can be imported for accommodation Move In");
+        }
+        if (!IMPORTABLE_MEMBER_STATUSES.contains(source.getStatus())) {
+            throw new BusinessException("This resident is blocked or suspended and cannot be imported");
+        }
+        if (source.getOccupancyStatus() == MemberOccupancyStatus.ALLOCATED
+                || source.getOccupancyStatus() == MemberOccupancyStatus.RESERVED) {
+            throw new BusinessException(
+                    "This resident currently has an active or reserved occupancy and cannot be moved in again",
+                    HttpStatus.CONFLICT);
+        }
+    }
+
+    private void assertMessImportableSourceMember(MemberEntity source) {
+        if (!IMPORTABLE_MEMBER_STATUSES.contains(source.getStatus())) {
+            throw new BusinessException("This member is blocked or suspended and cannot be imported");
+        }
+        SpaceType sourceType = source.getSpace() != null ? source.getSpace().getType() : null;
+        MembershipRole role = source.getRole();
+        boolean messCustomer =
+                sourceType == SpaceType.MESS && role == MembershipRole.CUSTOMER;
+        boolean lodgingTenant =
+                sourceType != null
+                        && ACCOMMODATION_SPACE_TYPES.contains(sourceType)
+                        && role == MembershipRole.TENANT;
+        if (!messCustomer && !lodgingTenant) {
+            throw new BusinessException(
+                    "Only Mess customers or accommodation residents can be imported into a Mess");
+        }
+    }
+
+    private void setCreateMemberFields(
+            CreateMemberRequest request,
+            String fullName,
+            String mobileNumber,
+            MembershipRole role,
+            MemberGender gender,
+            MealBillingType mealBillingType) {
+        setField(request, "fullName", fullName);
+        setField(request, "mobileNumber", mobileNumber);
+        setField(request, "role", role);
+        setField(request, "gender", gender);
+        setField(request, "mealBillingType", mealBillingType);
+    }
+
+    private void copyProfileExtras(MemberEntity source, MemberEntity target, UUID callerId) {
+        boolean dirty = false;
+        if (source.getMemberCategory() != null && target.getMemberCategory() == null) {
+            target.setMemberCategory(source.getMemberCategory());
+            dirty = true;
+        }
+
+        boolean hasEmergency = source.getEmergencyContactName() != null
+                && !source.getEmergencyContactName().isBlank()
+                && source.getEmergencyContactRelation() != null
+                && !source.getEmergencyContactRelation().isBlank()
+                && source.getEmergencyContactMobile() != null
+                && !source.getEmergencyContactMobile().isBlank();
+        if (hasEmergency
+                && (target.getEmergencyContactName() == null || target.getEmergencyContactName().isBlank())) {
+            target.setEmergencyContactName(source.getEmergencyContactName());
+            target.setEmergencyContactRelation(source.getEmergencyContactRelation());
+            target.setEmergencyContactMobile(source.getEmergencyContactMobile());
+            dirty = true;
+        }
+        if (dirty) {
+            memberRepository.save(target);
+        }
+
+        List<MemberDocumentEntity> documents =
+                memberDocumentRepository.findByMemberIdOrderByUploadedAtDesc(source.getId());
+        for (MemberDocumentEntity document : documents) {
+            MemberDocumentEntity copy = MemberDocumentEntity.builder()
+                    .member(target)
+                    .documentType(document.getDocumentType())
+                    .documentNumber(document.getDocumentNumber())
+                    .fileUrl(document.getFileUrl())
+                    .verificationStatus(document.getVerificationStatus())
+                    .uploadedAt(LocalDateTime.now())
+                    .build();
+            memberDocumentRepository.save(copy);
+        }
+    }
+
+    private static void setField(Object target, String fieldName, Object value) {
+        try {
+            var field = target.getClass().getDeclaredField(fieldName);
+            field.setAccessible(true);
+            field.set(target, value);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Unable to set field " + fieldName, e);
         }
     }
 

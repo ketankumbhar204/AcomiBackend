@@ -118,4 +118,17 @@ public interface SpaceMembershipRepository extends JpaRepository<SpaceMembership
             @Param("userId") UUID userId,
             @Param("spaceId") UUID spaceId,
             @Param("exitedAt") java.time.LocalDateTime exitedAt);
+
+    @Query("""
+            SELECT sm.space.id FROM SpaceMembershipEntity sm
+            WHERE sm.user.id = :userId
+              AND sm.status = com.countin.countin_backend.member.domain.model.MembershipStatus.ACTIVE
+              AND sm.role IN :roles
+              AND sm.space.isActive = true
+              AND sm.space.type IN :spaceTypes
+            """)
+    List<UUID> findManagedSpaceIdsByTypesAndRoles(
+            @Param("userId") UUID userId,
+            @Param("roles") List<MembershipRole> roles,
+            @Param("spaceTypes") List<com.countin.countin_backend.space.domain.model.SpaceType> spaceTypes);
 }
