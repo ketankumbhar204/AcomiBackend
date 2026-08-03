@@ -46,6 +46,16 @@ public interface DailyMenuRepository extends JpaRepository<DailyMenuEntity, UUID
     @Query("""
             SELECT d FROM DailyMenuEntity d
             WHERE d.space.id = :spaceId
+              AND d.mealType = :mealType
+              AND d.isDeleted = false
+            ORDER BY d.menuDate ASC
+            """)
+    List<DailyMenuEntity> findBySpaceAndMealType(
+            @Param("spaceId") UUID spaceId, @Param("mealType") MealType mealType);
+
+    @Query("""
+            SELECT d FROM DailyMenuEntity d
+            WHERE d.space.id = :spaceId
               AND d.menuDate = :menuDate
               AND d.isDeleted = false
               AND (:publishedOnly = false OR d.status IN (

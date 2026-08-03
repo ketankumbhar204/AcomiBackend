@@ -79,6 +79,9 @@ class DailyMenuServiceTest {
     @Mock
     private MemberRepository memberRepository;
 
+    @Mock
+    private MenuPlanningHistoryService menuPlanningHistoryService;
+
     private DailyMenuService dailyMenuService;
 
     private UUID spaceId;
@@ -98,7 +101,8 @@ class DailyMenuServiceTest {
                 foodCatalogService,
                 spaceRepository,
                 new MealAccessService(new SpaceMembershipResolver(spaceMembershipRepository), memberRepository),
-                new ObjectMapper());
+                new ObjectMapper(),
+                menuPlanningHistoryService);
         spaceId = UUID.randomUUID();
         callerId = UUID.randomUUID();
         itemId = UUID.randomUUID();

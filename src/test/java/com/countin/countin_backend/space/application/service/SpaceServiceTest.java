@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.countin.countin_backend.common.exception.BusinessException;
 import com.countin.countin_backend.common.exception.ResourceNotFoundException;
+import com.countin.countin_backend.inventory.application.service.InventorySeedService;
 import com.countin.countin_backend.meal.application.service.MealPlanService;
 import com.countin.countin_backend.meal.application.service.MealSpaceSetupService;
 import com.countin.countin_backend.member.application.service.MemberMasterService;
@@ -62,6 +63,9 @@ class SpaceServiceTest {
 
     @Mock
     private MealPlanService mealPlanService;
+
+    @Mock
+    private InventorySeedService inventorySeedService;
 
     @Mock
     private SpaceAmenityService spaceAmenityService;
@@ -127,6 +131,7 @@ class SpaceServiceTest {
         assertThat(spaceCaptor.getValue().getName()).isEqualTo("Sunrise Apartments");
         assertThat(response.getType()).isEqualTo(SpaceType.RENTAL);
         assertThat(response.getName()).isEqualTo("Sunrise Apartments");
+        verify(inventorySeedService).seedDefaults(any(SpaceEntity.class));
     }
 
     @Test

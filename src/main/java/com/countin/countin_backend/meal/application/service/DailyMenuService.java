@@ -62,6 +62,7 @@ public class DailyMenuService {
     private final SpaceRepository spaceRepository;
     private final MealAccessService mealAccessService;
     private final ObjectMapper objectMapper;
+    private final MenuPlanningHistoryService menuPlanningHistoryService;
 
     @Transactional(readOnly = true)
     public List<DailyMenuResponse> listMenus(UUID spaceId, UUID callerId, LocalDate from, LocalDate to) {
@@ -143,6 +144,9 @@ public class DailyMenuService {
                 request.getOptions() != null ? request.getOptions() : Collections.emptyList();
         validateExtraOptions(space, options);
         syncEntries(spaceId, menu, options);
+        // Ensure newly written entries are visible to history recording in this transaction.
+        dailyMenuEntryRepository.flush();
+        menuPlanningHistoryService.recordFromMenu(menu);
         return toResponse(menu, false);
     }
 
@@ -159,12 +163,16 @@ public class DailyMenuService {
             // Refresh snapshot / timestamp so Share Again stays intentional after drifts.
             capturePublishedSnapshot(menu);
             menu.setPublishedAt(LocalDateTime.now());
-            return toResponse(dailyMenuRepository.save(menu), false);
+            DailyMenuEntity saved = dailyMenuRepository.save(menu);
+            menuPlanningHistoryService.recordFromMenu(saved);
+            return toResponse(saved, false);
         }
         menu.setStatus(DailyMenuStatus.PUBLISHED);
         menu.setPublishedAt(LocalDateTime.now());
         capturePublishedSnapshot(menu);
-        return toResponse(dailyMenuRepository.save(menu), false);
+        DailyMenuEntity saved = dailyMenuRepository.save(menu);
+        menuPlanningHistoryService.recordFromMenu(saved);
+        return toResponse(saved, false);
     }
 
     @Transactional
@@ -240,6 +248,7 @@ public class DailyMenuService {
             }
         }
 
+        menuPlanningHistoryService.recordFromMenu(target);
         return toResponse(target, false);
     }
 
