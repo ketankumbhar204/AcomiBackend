@@ -508,7 +508,16 @@ public class MealPollService {
             payment.setChargedAmount(newChargedAmount);
             dayPaymentRepository.save(payment);
         } else if (multiQuantity && paymentChoice != null && anyPlatesSelected) {
-            upsertDayPayment(space, member, pollDate, paymentChoice, proofImageBase64, newChargedAmount);
+            upsertDayPayment(
+                    space,
+                    member,
+                    pollDate,
+                    paymentChoice,
+                    proofImageBase64,
+                    request.getReferenceNumber(),
+                    request.getRemarks(),
+                    request.getPaymentMethod(),
+                    newChargedAmount);
         } else if (multiQuantity && existingPayment.isPresent() && anyPlatesSelected) {
             MealPollDayPaymentEntity payment = existingPayment.get();
             payment.setChargedAmount(newChargedAmount);
@@ -861,10 +870,12 @@ public class MealPollService {
             LocalDate pollDate,
             MealPollPaymentChoice paymentChoice,
             String proofImageBase64,
+            String referenceNumber,
+            String remarks,
+            SpacePaymentMethod paymentMethod,
             BigDecimal chargedAmount) {
-        if (paymentChoice == MealPollPaymentChoice.MARK_AS_PAID) {
-            validateProofImage(proofImageBase64);
-        }
+        // Screenshot is optional for MARK_AS_PAID; validate format only when present.
+        validateOptionalProofImage(proofImageBase64);
 
         MealPollPaymentStatus paymentStatus =
                 paymentChoice == MealPollPaymentChoice.PAY_LATER
@@ -888,12 +899,18 @@ public class MealPollService {
 
         if (paymentChoice == MealPollPaymentChoice.MARK_AS_PAID) {
             payment.setProofImageUrl(normalizeProofImage(proofImageBase64));
+            payment.setReferenceNumber(trimToNull(referenceNumber));
+            payment.setRemarks(trimToNull(remarks));
+            payment.setPaymentMethod(paymentMethod != null ? paymentMethod : SpacePaymentMethod.UPI);
             payment.setProofSubmittedAt(LocalDateTime.now());
             payment.setProofReviewedAt(null);
             payment.setProofReviewedBy(null);
             payment.setRejectionReason(null);
         } else {
             payment.setProofImageUrl(null);
+            payment.setReferenceNumber(null);
+            payment.setRemarks(null);
+            payment.setPaymentMethod(null);
             payment.setProofSubmittedAt(null);
             payment.setProofReviewedAt(null);
             payment.setProofReviewedBy(null);
@@ -911,7 +928,7 @@ public class MealPollService {
                 paymentStatus,
                 paymentChoice,
                 chargedAmount,
-                null,
+                trimToNull(remarks),
                 null);
     }
 
@@ -921,19 +938,19 @@ public class MealPollService {
         return MealPollChargeCalculator.fromResponses(responses).getCurrencyTotal();
     }
 
-    private void validateProofImage(String proofImageBase64) {
-        if (proofImageBase64 == null || proofImageBase64.isBlank()) {
-            throw new BusinessException("Upload a payment screenshot to mark as paid", HttpStatus.BAD_REQUEST);
-        }
-        validateOptionalProofImage(proofImageBase64);
-    }
-
     private void validateOptionalProofImage(String proofImageBase64) {
         if (proofImageBase64 == null || proofImageBase64.isBlank()) {
             return;
         }
         String normalized = proofImageBase64.trim();
-        if (!normalized.startsWith("data:image/")) {
+        if (normalized.startsWith("data:image/")) {
+            if (normalized.length() > 4_000_000) {
+                throw new BusinessException("Payment screenshot is too large", HttpStatus.BAD_REQUEST);
+            }
+            return;
+        }
+        // Web clients often send raw base64 without a data-URI prefix.
+        if (normalized.length() < 32) {
             throw new BusinessException("Payment screenshot must be an image", HttpStatus.BAD_REQUEST);
         }
         if (normalized.length() > 4_000_000) {
