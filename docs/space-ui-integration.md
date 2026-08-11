@@ -1,4 +1,4 @@
-# CountIn — Space Management UI Integration Guide
+# Amico — Space Management UI Integration Guide
 
 Frontend reference for integrating **Space Management** APIs in React Native (or any mobile/web client).
 

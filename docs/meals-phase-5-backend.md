@@ -1,4 +1,4 @@
-# CountIn — Meal Management Phase 5 (Backend Specification)
+# Amico — Meal Management Phase 5 (Backend Specification)
 
 **Purpose:** Single source of truth for **server-side** Meal Management in Phase 5.  
 **Audience:** Backend (Spring Boot) implementers.  
@@ -16,7 +16,7 @@
 
 ## 1. Executive summary
 
-CountIn serves **PG, Hostel, Co-Living, Mess, and Rental** operators. The Meal module must work for:
+Amico serves **PG, Hostel, Co-Living, Mess, and Rental** operators. The Meal module must work for:
 
 | Business | People source | Accommodation |
 |----------|---------------|---------------|
@@ -24,7 +24,7 @@ CountIn serves **PG, Hostel, Co-Living, Mess, and Rental** operators. The Meal m
 | Mess | CUSTOMER (subscribers, walk-ins) | No |
 | Any space | Optional meal participants | May or may not apply |
 
-**Core product insight:** CountIn’s meal USP is **availability-driven headcount** (menu → response → expected count → kitchen prep), not subscription-assumed eating. This works identically for PG and Mess via WhatsApp / app / link.
+**Core product insight:** Amico’s meal USP is **availability-driven headcount** (menu → response → expected count → kitchen prep), not subscription-assumed eating. This works identically for PG and Mess via WhatsApp / app / link.
 
 **Phase 5 builds:** participation, menu planning, poll-audience eligibility.  
 **Phase 6 builds:** polls, responses, headcount (see §12 handoff).  
@@ -776,11 +776,11 @@ Also copy these spec files from the frontend repo into backend `docs/`:
 3. `permissions-backend-spec.md`
 
 ```markdown
-# Task: Implement CountIn Phase 5 — Meal Management (Backend)
+# Task: Implement Amico Phase 5 — Meal Management (Backend)
 
 ## Context
 
-CountIn is a **Spring Boot 3 / Java 17 modular monolith** (PostgreSQL, Flyway, JPA, JWT) for PG, Hostel, Co-Living, Mess, and Rental operators. Phases 1–4 are complete: auth, spaces, members, accommodation, occupancy, permissions.
+Amico is a **Spring Boot 3 / Java 17 modular monolith** (PostgreSQL, Flyway, JPA, JWT) for PG, Hostel, Co-Living, Mess, and Rental operators. Phases 1–4 are complete: auth, spaces, members, accommodation, occupancy, permissions.
 
 The **React Native app is already wired** for meal APIs. Responses must match the contract in this spec and in frontend `src/api/types.ts` exactly (field names, paths, `ApiResponse<T>` envelope).
 
@@ -1064,7 +1064,7 @@ Nullable `entitlement_id` on `meal_participation` for Phase 7.
 ## Package structure (suggested)
 
 ```
-com.countin.meal
+com.amico.meal
   domain/ · repository/ · service/ · web/ · config/
   FoodCatalogService · MealComboService · DailyMenuService
   MealParticipationService · MealEligibilityService · MealAccessService

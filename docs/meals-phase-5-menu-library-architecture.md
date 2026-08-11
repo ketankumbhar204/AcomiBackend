@@ -1,4 +1,4 @@
-# CountIn — Menu Library Architecture (Phase 5.1)
+# Amico — Menu Library Architecture (Phase 5.1)
 
 **Status:** Approved product direction  
 **Supersedes:** Menu-first daily planning in initial Phase 5 UI sketch
@@ -38,7 +38,7 @@ Daily menu planning must **consume** a library — not replace it.
 
 ### 3.1 Global catalog (platform)
 
-Read-only defaults shipped with CountIn (~50–100 common Indian items).
+Read-only defaults shipped with Amico (~50–100 common Indian items).
 
 - Seeded once in Flyway / bootstrap data
 - Same for all spaces

@@ -1,6 +1,6 @@
 spring:
   application:
-    name: countin-backend
+    name: amico-backend
 
   profiles:
     active: dev
@@ -22,9 +22,9 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: true
 
-countin:
+amico:
   jwt:
-    secret: ${JWT_SECRET:countin-dev-secret-key-must-be-at-least-256-bits-long-for-hs256-algorithm}
+    secret: ${JWT_SECRET:amico-dev-secret-key-must-be-at-least-256-bits-long-for-hs256-algorithm}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
   otp:
     mvp-code: "111111"

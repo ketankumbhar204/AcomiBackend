@@ -1,6 +1,6 @@
 # Phase 5.1 — Menu Library Deactivate APIs (Backend Prompt)
 
-Copy this into the **countin-backend** Cursor chat after Phase 5.1 list/create APIs are working.
+Copy this into the **amico-backend** Cursor chat after Phase 5.1 list/create APIs are working.
 
 Full spec: `docs/meals-phase-5-backend.md` §8.3.1
 

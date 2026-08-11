@@ -1,4 +1,4 @@
-# CountIn — Meal Management UI Integration (Phase 5)
+# Amico — Meal Management UI Integration (Phase 5)
 
 Frontend guide for **meal participation**, **menu master**, **daily menu planning**, and **Meals dashboard MVP**.
 
@@ -325,11 +325,11 @@ Future screens — **no stubs in Phase 5:**
 Paste this into **Cursor in the UI (React Native) repo** after backend Phase 5 APIs are available (or mock from spec):
 
 ```markdown
-# Task: Implement CountIn Phase 5 — Meal Management UI (React Native)
+# Task: Implement Amico Phase 5 — Meal Management UI (React Native)
 
 ## Context
 
-CountIn React Native app. Phases 1–4 complete: auth, spaces, members, accommodation, occupancy, permissions, dashboard Residents module.
+Amico React Native app. Phases 1–4 complete: auth, spaces, members, accommodation, occupancy, permissions, dashboard Residents module.
 
 **Source of truth:**
 - Backend API spec: `docs/meals-phase-5-backend.md`

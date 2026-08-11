@@ -1,6 +1,6 @@
 -- Normalize Indian mobile numbers to 10 digits across invitation-related tables.
 
-CREATE OR REPLACE FUNCTION countin_normalize_mobile(raw TEXT)
+CREATE OR REPLACE FUNCTION amico_normalize_mobile(raw TEXT)
 
 RETURNS TEXT
 
@@ -38,37 +38,37 @@ $$;
 
 UPDATE users
 
-SET mobile_number = countin_normalize_mobile(mobile_number),
+SET mobile_number = amico_normalize_mobile(mobile_number),
 
     updated_at = NOW()
 
 WHERE mobile_number IS NOT NULL
 
-  AND mobile_number <> countin_normalize_mobile(mobile_number);
+  AND mobile_number <> amico_normalize_mobile(mobile_number);
 
 
 
 UPDATE members
 
-SET mobile_number = countin_normalize_mobile(mobile_number),
+SET mobile_number = amico_normalize_mobile(mobile_number),
 
     updated_at = NOW()
 
 WHERE mobile_number IS NOT NULL
 
-  AND mobile_number <> countin_normalize_mobile(mobile_number);
+  AND mobile_number <> amico_normalize_mobile(mobile_number);
 
 
 
 UPDATE invitations
 
-SET mobile_number = countin_normalize_mobile(mobile_number),
+SET mobile_number = amico_normalize_mobile(mobile_number),
 
     updated_at = NOW()
 
 WHERE mobile_number IS NOT NULL
 
-  AND mobile_number <> countin_normalize_mobile(mobile_number);
+  AND mobile_number <> amico_normalize_mobile(mobile_number);
 
 
 
@@ -142,5 +142,5 @@ WHERE m.is_active = TRUE
 
 
 
-DROP FUNCTION countin_normalize_mobile(TEXT);
+DROP FUNCTION amico_normalize_mobile(TEXT);
 

@@ -1,4 +1,4 @@
-# CountIn — Accommodation Flow Redesign
+# Amico — Accommodation Flow Redesign
 
 Product and technical specification for redesigning **Phase 4 Accommodation Management** UX.
 
@@ -36,7 +36,7 @@ Product and technical specification for redesigning **Phase 4 Accommodation Mana
 
 ## 1. Executive summary
 
-CountIn’s accommodation **data model** (Building → Floor/Unit → Room → Bed) is correct for PG, Hostel, Co-Living, and Rental operations and aligns with the Phase 4 roadmap.
+Amico’s accommodation **data model** (Building → Floor/Unit → Room → Bed) is correct for PG, Hostel, Co-Living, and Rental operations and aligns with the Phase 4 roadmap.
 
 The **current UI** (separate list screens and forms per entity, deep stack navigation) is optimized for browsing and CRUD purity, not for how owners **describe** or **provision** property inventory. A typical PG (3 floors × 10 rooms × 3 beds) requires **~124 separate create actions** and hundreds of taps.
 

@@ -1,4 +1,4 @@
-# CountIn — Member Management UI Integration Guide
+# Amico — Member Management UI Integration Guide
 
 Frontend reference for **Phase 3 Member Management**: status, emergency contact, deposit, documents, notes, and audit history.
 

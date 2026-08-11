@@ -1,4 +1,4 @@
-# CountIn — Accommodation UI Integration Guide
+# Amico — Accommodation UI Integration Guide
 
 Frontend reference for **Phase 4.1 Property Structure** (CRUD) and **Phase 4.2 Accommodation UX** (quick setup, builder summary, duplicate, bulk).
 

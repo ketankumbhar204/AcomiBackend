@@ -1,4 +1,4 @@
-# CountIn — My Spaces UI Integration Guide
+# Amico — My Spaces UI Integration Guide
 
 Frontend reference for **My Spaces**, **Space Search**, **Space Switcher**, and **Default Space** features in React Native (or any mobile/web client).
 
@@ -177,7 +177,7 @@ Typical pattern:
 
 ```
 ┌──────────────────────────────────────┐
-│  [PG-A ▼]  CountIn                   │  ← shows current default space name
+│  [PG-A ▼]  Amico                   │  ← shows current default space name
 └──────────────────────────────────────┘
          │ tap
          ▼

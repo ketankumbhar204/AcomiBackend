@@ -1,4 +1,4 @@
-# CountIn — Members & Invitations UI Integration Guide
+# Amico — Members & Invitations UI Integration Guide
 
 Frontend reference for **Member Master**, **Invitations**, and related flows in React Native (or any mobile/web client).
 

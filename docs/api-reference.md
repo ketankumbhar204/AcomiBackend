@@ -1,4 +1,4 @@
-# CountIn Backend — API Reference
+# Amico Backend — API Reference
 
 API documentation for frontend integration (React Native / web).
 
@@ -577,7 +577,7 @@ export interface AcceptInvitationRequest {
 Copy into Cursor or your AI assistant when wiring the mobile app:
 
 ```
-Integrate CountIn Spring Boot REST APIs into a React Native (Expo or bare) app.
+Integrate Amico Spring Boot REST APIs into a React Native (Expo or bare) app.
 
 Backend base URL:
 - Android emulator: http://10.0.2.2:8080

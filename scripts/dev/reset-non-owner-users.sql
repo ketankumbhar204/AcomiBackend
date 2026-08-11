@@ -1,6 +1,6 @@
 -- Dev-only reset: remove all user accounts except space owners.
 -- Keeps spaces, member master records, and owner memberships intact.
--- Run manually: psql -d countin_db -f scripts/dev/reset-non-owner-users.sql
+-- Run manually: psql -d amico_db -f scripts/dev/reset-non-owner-users.sql
 
 BEGIN;
 

@@ -1,8 +1,8 @@
-# CountIn — Domain Model
+# Amico — Domain Model
 
 ## Purpose
 
-This document is the authoritative reference for the core domain of CountIn.
+This document is the authoritative reference for the core domain of Amico.
 
 It covers the five foundational entities that every other module depends on:
 
@@ -91,7 +91,7 @@ These rules apply to every entity in the system.
 
 ## Purpose
 
-A User represents a person who has registered on CountIn.
+A User represents a person who has registered on Amico.
 
 A User exists independently of any Space. The same person can own one Space, be a tenant in another, and be a meal customer in a third — all at the same time. There is no concept of a single-space user.
 
@@ -154,7 +154,7 @@ A User does not have a lifecycle status enum. Active/inactive state is captured 
 
 ## Purpose
 
-A Space is the top-level business entity in CountIn. Every operational concept — members, rooms, menus, payments, complaints — exists within a Space.
+A Space is the top-level business entity in Amico. Every operational concept — members, rooms, menus, payments, complaints — exists within a Space.
 
 A Space represents a real-world business such as a PG, a Mess, a Hostel, or a Co-Living facility.
 
@@ -528,7 +528,7 @@ Member added by Owner/Manager
 
 ## Global Rules (Consolidated)
 
-All entities in CountIn must follow these rules without exception.
+All entities in Amico must follow these rules without exception.
 
 | Rule | Requirement |
 |------|-------------|

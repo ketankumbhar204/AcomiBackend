@@ -2,7 +2,7 @@
 
 ## Goal
 
-Implement complete Space Management functionality for CountIn.
+Implement complete Space Management functionality for Amico.
 
 A Space represents a business/workspace.
 

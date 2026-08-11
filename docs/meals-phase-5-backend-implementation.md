@@ -1,4 +1,4 @@
-# CountIn Phase 5 — Meal Management (Backend Implementation)
+# Amico Phase 5 — Meal Management (Backend Implementation)
 
 Aligned with the React Native contract in `docs/meals-phase-5-ui-integration.md`.
 

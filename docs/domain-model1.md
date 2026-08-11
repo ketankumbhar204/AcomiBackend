@@ -1,8 +1,8 @@
-# CountIn Domain Model
+# Amico Domain Model
 
 ## Purpose
 
-This document defines the core business entities, relationships, statuses, and business rules for CountIn.
+This document defines the core business entities, relationships, statuses, and business rules for Amico.
 
 This document serves as the source of truth for:
 
@@ -58,7 +58,7 @@ Complaint
 
 ## Purpose
 
-Represents a person using CountIn.
+Represents a person using Amico.
 
 A user exists independently of any PG, Mess, or Hostel.
 

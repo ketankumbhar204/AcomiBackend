@@ -1,8 +1,8 @@
-# CountIn Backend Context
+# Amico Backend Context
 
 ## Project Overview
 
-CountIn is a WhatsApp-first operations management platform for:
+Amico is a WhatsApp-first operations management platform for:
 
 * PG Owners
 * Mess Vendors
@@ -491,4 +491,4 @@ A PG Owner or Mess Vendor should be able to:
 * Collect Availability
 * Track Payments
 
-within 10 minutes of first using CountIn.
+within 10 minutes of first using Amico.

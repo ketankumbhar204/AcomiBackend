@@ -286,11 +286,11 @@ Copy the block below into **Cursor in the backend repository** after placing `do
 ---
 
 ```markdown
-# Task: Implement CountIn Phase 5.3–5.4 — Meal Plans, Participation & Eligibility
+# Task: Implement Amico Phase 5.3–5.4 — Meal Plans, Participation & Eligibility
 
 ## Context
 
-CountIn backend. Phases 1–4 complete. Phase 5.1 (Menu Library) and 5.2 (Daily Menu Planning) are implemented and consumed by the React Native app.
+Amico backend. Phases 1–4 complete. Phase 5.1 (Menu Library) and 5.2 (Daily Menu Planning) are implemented and consumed by the React Native app.
 
 **Source of truth:**
 - `docs/meals-phase-5-backend.md`
@@ -491,7 +491,7 @@ Manual test with seed data:
 Use this in the **React Native repo** once backend Steps 1–3 pass verification:
 
 ```markdown
-# Task: Implement CountIn Phase 5.3 UI — Meal Participants MVP
+# Task: Implement Amico Phase 5.3 UI — Meal Participants MVP
 
 ## Prerequisites
 
