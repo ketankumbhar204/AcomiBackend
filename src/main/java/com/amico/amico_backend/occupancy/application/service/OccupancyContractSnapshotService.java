@@ -110,25 +110,6 @@ public class OccupancyContractSnapshotService {
 
     private ResolvedContractSnapshot resolveFoodAndCharges(
             ContractSnapshotInput input, SpaceEntity space, BigDecimal rent, BigDecimal deposit) {
-        // #region agent log
-        try {
-            boolean bundled = isBundledFood(input, space);
-            String line = String.format(
-                    "{\"sessionId\":\"1a4af9\",\"hypothesisId\":\"H3\",\"location\":\"OccupancyContractSnapshotService.resolveFoodAndCharges\",\"message\":\"food resolution\",\"data\":{\"isBundled\":%s,\"reqFoodIncludedInRent\":%s,\"spaceFoodIncludedInRent\":%s,\"reqFoodEnabled\":%s},\"timestamp\":%d}%n",
-                    bundled,
-                    input.getFoodIncludedInRent(),
-                    space.isFoodIncludedInRent(),
-                    input.getFoodEnabled(),
-                    System.currentTimeMillis());
-            java.nio.file.Files.writeString(
-                    java.nio.file.Paths.get("K:/Amico/debug-1a4af9.log"),
-                    line,
-                    java.nio.file.StandardOpenOption.CREATE,
-                    java.nio.file.StandardOpenOption.APPEND);
-        } catch (Exception ignored) {
-            // debug instrumentation only
-        }
-        // #endregion
         List<OccupancyChargeLineRequest> otherCharges = input.getOtherCharges() != null
                 ? input.getOtherCharges()
                 : List.of();

@@ -1,4 +1,4 @@
-# MVP Development (Render) + Supabase project amico-dev.
+# MVP Production (Render) + Supabase project amico-prod.
 # All secrets and connection details come from the deployment environment.
 # Do not put Supabase passwords or JWT secrets in this file.
 
@@ -26,13 +26,13 @@ amico:
 
 springdoc:
   api-docs:
-    enabled: ${SWAGGER_ENABLED:true}
+    enabled: ${SWAGGER_ENABLED:false}
   swagger-ui:
-    enabled: ${SWAGGER_ENABLED:true}
+    enabled: ${SWAGGER_ENABLED:false}
 
 logging:
   level:
     root: info
     org.hibernate.SQL: warn
     org.hibernate.orm.jdbc.bind: warn
-    org.flywaydb: info
+    org.flywaydb: warn

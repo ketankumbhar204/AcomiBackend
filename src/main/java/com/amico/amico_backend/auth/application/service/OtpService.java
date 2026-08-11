@@ -16,13 +16,14 @@ public class OtpService {
     private final OtpProperties otpProperties;
 
     public void sendOtp(String mobileNumber) {
-        log.info("MVP OTP sent to {}. Use OTP: {}", mobileNumber, otpProperties.getMvpCode());
+        // Never log OTP codes or full mobile numbers.
+        log.info("MVP OTP dispatch requested");
     }
 
     public void verifyOtp(String mobileNumber, String otp) {
         if (!otpProperties.getMvpCode().equals(otp)) {
             throw new BusinessException("Invalid OTP");
         }
-        log.info("OTP verified for {}", mobileNumber);
+        log.info("OTP verified successfully");
     }
 }
