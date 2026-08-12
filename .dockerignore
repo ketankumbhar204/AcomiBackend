@@ -1,0 +1,12 @@
+.git
+.gitignore
+target
+.idea
+*.iml
+*.iws
+*.ipr
+*.log
+hs_err_pid*
+node_modules
+.vscode
+HELP.md
