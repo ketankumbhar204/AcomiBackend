@@ -2,7 +2,7 @@
 -- Default filter: names containing "Test Aaaaaa" (case-insensitive).
 --
 -- Usage (psql):
---   psql -h localhost -U postgres -d amico_db -v ON_ERROR_STOP=1 -f scripts/dev/hard-delete-spaces-by-name.sql
+--   psql -h localhost -U postgres -d acomi_db -v ON_ERROR_STOP=1 -f scripts/dev/hard-delete-spaces-by-name.sql
 -- Override filter:
 --   psql ... -v name_pattern='%My Test Space%' -f scripts/dev/hard-delete-spaces-by-name.sql
 --

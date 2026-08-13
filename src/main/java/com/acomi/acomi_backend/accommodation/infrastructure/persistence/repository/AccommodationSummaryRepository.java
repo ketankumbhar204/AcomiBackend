@@ -1,0 +1,187 @@
+package com.acomi.acomi_backend.accommodation.infrastructure.persistence.repository;
+
+import com.acomi.acomi_backend.accommodation.domain.model.AccommodationStatus;
+import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.BuildingEntity;
+import java.util.List;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface AccommodationSummaryRepository extends JpaRepository<BuildingEntity, UUID> {
+
+    @Query("""
+            SELECT COUNT(f) FROM FloorEntity f
+            WHERE f.building.id = :buildingId AND f.isActive = true
+            """)
+    long countActiveFloors(@Param("buildingId") UUID buildingId);
+
+    @Query("""
+            SELECT COUNT(u) FROM UnitEntity u
+            WHERE u.building.id = :buildingId AND u.isActive = true
+            """)
+    long countActiveUnits(@Param("buildingId") UUID buildingId);
+
+    @Query("""
+            SELECT COUNT(u) FROM UnitEntity u
+            WHERE u.building.id = :buildingId AND u.isActive = true AND u.synthetic = false
+            """)
+    long countVisibleActiveUnits(@Param("buildingId") UUID buildingId);
+
+    @Query("""
+            SELECT COUNT(u) FROM UnitEntity u
+            WHERE u.building.id = :buildingId AND u.isActive = true AND u.synthetic = true
+            """)
+    long countSyntheticActiveUnits(@Param("buildingId") UUID buildingId);
+
+    @Query("""
+            SELECT COUNT(r) FROM RoomEntity r
+            WHERE r.isActive = true
+              AND EXISTS (
+                  SELECT 1 FROM FloorEntity f
+                  WHERE f.building.id = :buildingId AND f.isActive = true
+                    AND (
+                        r.floor.id = f.id
+                        OR (r.unit IS NOT NULL AND r.unit.isActive = true AND r.unit.floor.id = f.id)
+                    )
+              )
+            """)
+    long countActiveRooms(@Param("buildingId") UUID buildingId);
+
+    /**
+     * Bed counts use explicit JOIN paths (not EXISTS) so corridor rooms (room → floor)
+     * and apartment rooms (room → unit → building) both resolve correctly.
+     * Hibernate can mis-translate EXISTS + OR into SQL that requires room.unit_id.
+     */
+    @Query("""
+            SELECT COUNT(b) FROM BedEntity b
+            JOIN b.room r
+            LEFT JOIN r.floor f
+            LEFT JOIN f.building bf
+            LEFT JOIN r.unit ru
+            LEFT JOIN ru.building bu
+            WHERE b.isActive = true
+              AND r.isActive = true
+              AND (
+                  (f IS NOT NULL AND f.isActive = true AND bf.isActive = true AND bf.id = :buildingId)
+                  OR (ru IS NOT NULL AND ru.isActive = true AND bu.isActive = true AND bu.id = :buildingId)
+              )
+            """)
+    long countActiveBeds(@Param("buildingId") UUID buildingId);
+
+    @Query("""
+            SELECT r.status, COUNT(r) FROM RoomEntity r
+            WHERE r.isActive = true
+              AND EXISTS (
+                  SELECT 1 FROM FloorEntity f
+                  WHERE f.building.id = :buildingId AND f.isActive = true
+                    AND (
+                        r.floor.id = f.id
+                        OR (r.unit IS NOT NULL AND r.unit.isActive = true AND r.unit.floor.id = f.id)
+                    )
+              )
+            GROUP BY r.status
+            """)
+    List<Object[]> countRoomStatuses(@Param("buildingId") UUID buildingId);
+
+    @Query("""
+            SELECT b.status, COUNT(b) FROM BedEntity b
+            JOIN b.room r
+            LEFT JOIN r.floor f
+            LEFT JOIN f.building bf
+            LEFT JOIN r.unit ru
+            LEFT JOIN ru.building bu
+            WHERE b.isActive = true
+              AND r.isActive = true
+              AND (
+                  (f IS NOT NULL AND f.isActive = true AND bf.isActive = true AND bf.id = :buildingId)
+                  OR (ru IS NOT NULL AND ru.isActive = true AND bu.isActive = true AND bu.id = :buildingId)
+              )
+            GROUP BY b.status
+            """)
+    List<Object[]> countBedStatuses(@Param("buildingId") UUID buildingId);
+
+    @Query("""
+            SELECT u.status, COUNT(u) FROM UnitEntity u
+            WHERE u.building.id = :buildingId AND u.isActive = true
+            GROUP BY u.status
+            """)
+    List<Object[]> countUnitStatuses(@Param("buildingId") UUID buildingId);
+
+    @Query("""
+            SELECT COUNT(b) FROM BedEntity b
+            JOIN b.room r
+            LEFT JOIN r.floor f
+            LEFT JOIN f.building bf
+            LEFT JOIN r.unit ru
+            LEFT JOIN ru.building bu
+            WHERE b.isActive = true
+              AND r.isActive = true
+              AND b.status = :status
+              AND (
+                  (f IS NOT NULL AND f.isActive = true AND bf.isActive = true AND bf.id = :buildingId)
+                  OR (ru IS NOT NULL AND ru.isActive = true AND bu.isActive = true AND bu.id = :buildingId)
+              )
+            """)
+    long countBedsByStatus(
+            @Param("buildingId") UUID buildingId, @Param("status") AccommodationStatus status);
+
+    @Query("""
+            SELECT COUNT(b) FROM BedEntity b
+            JOIN b.room r
+            LEFT JOIN r.floor f
+            LEFT JOIN f.building bf
+            LEFT JOIN r.unit ru
+            LEFT JOIN ru.building bu
+            WHERE b.isActive = true
+              AND r.isActive = true
+              AND b.status = :status
+              AND (
+                  (f IS NOT NULL AND f.isActive = true AND bf.isActive = true AND bf.space.id = :spaceId)
+                  OR (ru IS NOT NULL AND ru.isActive = true AND bu.isActive = true AND bu.space.id = :spaceId)
+              )
+            """)
+    long countBedsByStatusForSpace(
+            @Param("spaceId") UUID spaceId, @Param("status") AccommodationStatus status);
+
+    @Query("""
+            SELECT b.status, COUNT(b) FROM BedEntity b
+            JOIN b.room r
+            LEFT JOIN r.floor f
+            LEFT JOIN f.building bf
+            LEFT JOIN r.unit ru
+            LEFT JOIN ru.building bu
+            WHERE b.isActive = true
+              AND r.isActive = true
+              AND (
+                  (f IS NOT NULL AND f.isActive = true AND bf.isActive = true AND bf.space.id = :spaceId)
+                  OR (ru IS NOT NULL AND ru.isActive = true AND bu.isActive = true AND bu.space.id = :spaceId)
+              )
+            GROUP BY b.status
+            """)
+    List<Object[]> countBedStatusesForSpace(@Param("spaceId") UUID spaceId);
+
+    @Query("""
+            SELECT COUNT(r) FROM RoomEntity r
+            WHERE r.isActive = true AND r.status = :status
+              AND EXISTS (
+                  SELECT 1 FROM FloorEntity f
+                  WHERE f.building.id = :buildingId AND f.isActive = true
+                    AND (
+                        r.floor.id = f.id
+                        OR (r.unit IS NOT NULL AND r.unit.isActive = true AND r.unit.floor.id = f.id)
+                    )
+              )
+            """)
+    long countRoomsByStatus(
+            @Param("buildingId") UUID buildingId, @Param("status") AccommodationStatus status);
+
+    @Query("""
+            SELECT COUNT(u) FROM UnitEntity u
+            WHERE u.building.id = :buildingId AND u.isActive = true AND u.status = :status
+            """)
+    long countUnitsByStatus(
+            @Param("buildingId") UUID buildingId, @Param("status") AccommodationStatus status);
+}

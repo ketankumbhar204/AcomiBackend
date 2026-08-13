@@ -1,4 +1,4 @@
-# Amico — Accommodation & Occupancy Phase 4.3a Architecture
+# Acomi — Accommodation & Occupancy Phase 4.3a Architecture
 
 **Status:** Approved architecture direction (pre-implementation)  
 **Audience:** Product, Backend, React Native, QA  
@@ -46,7 +46,7 @@
 
 ## 1. Executive summary
 
-Amico has correctly separated **accommodation inventory** from **member occupancy**. Phase 4.3 delivered walk-in allocation (Allocate → Transfer → Vacate). Before Availability, Meals, and Billing, the platform must extend occupancy with:
+Acomi has correctly separated **accommodation inventory** from **member occupancy**. Phase 4.3 delivered walk-in allocation (Allocate → Transfer → Vacate). Before Availability, Meals, and Billing, the platform must extend occupancy with:
 
 - **Lifecycle:** Reserve → Move-In → Transfer → Vacate
 - **Dates:** Move-in date, expected exit date
@@ -74,7 +74,7 @@ Full invoicing, meal forecasting, payment collection, or vacancy ML. **Do** add 
 
 ## 2. Current implementation baseline
 
-### 2.1 Backend (`amico-backend`)
+### 2.1 Backend (`acomi-backend`)
 
 | Area | Current state |
 |------|---------------|
@@ -96,7 +96,7 @@ Full invoicing, meal forecasting, payment collection, or vacancy ML. **Do** add 
 - `occupancy/infrastructure/persistence/entity/OccupancyEntity.java`
 - `occupancy/api/controller/OccupancyController.java`
 
-### 2.2 Frontend (`Amico` React Native)
+### 2.2 Frontend (`Acomi` React Native)
 
 | Area | Current state |
 |------|---------------|
@@ -671,23 +671,23 @@ Consume occupancy snapshots; no redesign of occupancy core.
 
 ## Appendix A — Backend implementation prompt
 
-Copy everything inside the block below into Cursor (or your AI agent) when working in the **backend repository** (`amico-backend`).
+Copy everything inside the block below into Cursor (or your AI agent) when working in the **backend repository** (`acomi-backend`).
 
 ---
 
 ### BACKEND PROMPT START
 
 ```markdown
-# Amico Backend — Phase 4.3a/4.3b Occupancy Enhancements
+# Acomi Backend — Phase 4.3a/4.3b Occupancy Enhancements
 
-You are a Senior Backend Architect implementing approved architecture in the Amico Spring Boot backend.
+You are a Senior Backend Architect implementing approved architecture in the Acomi Spring Boot backend.
 
-**Repository:** `amico-backend` (Java / Spring Boot)
+**Repository:** `acomi-backend` (Java / Spring Boot)
 **Architecture source of truth:** Frontend repo doc `docs/accommodation-occupancy-phase-4.3a-architecture.md` and `docs/accommodation-domain-model.md`
 
 ## Current baseline (do not break)
 
-- Occupancy module exists under `com.amico.amico_backend.occupancy`
+- Occupancy module exists under `com.acomi.acomi_backend.occupancy`
 - `OccupancyStatus`: ACTIVE, VACATED
 - `OccupancyHistoryEvent`: ALLOCATED, TRANSFERRED, VACATED
 - `AccommodationStatus`: AVAILABLE, OCCUPIED, RESERVED, MAINTENANCE, BLOCKED

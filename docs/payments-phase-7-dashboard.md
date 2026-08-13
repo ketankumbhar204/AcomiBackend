@@ -29,7 +29,7 @@ One operational dashboard and one payments tab for **all space types**.
 
 Never derive expected charges from **published menus alone** — only from confirmed meal activity and/or occupancy contracts.
 
-**Amico billing standard:** two concepts only — pay when you eat, or eat from prepaid balance. Hybrid behaviour is automatic fallback when balance is zero, not a third billing type.
+**Acomi billing standard:** two concepts only — pay when you eat, or eat from prepaid balance. Hybrid behaviour is automatic fallback when balance is zero, not a third billing type.
 
 ---
 
@@ -47,7 +47,7 @@ Never derive expected charges from **published menus alone** — only from confi
 
 ---
 
-## 3. Amico billing standard (two types)
+## 3. Acomi billing standard (two types)
 
 ### 3.1 Space-level billing settings
 
@@ -111,7 +111,7 @@ Each member can override the space default:
 
 ## 4. Backend module
 
-Package: `com.amico.amico_backend.dashboard` + `meal` (settings API)
+Package: `com.acomi.acomi_backend.dashboard` + `meal` (settings API)
 
 | Component | Role |
 |-----------|------|

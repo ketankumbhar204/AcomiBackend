@@ -1,4 +1,4 @@
-# Amico — Authentication UI Integration Guide
+# Acomi — Authentication UI Integration Guide
 
 Frontend reference for building **Login / Registration** screens in React Native (or any mobile/web client).
 
@@ -8,7 +8,7 @@ This document covers the complete auth flow, API contracts, token handling, scre
 
 ## Overview
 
-Amico uses **Mobile Number + OTP** authentication. There is **no password** and **no separate registration API**.
+Acomi uses **Mobile Number + OTP** authentication. There is **no password** and **no separate registration API**.
 
 | Concept | How it works |
 |---------|--------------|
@@ -17,7 +17,7 @@ Amico uses **Mobile Number + OTP** authentication. There is **no password** and 
 | Session | JWT Bearer token returned after OTP verification |
 | Token lifetime | 24 hours (86,400,000 ms) by default |
 
-**MVP OTP:** Use value from `amico.otp.mvp-code` in backend `application.yml` (default `111111` for development).
+**MVP OTP:** Use value from `acomi.otp.mvp-code` in backend `application.yml` (default `111111` for development).
 
 ---
 
@@ -383,7 +383,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import type { ApiResponse } from './types';
 
-const TOKEN_KEY = 'amico_access_token';
+const TOKEN_KEY = 'acomi_access_token';
 
 export const API_BASE_URL =
   Platform.OS === 'android'
@@ -593,7 +593,7 @@ After successful `verify-otp`:
 Copy this when building auth screens:
 
 ```
-Build Amico login flow in React Native using the auth APIs documented in docs/auth-ui-integration.md.
+Build Acomi login flow in React Native using the auth APIs documented in docs/auth-ui-integration.md.
 
 Screens:
 1. LoginScreen - mobile number input (10 digit Indian), Send OTP button

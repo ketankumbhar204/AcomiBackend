@@ -2,7 +2,7 @@
 
 ## Goal
 
-Allow owners and managers to manage members even if they do not install the Amico app.
+Allow owners and managers to manage members even if they do not install the Acomi app.
 
 A Member is a business record.
 
@@ -16,7 +16,7 @@ Tenant who never installs app
 Customer who never installs app
 Staff member who never installs app
 
-must still be manageable inside Amico.
+must still be manageable inside Acomi.
 
 ---
 

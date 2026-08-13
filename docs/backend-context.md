@@ -1,8 +1,8 @@
-# Amico Backend Context
+# Acomi Backend Context
 
 ## Project Overview
 
-Amico is a WhatsApp-first operations management platform for:
+Acomi is a WhatsApp-first operations management platform for:
 
 * PG Owners
 * Mess Vendors
@@ -491,4 +491,4 @@ A PG Owner or Mess Vendor should be able to:
 * Collect Availability
 * Track Payments
 
-within 10 minutes of first using Amico.
+within 10 minutes of first using Acomi.

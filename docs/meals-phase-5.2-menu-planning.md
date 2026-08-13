@@ -1,4 +1,4 @@
-# Amico — Phase 5.2 Menu Planning (Backend-First Spec)
+# Acomi — Phase 5.2 Menu Planning (Backend-First Spec)
 
 **Status:** Approved direction — Menu Planning is the primary Meals workflow  
 **Supersedes:** Meals tab → Today's Menu as default operator entry (UI integration §4.1)  
@@ -748,11 +748,11 @@ Also copy into backend `docs/`:
 4. `permissions-backend-spec.md`
 
 ```markdown
-# Task: Implement Amico Phase 5.2 — Menu Planning (Backend)
+# Task: Implement Acomi Phase 5.2 — Menu Planning (Backend)
 
 ## Context
 
-Amico Spring Boot 3 / Java 17 modular monolith. **Phase 5.1 Menu Library is complete** (food categories, items, combos, global seed, deactivate APIs).
+Acomi Spring Boot 3 / Java 17 modular monolith. **Phase 5.1 Menu Library is complete** (food categories, items, combos, global seed, deactivate APIs).
 
 The React Native app is wired for meal APIs. Field names and paths must match frontend `src/api/types.ts` and `src/api/mealsApi.ts` exactly (`ApiResponse<T>` envelope).
 

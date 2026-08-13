@@ -98,7 +98,7 @@ Base: `/api/v1/spaces/{spaceId}/inventory` — `ApiResponse<T>` envelope. Auth: 
 ## Packages
 
 ```
-com.amico.amico_backend.inventory
+com.acomi.acomi_backend.inventory
   api.controller.InventoryController
   api.dto.*
   application.catalog.InventoryProfiles
@@ -114,4 +114,4 @@ com.amico.amico_backend.inventory
 
 `src/api/inventoryApi.ts` calls the REST paths above. Method signatures keep `(spaceId, spaceType, …)` for UI compatibility; `spaceType` is unused on the wire (backend resolves profile from the space).
 
-Offline: AsyncStorage cache key `@amico/inventory/cache/v2/{spaceId}` — populated after successful GETs; used only when the network fails.
+Offline: AsyncStorage cache key `@acomi/inventory/cache/v2/{spaceId}` — populated after successful GETs; used only when the network fails.

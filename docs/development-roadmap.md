@@ -1,4 +1,4 @@
-# Amico Development Roadmap
+# Acomi Development Roadmap
 
 **Last updated:** June 2026
 
@@ -364,7 +364,7 @@ Rent, billing, payments, deposits, complaints, maintenance tickets — handled i
 
 ### Mess billing standard 🔶 (highest priority)
 
-Amico uses **two billing concepts only** — not four separate products:
+Acomi uses **two billing concepts only** — not four separate products:
 
 | Type | Label | Dashboard cards |
 |------|-------|-----------------|
@@ -423,7 +423,7 @@ Subscription, credits, and hybrid are **not separate enum values**. Prepaid bala
 
 ## What’s next (recommended order)
 
-Amico's strongest area today is **meal planning and availability**. Complete Mess billing logic before PG rent collection — otherwise dashboard Expected/Collected cards keep shifting.
+Acomi's strongest area today is **meal planning and availability**. Complete Mess billing logic before PG rent collection — otherwise dashboard Expected/Collected cards keep shifting.
 
 | # | Track | Phase | Why now |
 |---|--------|-------|---------|

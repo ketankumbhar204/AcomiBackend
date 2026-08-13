@@ -1,4 +1,4 @@
-# Amico — Accommodation Phase 4.2 UI Integration Guide
+# Acomi — Accommodation Phase 4.2 UI Integration Guide
 
 Frontend reference for **Quick Setup**, **Manual Builder**, **Duplicate**, and **Bulk** orchestration APIs.
 
@@ -1036,7 +1036,7 @@ async function apiPost<T>(url: string, body: unknown, extraHeaders?: Record<stri
 
 ## Frontend implementation prompt (copy to AI / ticket)
 
-> Integrate Amico Accommodation Phase 4.2 for space `{spaceId}` with `spaceType` from current space context.
+> Integrate Acomi Accommodation Phase 4.2 for space `{spaceId}` with `spaceType` from current space context.
 >
 > 1. **Quick Setup wizard** — multi-step form per space type; step 4 calls `POST .../accommodation/setup/preview`; step 5 calls `POST .../accommodation/setup` with header `Idempotency-Key: uuid`. Do not send room/floor/unit/bed numbers — server generates all. Show preview totals, expandable `sample` tree, and `warnings`. On success navigate to builder with returned `buildingId`.
 >

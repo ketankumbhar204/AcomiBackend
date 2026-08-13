@@ -1,4 +1,4 @@
-# MVP Production (Render) + Supabase project amico-prod.
+# MVP Production (Render) + Supabase project acomi-prod.
 # All secrets and connection details come from the deployment environment.
 # Do not put Supabase passwords or JWT secrets in this file.
 
@@ -8,7 +8,7 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     hikari:
-      pool-name: AmicoHikariPool
+      pool-name: AcomiHikariPool
       maximum-pool-size: 10
       minimum-idle: 2
 
@@ -18,7 +18,7 @@ spring:
   flyway:
     clean-disabled: true
 
-amico:
+acomi:
   jwt:
     secret: ${JWT_SECRET}
   cors:

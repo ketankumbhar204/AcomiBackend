@@ -1,8 +1,8 @@
-# Amico Domain Model
+# Acomi Domain Model
 
 ## Purpose
 
-This document defines the core business entities, relationships, statuses, and business rules for Amico.
+This document defines the core business entities, relationships, statuses, and business rules for Acomi.
 
 This document serves as the source of truth for:
 
@@ -58,7 +58,7 @@ Complaint
 
 ## Purpose
 
-Represents a person using Amico.
+Represents a person using Acomi.
 
 A user exists independently of any PG, Mess, or Hostel.
 

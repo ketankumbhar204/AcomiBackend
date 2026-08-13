@@ -2,7 +2,7 @@
 
 ## Goal
 
-Implement complete Space Management functionality for Amico.
+Implement complete Space Management functionality for Acomi.
 
 A Space represents a business/workspace.
 

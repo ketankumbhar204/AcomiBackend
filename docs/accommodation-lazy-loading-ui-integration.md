@@ -1,4 +1,4 @@
-# Amico — Accommodation Lazy Loading UI Integration
+# Acomi — Accommodation Lazy Loading UI Integration
 
 Frontend guide for **progressive (multi-level) accommodation loading**. Replaces loading the full building tree in one response.
 
@@ -488,7 +488,7 @@ export const accommodationKeys = {
 Copy into the mobile/web repo agent:
 
 ```
-Migrate Amico accommodation UI from full-tree / full-list loading to multi-level progressive loading.
+Migrate Acomi accommodation UI from full-tree / full-list loading to multi-level progressive loading.
 
 Read and follow exactly:
 - docs/accommodation-lazy-loading-ui-integration.md (primary spec)

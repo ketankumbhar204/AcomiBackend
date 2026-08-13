@@ -1,4 +1,4 @@
-# Amico — Accommodation Domain Model
+# Acomi — Accommodation Domain Model
 
 **Status:** Approved architecture decision  
 **Decision:** Option C — Composable hierarchy with optional Unit container  
@@ -58,7 +58,7 @@ This document is the **source of truth** for:
 
 ### 1.1 Real-world property diversity
 
-Amico serves PG, Hostel, Co-Living, and Rental operators. In practice, inventory is not uniform:
+Acomi serves PG, Hostel, Co-Living, and Rental operators. In practice, inventory is not uniform:
 
 | Operator mental model | Example |
 |----------------------|---------|

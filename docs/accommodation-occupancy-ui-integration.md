@@ -1,4 +1,4 @@
-# Amico — Occupancy Management UI Integration (Phase 4.3)
+# Acomi — Occupancy Management UI Integration (Phase 4.3)
 
 Frontend guide for **Allocate**, **Transfer**, **Vacate**, and **occupancy history**.
 

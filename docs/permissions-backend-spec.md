@@ -1,6 +1,6 @@
-# Amico — Permissions Backend Specification (Phase 4.5)
+# Acomi — Permissions Backend Specification (Phase 4.5)
 
-**Purpose:** Single source of truth for **server-side** role enforcement across Amico modules.  
+**Purpose:** Single source of truth for **server-side** role enforcement across Acomi modules.  
 **Audience:** Backend (Spring Boot) implementers.  
 **Frontend contract:** React Native already mirrors these rules in `src/utils/*Permissions.ts` — backend must enforce the same policy and return consistent `403` responses.
 
@@ -312,11 +312,11 @@ React Native will update:
 Use this prompt in the **backend repository** (Cursor / Claude / team handoff):
 
 ```markdown
-# Task: Implement Amico Phase 4.5 — Centralized Space Permissions (Backend)
+# Task: Implement Acomi Phase 4.5 — Centralized Space Permissions (Backend)
 
 ## Context
 
-Amico is a Spring Boot 3 / Java 17 modular monolith for PG, Hostel, Co-Living, and Rental operations. Authentication is JWT (mobile OTP). Access is modeled via `SpaceMembership` with roles:
+Acomi is a Spring Boot 3 / Java 17 modular monolith for PG, Hostel, Co-Living, and Rental operations. Authentication is JWT (mobile OTP). Access is modeled via `SpaceMembership` with roles:
 
 `OWNER | MANAGER | TENANT | CUSTOMER | STAFF`
 

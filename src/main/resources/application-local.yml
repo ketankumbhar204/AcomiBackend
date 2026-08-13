@@ -1,13 +1,13 @@
-# Local machine + local PostgreSQL (amico_db).
+# Local machine + local PostgreSQL (acomi_db).
 # Does not require Supabase. Override any value via environment variables.
 
 spring:
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:amico_db}
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:acomi_db}
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:Admin@123}
     hikari:
-      pool-name: AmicoHikariPool
+      pool-name: AcomiHikariPool
       maximum-pool-size: 10
       minimum-idle: 2
 
@@ -17,11 +17,11 @@ spring:
   flyway:
     clean-disabled: false
 
-amico:
+acomi:
   jwt:
     # Local-only default so developers can start without exporting JWT_SECRET.
     # Deployed profiles require JWT_SECRET from the environment (no default).
-    secret: ${JWT_SECRET:amico-dev-secret-key-must-be-at-least-256-bits-long-for-hs256-algorithm}
+    secret: ${JWT_SECRET:acomi-dev-secret-key-must-be-at-least-256-bits-long-for-hs256-algorithm}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
 

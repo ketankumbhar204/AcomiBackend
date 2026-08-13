@@ -1,4 +1,4 @@
-# Amico — Accommodation Phase 4.2.5 UI Integration
+# Acomi — Accommodation Phase 4.2.5 UI Integration
 
 Frontend reference for **Property Layout Modes**, **synthetic units**, and **apartment PG** support.
 

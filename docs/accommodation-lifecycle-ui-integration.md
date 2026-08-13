@@ -1,4 +1,4 @@
-# Amico — Accommodation Lifecycle UI Integration
+# Acomi — Accommodation Lifecycle UI Integration
 
 Frontend guide for **Deactivate**, **Restore**, and **Permanent Delete** on accommodation structure entities.
 
@@ -456,7 +456,7 @@ Refresh building summary after cleanup: `GET .../buildings/{buildingId}/summary`
 ## Frontend implementation prompt (copy to mobile repo)
 
 ```
-Integrate Amico Accommodation lifecycle (deactivate, restore, permanent delete) for space {spaceId}.
+Integrate Acomi Accommodation lifecycle (deactivate, restore, permanent delete) for space {spaceId}.
 
 BREAKING: Do not use DELETE on accommodation resources. Use POST lifecycle endpoints only.
 
@@ -500,7 +500,7 @@ BREAKING: Do not use DELETE on accommodation resources. Use POST lifecycle endpo
 
 8. TYPES
    - Use AccommodationActionMetadata on all detail response types.
-   - See docs/accommodation-lifecycle-ui-integration.md in amico-backend repo.
+   - See docs/accommodation-lifecycle-ui-integration.md in acomi-backend repo.
 
 Reference: accommodation-ui-integration.md (CRUD), accommodation-phase-4.2-ui-integration.md (Builder).
 ```
