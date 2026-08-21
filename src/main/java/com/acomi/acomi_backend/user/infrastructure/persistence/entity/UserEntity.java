@@ -4,6 +4,7 @@ import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.member.domain.model.MemberGender;
 import com.acomi.acomi_backend.user.domain.model.KycStatus;
 import com.acomi.acomi_backend.user.domain.model.ProfileStatus;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -26,7 +27,7 @@ import lombok.Setter;
 @Builder
 public class UserEntity extends BaseEntity {
 
-    @Column(name = "mobile_number", nullable = false, unique = true, length = 15)
+    @Column(name = "mobile_number", nullable = false, length = 64)
     private String mobileNumber;
 
     @Column(name = "full_name", nullable = false)
@@ -85,4 +86,14 @@ public class UserEntity extends BaseEntity {
     @Builder.Default
     @Column(name = "is_active", nullable = false)
     private boolean isActive = true;
+
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
+    @JsonIgnore
+    @Column(name = "password_hash", length = 255)
+    private String passwordHash;
+
+    @Column(name = "mobile_verified_at")
+    private LocalDateTime mobileVerifiedAt;
 }

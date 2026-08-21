@@ -60,4 +60,6 @@ public interface InvitationRepository extends JpaRepository<InvitationEntity, UU
               AND i.status = com.acomi.acomi_backend.member.domain.model.InvitationStatus.PENDING
             """)
     Optional<InvitationEntity> findPendingInvitation(@Param("id") UUID id);
+
+    List<InvitationEntity> findByInvitedBy_IdAndStatus(UUID invitedByUserId, InvitationStatus status);
 }

@@ -22,6 +22,9 @@ acomi:
     # Local-only default so developers can start without exporting JWT_SECRET.
     # Deployed profiles require JWT_SECRET from the environment (no default).
     secret: ${JWT_SECRET:acomi-dev-secret-key-must-be-at-least-256-bits-long-for-hs256-algorithm}
+  otp:
+    sender: dev
+    hash-secret: ${OTP_HASH_SECRET:local-dev-otp-hash-secret-not-for-production-use}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
 

@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -91,4 +92,8 @@ public interface SpaceNotificationRepository extends JpaRepository<SpaceNotifica
             @Param("userId") UUID userId,
             @Param("spaceIds") Collection<UUID> spaceIds,
             @Param("status") NotificationStatus status);
+
+    @Modifying
+    @Query("DELETE FROM SpaceNotificationEntity n WHERE n.userId = :userId")
+    int deleteByUserId(@Param("userId") UUID userId);
 }

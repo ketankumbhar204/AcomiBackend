@@ -116,6 +116,9 @@ public class GlobalExceptionHandler {
         if (detail.contains("uq_occupancies_member_active") || detail.contains("uq_occupancies_member_reserved")) {
             return "Member already has an active or reserved occupancy";
         }
+        if (detail.contains("uk_users_mobile_number_active")) {
+            return "This mobile number is already registered.";
+        }
         return "A record with the same unique value already exists";
     }
 

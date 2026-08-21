@@ -1,23 +1,38 @@
 # Acomi — Authentication UI Integration Guide
 
-Frontend reference for building **Login / Registration** screens in React Native (or any mobile/web client).
-
-This document covers the complete auth flow, API contracts, token handling, screen mapping, and error handling.
+Frontend reference for **Login / Registration** in React Native and web.
 
 ---
 
-## Overview
+## Current production authentication
 
-Acomi uses **Mobile Number + OTP** authentication. There is **no password** and **no separate registration API**.
+ACOMI uses **password authentication**. OTP is **not** part of the current user-facing login or registration flow.
 
 | Concept | How it works |
 |---------|--------------|
-| Login | User enters mobile → receives OTP → verifies OTP |
-| Registration | **Automatic** — if mobile number is new, user is created on successful OTP verification |
-| Session | JWT Bearer token returned after OTP verification |
-| Token lifetime | 24 hours (86,400,000 ms) by default |
+| Registration | Name + mobile + password + confirm password → `POST /api/v1/auth/register` → user created, password hashed, JWT returned |
+| Login | Mobile + password → `POST /api/v1/auth/login` → active user lookup, password verified, JWT returned |
+| Session | Existing JWT Bearer token. Default lifetime 24 hours (`86400000` ms) |
+| Account deletion (in-app) | Authenticated `DELETE /api/v1/auth/me` |
+| Account deletion (web) | `POST /api/v1/auth/account-deletion/password` |
 
-**MVP OTP:** Use value from `acomi.otp.mvp-code` in backend `application.yml` (default `111111` for development).
+Passwords are stored only as bcrypt hashes. They are never returned to clients. Invalid login credentials always return **401** `"Invalid mobile number or password."`
+
+`mobileVerifiedAt` is **null** for password-only registration. No production login, security, onboarding, or business rule currently requires it to be set. The column is reserved for future OTP.
+
+---
+
+## Future: OTP (reserved)
+
+OTP infrastructure remains in the backend for a later implementation:
+
+- `POST /api/v1/auth/send-otp`
+- `POST /api/v1/auth/verify-otp`
+- `POST /api/v1/auth/account-deletion` (OTP deletion)
+
+These endpoints must **not** be used as the current production login/register UI. There is **no** hardcoded OTP (`111111`, `123456`). Production OTP sender is `none` (disabled until a real SMS provider is wired).
+
+See [Reserved OTP APIs](#reserved-otp-apis) below.
 
 ---
 
@@ -25,61 +40,42 @@ Acomi uses **Mobile Number + OTP** authentication. There is **no password** and 
 
 | Environment | URL |
 |-------------|-----|
-| Android emulator | `http://10.0.2.2:8080` |
-| iOS simulator | `http://localhost:8080` |
-| Physical device | `http://<YOUR_PC_LAN_IP>:8080` |
+| Production API | `https://api.acomi.in/api/v1` |
+| Production web | `https://app.acomi.in` |
+| Local backend | `http://localhost:8080/api/v1` |
+| Android emulator (local) | `http://10.0.2.2:8080/api/v1` |
 
-All requests use header: `Content-Type: application/json`
-
-Protected requests also need: `Authorization: Bearer <accessToken>`
+All requests: `Content-Type: application/json`  
+Protected requests: `Authorization: Bearer <accessToken>`
 
 ---
 
-## Auth flow (UI screens)
+## Current auth flow
 
 ```
-┌─────────────────┐     POST /auth/send-otp      ┌─────────────────┐
-│  Login Screen   │ ─────────────────────────► │  OTP Screen     │
-│  (mobile input) │                              │  (6-digit OTP)  │
-└─────────────────┘                              └────────┬────────┘
-                                                          │
-                                              POST /auth/verify-otp
-                                                          │
-                                                          ▼
-                                               ┌─────────────────┐
-                                               │  Home / App     │
-                                               │  (store token)  │
-                                               └─────────────────┘
+Registration:
+  Name + Mobile + Password + Confirm
+        → POST /api/v1/auth/register
+        → JWT + user
+        → Authenticated app
+
+Login:
+  Mobile + Password
+        → POST /api/v1/auth/login
+        → JWT + user
+        → Authenticated app
+
+Bootstrap:
+  Stored token → GET /api/v1/auth/me
+  200 → stay signed in
+  401 → clear token, login
 ```
 
-### Screen 1: Login (Mobile Number)
-
-- Single input: 10-digit Indian mobile number
-- Validation: must start with 6–9, exactly 10 digits
-- Button: **Send OTP**
-- API: `POST /api/v1/auth/send-otp`
-- On success → navigate to OTP screen, pass `mobileNumber`
-
-### Screen 2: OTP Verification
-
-- Input: 6-digit OTP
-- Button: **Verify & Continue**
-- API: `POST /api/v1/auth/verify-otp`
-- On success → store `accessToken` + `user`, navigate to home
-- MVP hint (dev only): show "Use OTP: 123456" on screen
-
-### Screen 3: App bootstrap (on app launch)
-
-- Read stored token from AsyncStorage / SecureStore
-- If token exists → call `GET /api/v1/auth/me` to validate session
-- If `200` → user is logged in, go to home
-- If `401` → clear token, go to login
+No OTP input, countdown, or verification token is required for the current production screens.
 
 ---
 
 ## Common response envelope
-
-Every API returns:
 
 ```json
 {
@@ -90,93 +86,78 @@ Every API returns:
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | boolean | `true` = OK, `false` = error |
-| `message` | string | Human-readable message (optional on some GETs) |
-| `data` | object | Response payload (shape varies per endpoint) |
-| `timestamp` | string | Server timestamp |
-
-### Error response
-
-```json
-{
-  "success": false,
-  "message": "Invalid OTP",
-  "timestamp": "2026-06-08T10:30:00"
-}
-```
-
-Validation errors (`400`) include field map in `data`:
-
-```json
-{
-  "success": false,
-  "message": "Validation failed",
-  "data": {
-    "mobileNumber": "Mobile number must be a valid 10-digit Indian number",
-    "otp": "OTP must be 6 digits"
-  }
-}
-```
+Validation errors (`400`) may include a field map in `data`.
 
 ---
 
-## API 1: Send OTP
+## API: Register (current production)
 
 | | |
 |---|---|
 | **Method** | `POST` |
-| **Path** | `/api/v1/auth/send-otp` |
+| **Path** | `/api/v1/auth/register` |
 | **Auth** | None (public) |
 
 ### Request
 
 ```json
 {
-  "mobileNumber": "9876543210"
+  "fullName": "Priya Sharma",
+  "mobileNumber": "9876543210",
+  "password": "Secret12",
+  "confirmPassword": "Secret12"
 }
 ```
 
-| Field | Type | Required | Validation |
-|-------|------|----------|------------|
-| `mobileNumber` | string | Yes | 10 digits, starts with 6–9 |
+`name` is accepted as an alias for `fullName`.  
+`verificationToken` is optional and reserved for future OTP-verified registration. Current clients omit it.
+
+| Field | Validation |
+|-------|------------|
+| `fullName` | Required, max 255 |
+| `mobileNumber` | `^[6-9]\d{9}$` |
+| `password` | 8–72 characters |
+| `confirmPassword` | Must match `password` |
 
 ### Success — `200`
 
 ```json
 {
   "success": true,
-  "message": "OTP sent successfully",
+  "message": "Account created successfully",
   "data": {
-    "mobileNumber": "9876543210",
-    "message": "OTP sent successfully"
-  },
-  "timestamp": "2026-06-08T10:30:00"
+    "accessToken": "<jwt>",
+    "tokenType": "Bearer",
+    "expiresIn": 86400000,
+    "user": {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "mobileNumber": "9876543210",
+      "fullName": "Priya Sharma",
+      "active": true
+    }
+  }
 }
 ```
 
-### Failure examples
+`user` never includes `password` or `passwordHash`.
 
-| HTTP | `message` | UI action |
-|------|-----------|-----------|
-| `400` | `Validation failed` | Show field errors under inputs |
-| `500` | `An unexpected error occurred...` | Show retry button |
+### Failures
 
-### UI notes
+| HTTP | Message |
+|------|---------|
+| `400` | Validation failed / `Passwords do not match` |
+| `409` | `This mobile number is already registered.` |
 
-- Show loading spinner on button while request is in flight
-- Disable button if mobile number is invalid
-- No OTP is sent via SMS in MVP — backend logs `123456` to server console
+A previously deleted/anonymized mobile can register again (partial unique index on active mobiles).
 
 ---
 
-## API 2: Verify OTP (Login + Auto-Register)
+## API: Login (current production)
 
 | | |
 |---|---|
 | **Method** | `POST` |
-| **Path** | `/api/v1/auth/verify-otp` |
+| **Path** | `/api/v1/auth/login` |
 | **Auth** | None (public) |
 
 ### Request
@@ -184,167 +165,99 @@ Validation errors (`400`) include field map in `data`:
 ```json
 {
   "mobileNumber": "9876543210",
-  "otp": "123456"
+  "password": "Secret12"
 }
 ```
-
-| Field | Type | Required | Validation |
-|-------|------|----------|------------|
-| `mobileNumber` | string | Yes | Same as send-otp |
-| `otp` | string | Yes | Exactly 6 digits |
 
 ### Success — `200`
 
-```json
-{
-  "success": true,
-  "message": "Login successful",
-  "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiJ9...",
-    "tokenType": "Bearer",
-    "expiresIn": 86400000,
-    "user": {
-      "id": "550e8400-e29b-41d4-a716-446655440000",
-      "mobileNumber": "9876543210",
-      "fullName": "User",
-      "profilePhotoUrl": null,
-      "active": true,
-      "createdAt": "2026-06-08T10:30:00"
-    }
-  },
-  "timestamp": "2026-06-08T10:30:00"
-}
-```
+Same `AuthTokenResponse` as register. Message: `"Login successful"`.
 
-### Response fields to store
+### Failures
 
-| Field | Store where | Purpose |
-|-------|-------------|---------|
-| `data.accessToken` | AsyncStorage / SecureStore | Attach to all protected API calls |
-| `data.user.id` | App state / AsyncStorage | `ownerId` for create space, user context |
-| `data.user.mobileNumber` | App state | Display on profile |
-| `data.user.fullName` | App state | Display name (default `"User"` for new accounts) |
-| `data.expiresIn` | Optional | Token expiry countdown (ms) |
+| HTTP | Message |
+|------|---------|
+| `400` | Validation failed |
+| `401` | `Invalid mobile number or password.` |
 
-### Failure examples
-
-| HTTP | `message` | UI action |
-|------|-----------|-----------|
-| `400` | `Invalid OTP` | Show "Wrong OTP, try again" |
-| `400` | `Validation failed` | Show field errors |
-| `400` | `User account is inactive` | Show "Account disabled" message |
-| `500` | Unexpected error | Show retry |
-
-### New vs returning user
-
-Both use the **same flow**. Backend creates the user automatically if the mobile number does not exist:
-
-- **New user:** `fullName` defaults to `"User"` — update later via profile API (not built yet)
-- **Returning user:** Same OTP flow, existing profile returned
+Wrong password, unknown mobile, inactive, and deleted accounts all use the same 401 message.
 
 ---
 
-## API 3: Get Current User (Session check)
+## API: Get current user
 
 | | |
 |---|---|
 | **Method** | `GET` |
 | **Path** | `/api/v1/auth/me` |
-| **Auth** | **Required** — `Authorization: Bearer <accessToken>` |
+| **Auth** | JWT required |
 
-### Request
+`200` → user profile. `401` → clear token and return to login.
 
-No body. Header only:
+---
 
-```
-Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
-```
+## API: Delete account (in-app)
 
-### Success — `200`
+| | |
+|---|---|
+| **Method** | `DELETE` |
+| **Path** | `/api/v1/auth/me` |
+| **Auth** | JWT required. Identity comes from the token. Do not send a `userId`. |
 
-```json
-{
-  "success": true,
-  "data": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "mobileNumber": "9876543210",
-    "fullName": "User",
-    "profilePhotoUrl": null,
-    "active": true,
-    "createdAt": "2026-06-08T10:30:00"
-  },
-  "timestamp": "2026-06-08T10:30:00"
-}
-```
+Success: **204 No Content**. Personal login data is deleted/anonymized. Shared property records remain.
 
-### Failure — `401`
+---
+
+## API: Delete account (web / password)
+
+| | |
+|---|---|
+| **Method** | `POST` |
+| **Path** | `/api/v1/auth/account-deletion/password` |
+| **Auth** | Public |
 
 ```json
 {
-  "success": false,
-  "message": "Authentication required. Please provide a valid JWT token."
+  "mobileNumber": "9876543210",
+  "password": "Secret12"
 }
 ```
 
-### UI usage
+Success: **204**. Invalid credentials: **401** `"Invalid mobile number or password."`
 
-- Call on app launch to restore session
-- Call on profile screen to show current user
-- On `401` → clear stored token, redirect to login
+Public page: `https://app.acomi.in/delete-account`  
+Privacy: `https://app.acomi.in/privacy`
+
+Full semantics: [account-deletion.md](./account-deletion.md)
 
 ---
 
 ## Protected APIs (require JWT)
 
-After login, **all other APIs** require the Bearer token:
+After login, other APIs require:
 
 ```
 Authorization: Bearer <accessToken>
 ```
 
-| Endpoint | Purpose |
-|----------|---------|
-| `POST /api/v1/spaces` | Create space |
-| `GET /api/v1/spaces/user/{userId}` | List user's spaces |
-| `POST /api/v1/invitations` | Send invitation |
-| `POST /api/v1/invitations/{id}/accept` | Accept invitation |
-| `GET /api/v1/auth/me` | Current user profile |
-
-If token is missing or expired → `401` on any protected endpoint.
+Missing or expired token → `401`. Deleted/inactive users cannot use leftover JWTs.
 
 ---
 
-## TypeScript types
+## TypeScript types (current production)
 
 ```typescript
-export interface ApiResponse<T> {
-  success: boolean;
-  message?: string;
-  data?: T;
-  timestamp?: string;
-}
-
-export interface SendOtpRequest {
-  mobileNumber: string;
-}
-
-export interface SendOtpResponse {
-  mobileNumber: string;
-  message: string;
-}
-
-export interface VerifyOtpRequest {
-  mobileNumber: string;
-  otp: string;
-}
-
-export interface UserResponse {
-  id: string;
-  mobileNumber: string;
+export interface RegisterRequest {
   fullName: string;
-  profilePhotoUrl?: string | null;
-  active: boolean;
-  createdAt: string;
+  mobileNumber: string;
+  password: string;
+  confirmPassword: string;
+  verificationToken?: string; // reserved for future OTP
+}
+
+export interface LoginRequest {
+  mobileNumber: string;
+  password: string;
 }
 
 export interface AuthTokenResponse {
@@ -355,274 +268,60 @@ export interface AuthTokenResponse {
 }
 ```
 
----
-
-## React Native integration
-
-### Suggested file structure
-
-```
-src/
-  api/
-    types.ts          ← interfaces above
-    client.ts         ← fetch wrapper with token injection
-    authApi.ts        ← sendOtp, verifyOtp, getMe
-  store/
-    authStore.ts      ← Zustand/Context for user + token
-  screens/
-    LoginScreen.tsx   ← mobile input → send OTP
-    OtpScreen.tsx     ← OTP input → verify
-  hooks/
-    useAuth.ts        ← login, logout, isAuthenticated
-```
-
-### API client with token
-
-```typescript
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
-import type { ApiResponse } from './types';
-
-const TOKEN_KEY = 'acomi_access_token';
-
-export const API_BASE_URL =
-  Platform.OS === 'android'
-    ? 'http://10.0.2.2:8080'
-    : 'http://localhost:8080';
-
-export async function getStoredToken(): Promise<string | null> {
-  return AsyncStorage.getItem(TOKEN_KEY);
-}
-
-export async function setStoredToken(token: string): Promise<void> {
-  await AsyncStorage.setItem(TOKEN_KEY, token);
-}
-
-export async function clearStoredToken(): Promise<void> {
-  await AsyncStorage.removeItem(TOKEN_KEY);
-}
-
-export async function apiRequest<T>(
-  path: string,
-  options: { method?: string; body?: unknown; auth?: boolean } = {},
-): Promise<T> {
-  const { method = 'GET', body, auth = true } = options;
-
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-    'Content-Type': 'application/json',
-  };
-
-  if (auth) {
-    const token = await getStoredToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-  }
-
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  const json = (await response.json()) as ApiResponse<T>;
-
-  if (!response.ok || !json.success) {
-    if (response.status === 401) await clearStoredToken();
-    throw { status: response.status, message: json.message, data: json.data };
-  }
-
-  return json.data as T;
-}
-```
-
-### Auth API functions
-
-```typescript
-import { apiRequest, setStoredToken } from './client';
-import type {
-  AuthTokenResponse,
-  SendOtpRequest,
-  SendOtpResponse,
-  UserResponse,
-  VerifyOtpRequest,
-} from './types';
-
-export const authApi = {
-  sendOtp(payload: SendOtpRequest) {
-    return apiRequest<SendOtpResponse>('/api/v1/auth/send-otp', {
-      method: 'POST',
-      body: payload,
-      auth: false,
-    });
-  },
-
-  async verifyOtp(payload: VerifyOtpRequest) {
-    const result = await apiRequest<AuthTokenResponse>('/api/v1/auth/verify-otp', {
-      method: 'POST',
-      body: payload,
-      auth: false,
-    });
-    await setStoredToken(result.accessToken);
-    return result;
-  },
-
-  getMe() {
-    return apiRequest<UserResponse>('/api/v1/auth/me');
-  },
-};
-```
-
-### Login hook example
-
-```typescript
-import { useState } from 'react';
-import { authApi } from '../api/authApi';
-
-export function useLogin() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const sendOtp = async (mobileNumber: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      await authApi.sendOtp({ mobileNumber });
-      return true;
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to send OTP');
-      return false;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const verifyOtp = async (mobileNumber: string, otp: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await authApi.verifyOtp({ mobileNumber, otp });
-      return result; // { accessToken, user, ... }
-    } catch (e: any) {
-      setError(e.message ?? 'Invalid OTP');
-      return null;
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return { sendOtp, verifyOtp, loading, error };
-}
-```
+Store `accessToken` and `user` after register/login. Never store the password.
 
 ---
 
-## cURL test sequence
+## Client-side validation
 
-```bash
-# Step 1: Send OTP
-curl -X POST http://localhost:8080/api/v1/auth/send-otp \
-  -H "Content-Type: application/json" \
-  -d '{"mobileNumber":"9876543210"}'
+| Field | Rule |
+|-------|------|
+| Mobile | 10 digits, starts with 6–9 |
+| Password | 8–72 characters |
+| Confirm password | Must match password (register only) |
 
-# Step 2: Verify OTP (creates user if new)
-curl -X POST http://localhost:8080/api/v1/auth/verify-otp \
-  -H "Content-Type: application/json" \
-  -d '{"mobileNumber":"9876543210","otp":"123456"}'
+---
 
-# Step 3: Get current user (replace TOKEN)
-curl http://localhost:8080/api/v1/auth/me \
-  -H "Authorization: Bearer <TOKEN>"
+## Error handling
 
-# Step 4: Use token on protected APIs
-curl http://localhost:8080/api/v1/spaces/user/<USER_ID> \
-  -H "Authorization: Bearer <TOKEN>"
+| Scenario | HTTP | UI |
+|----------|------|----|
+| Invalid mobile / password length | `400` | Inline field errors |
+| Wrong password / unknown / deleted | `401` | `Invalid mobile number or password.` |
+| Duplicate active mobile | `409` | Already registered |
+| Expired token | `401` | Clear session, login |
+| Network | — | Connection error |
+
+---
+
+## Reserved OTP APIs
+
+Not used by the current production UI. Kept for a later OTP implementation.
+
+### Send OTP — `POST /api/v1/auth/send-otp`
+
+```json
+{ "mobileNumber": "9876543210", "purpose": "REGISTER" }
 ```
 
----
+`purpose` is `REGISTER` or `ACCOUNT_DELETION`. Success does **not** return the OTP code. Production sender `none` returns **503**.
 
-## UI validation rules (client-side)
+### Verify OTP — `POST /api/v1/auth/verify-otp`
 
-Match these before calling the API to avoid unnecessary 400 errors.
-
-| Field | Rule | Example valid | Example invalid |
-|-------|------|---------------|-----------------|
-| Mobile | 10 digits, starts 6–9 | `9876543210` | `5876543210`, `98765` |
-| OTP | Exactly 6 digits | `123456` | `12345`, `abcdef` |
-
----
-
-## Error handling checklist
-
-| Scenario | HTTP | What to show |
-|----------|------|--------------|
-| Invalid mobile format | `400` | Inline error under mobile field |
-| Invalid OTP | `400` | "Incorrect OTP. Please try again." |
-| Expired / invalid token | `401` | Redirect to login, clear stored token |
-| Account inactive | `400` | "Your account has been disabled." |
-| Network failure | — | "Unable to connect. Check your internet." |
-| Server error | `500` | "Something went wrong. Try again." |
-
----
-
-## Post-login navigation
-
-After successful `verify-otp`:
-
-1. Store `accessToken` and `user` in app state + AsyncStorage
-2. Use `user.id` as `ownerId` when creating a space
-3. Call `GET /api/v1/spaces/user/{user.id}` to load "My Spaces"
-4. Navigate to Home / Dashboard
-
----
-
-## MVP limitations (for UI team)
-
-| Feature | Status | UI impact |
-|---------|--------|-----------|
-| Real SMS / WhatsApp OTP | Not built | Show dev hint: OTP is `123456` |
-| Separate registration screen | Not needed | Login screen handles both new + returning users |
-| Profile update API | Not built | `fullName` stays `"User"` until profile API is added |
-| Logout API | Not built | Clear token locally on logout button |
-| Token refresh | Not built | Re-login when token expires (24h) |
-| Password login | Not supported | OTP only |
-
----
-
-## Cursor / AI prompt for UI implementation
-
-Copy this when building auth screens:
-
+```json
+{ "mobileNumber": "9876543210", "otp": "482731", "purpose": "REGISTER" }
 ```
-Build Acomi login flow in React Native using the auth APIs documented in docs/auth-ui-integration.md.
 
-Screens:
-1. LoginScreen - mobile number input (10 digit Indian), Send OTP button
-2. OtpScreen - 6 digit OTP input, Verify button, dev hint "Use 123456"
+Success returns a short-lived `verificationToken` for a future OTP-gated register. It does **not** return a JWT session.
 
-APIs (base URL from Platform.OS):
-- POST /api/v1/auth/send-otp  body: { mobileNumber }
-- POST /api/v1/auth/verify-otp body: { mobileNumber, otp }
-- GET  /api/v1/auth/me header: Authorization: Bearer <token>
+### OTP account deletion — `POST /api/v1/auth/account-deletion`
 
-On verify success:
-- Store accessToken in AsyncStorage
-- Store user object in Zustand auth store
-- Navigate to Home
-
-On app launch:
-- If token exists, call GET /auth/me
-- 200 → Home, 401 → Login
-
-All other APIs require Authorization: Bearer header.
-
-Use TypeScript. Handle 400 validation errors and 401 auth errors.
-Match validation: mobile ^[6-9]\d{9}$, otp ^\d{6}$.
-```
+Public OTP deletion. Current web UI uses the password deletion endpoint instead.
 
 ---
 
 ## Related docs
 
-- [api-reference.md](./api-reference.md) — All backend endpoints
-- [domain-model.md](./domain-model.md) — User entity and business rules
-- [backend-context.md](./backend-context.md) — Product context
+- [account-deletion.md](./account-deletion.md)
+- [api-reference.md](./api-reference.md)
+- [domain-model.md](./domain-model.md)

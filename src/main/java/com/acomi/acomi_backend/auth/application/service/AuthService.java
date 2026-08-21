@@ -1,9 +1,16 @@
 package com.acomi.acomi_backend.auth.application.service;
 
+import com.acomi.acomi_backend.auth.api.dto.request.LoginRequest;
+import com.acomi.acomi_backend.auth.api.dto.request.PasswordAccountDeletionRequest;
+import com.acomi.acomi_backend.auth.api.dto.request.RegisterRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.SendOtpRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.VerifyOtpRequest;
 import com.acomi.acomi_backend.auth.api.dto.response.AuthTokenResponse;
 import com.acomi.acomi_backend.auth.api.dto.response.SendOtpResponse;
+import com.acomi.acomi_backend.auth.api.dto.response.VerifyOtpResponse;
+import com.acomi.acomi_backend.auth.application.otp.OtpDispatchResult;
+import com.acomi.acomi_backend.auth.application.otp.RegistrationVerification;
+import com.acomi.acomi_backend.auth.domain.model.OtpPurpose;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.common.util.MobileNumberNormalizer;
@@ -29,7 +36,10 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -46,36 +56,86 @@ public class AuthService {
     private final UserRepository userRepository;
     private final MemberRepository memberRepository;
     private final MemberDocumentRepository memberDocumentRepository;
+    private final AccountDeletionService accountDeletionService;
+    private final PasswordEncoder passwordEncoder;
 
-    public SendOtpResponse sendOtp(SendOtpRequest request) {
+    private static final String INVALID_CREDENTIALS = "Invalid mobile number or password.";
+    /** Valid unused bcrypt hash so missing users still take a password-check path. */
+    private static final String DUMMY_PASSWORD_HASH =
+            "{bcrypt}$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG";
+
+    @Transactional
+    public AuthTokenResponse register(RegisterRequest request) {
+        if (!request.getPassword().equals(request.getConfirmPassword())) {
+            throw new BusinessException("Passwords do not match");
+        }
+
         String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
-        otpService.sendOtp(mobileNumber);
+        if (userRepository.findByMobileNumberAndIsActiveTrue(mobileNumber).isPresent()) {
+            throw new BusinessException("This mobile number is already registered.", HttpStatus.CONFLICT);
+        }
+
+        boolean otpVerified = StringUtils.hasText(request.getVerificationToken());
+        if (otpVerified) {
+            otpService.consumeRegistrationVerificationToken(mobileNumber, request.getVerificationToken());
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        UserEntity user;
+        try {
+            user = userRepository.save(UserEntity.builder()
+                    .mobileNumber(mobileNumber)
+                    .fullName(request.getFullName().trim())
+                    .passwordHash(passwordEncoder.encode(request.getPassword()))
+                    .mobileVerifiedAt(otpVerified ? now : null)
+                    .build());
+            userRepository.flush();
+        } catch (DataIntegrityViolationException ex) {
+            throw new BusinessException("This mobile number is already registered.", HttpStatus.CONFLICT);
+        }
+
+        return toAuthTokenResponse(user);
+    }
+
+    @Transactional(readOnly = true)
+    public AuthTokenResponse login(LoginRequest request) {
+        String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
+        UserEntity user = userRepository.findByMobileNumberAndIsActiveTrue(mobileNumber).orElse(null);
+        if (!passwordMatches(request.getPassword(), user)) {
+            throw new BusinessException(INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED);
+        }
+        return toAuthTokenResponse(user);
+    }
+
+    public SendOtpResponse sendOtp(SendOtpRequest request, String requestIp) {
+        String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
+        OtpPurpose purpose = request.getPurpose();
+        rejectRegisterOtpForActiveMobile(mobileNumber, purpose);
+        OtpDispatchResult dispatch = otpService.sendOtp(mobileNumber, purpose, requestIp);
 
         return SendOtpResponse.builder()
                 .mobileNumber(mobileNumber)
+                .purpose(purpose)
+                .expiresIn(dispatch.expiresInSeconds())
+                .resendAfter(dispatch.resendAfterSeconds())
                 .message("OTP sent successfully")
                 .build();
     }
 
-    @Transactional
-    public AuthTokenResponse verifyOtp(VerifyOtpRequest request) {
-        String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
-        otpService.verifyOtp(mobileNumber, request.getOtp());
-
-        UserEntity user = userRepository.findByMobileNumber(mobileNumber)
-                .orElseGet(() -> createUser(mobileNumber));
-
-        if (!user.isActive()) {
-            throw new BusinessException("User account is inactive");
+    @Transactional(noRollbackFor = BusinessException.class)
+    public VerifyOtpResponse verifyOtp(VerifyOtpRequest request) {
+        if (request.getPurpose() != OtpPurpose.REGISTER) {
+            throw new BusinessException("OTP purpose must be REGISTER");
         }
+        String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
+        rejectRegisterOtpForActiveMobile(mobileNumber, OtpPurpose.REGISTER);
+        RegistrationVerification verification =
+                otpService.verifyRegistrationOtp(mobileNumber, request.getOtp());
 
-        String token = jwtService.generateToken(user);
-
-        return AuthTokenResponse.builder()
-                .accessToken(token)
-                .tokenType("Bearer")
-                .expiresIn(jwtService.getExpirationMs())
-                .user(UserResponse.from(user))
+        return VerifyOtpResponse.builder()
+                .verified(true)
+                .verificationToken(verification.verificationToken())
+                .expiresIn(verification.expiresInSeconds())
                 .build();
     }
 
@@ -113,6 +173,25 @@ public class AuthService {
         UserEntity saved = userRepository.save(user);
         syncLinkedMembersFromProfile(saved, request);
         return UserResponse.from(saved);
+    }
+
+    /**
+     * Deletes the authenticated user's account and associated personal data.
+     * Identity is taken only from the JWT principal — the client cannot supply a userId.
+     */
+    @Transactional
+    public void deleteCurrentAccount() {
+        accountDeletionService.deleteAuthenticatedAccount();
+    }
+
+    @Transactional
+    public void deleteAccountByOtp(VerifyOtpRequest request) {
+        accountDeletionService.deleteAccountByOtp(request);
+    }
+
+    @Transactional
+    public void deleteAccountByPassword(PasswordAccountDeletionRequest request) {
+        accountDeletionService.deleteAccountByPassword(request);
     }
 
     private void applyProfileFields(UserEntity user, CompleteUserProfileRequest request) {
@@ -300,11 +379,32 @@ public class AuthService {
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", principal.getId()));
     }
 
-    private UserEntity createUser(String mobileNumber) {
-        return userRepository.save(UserEntity.builder()
-                .mobileNumber(mobileNumber)
-                .fullName("User")
-                .build());
+    private AuthTokenResponse toAuthTokenResponse(UserEntity user) {
+        return AuthTokenResponse.builder()
+                .accessToken(jwtService.generateToken(user))
+                .tokenType("Bearer")
+                .expiresIn(jwtService.getExpirationMs())
+                .user(UserResponse.from(user))
+                .build();
+    }
+
+    private void rejectRegisterOtpForActiveMobile(String mobileNumber, OtpPurpose purpose) {
+        if (purpose != OtpPurpose.REGISTER) {
+            return;
+        }
+        if (userRepository.findByMobileNumberAndIsActiveTrue(mobileNumber).isPresent()) {
+            throw new BusinessException("This mobile number is already registered.", HttpStatus.CONFLICT);
+        }
+    }
+
+    private boolean passwordMatches(String rawPassword, UserEntity user) {
+        boolean usable = user != null && StringUtils.hasText(user.getPasswordHash());
+        String hash = usable ? user.getPasswordHash() : DUMMY_PASSWORD_HASH;
+        try {
+            return passwordEncoder.matches(rawPassword, hash) && usable;
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
     }
 
     private UserPrincipal getAuthenticatedPrincipal() {

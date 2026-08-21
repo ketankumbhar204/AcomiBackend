@@ -119,6 +119,19 @@ public interface SpaceMembershipRepository extends JpaRepository<SpaceMembership
             @Param("spaceId") UUID spaceId,
             @Param("exitedAt") java.time.LocalDateTime exitedAt);
 
+    @Modifying
+    @Query("""
+            UPDATE SpaceMembershipEntity sm
+            SET sm.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.REMOVED,
+                sm.exitedAt = :exitedAt,
+                sm.isDefault = false
+            WHERE sm.user.id = :userId
+              AND sm.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+            """)
+    int deactivateAllActiveMembershipsForUser(
+            @Param("userId") UUID userId,
+            @Param("exitedAt") java.time.LocalDateTime exitedAt);
+
     @Query("""
             SELECT sm.space.id FROM SpaceMembershipEntity sm
             WHERE sm.user.id = :userId
