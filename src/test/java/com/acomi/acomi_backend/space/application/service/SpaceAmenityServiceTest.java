@@ -64,6 +64,15 @@ class SpaceAmenityServiceTest {
     }
 
     @Test
+    void normalizeAssignments_acceptsBedsAndWardrobe() {
+        List<AmenityAssignmentDto> normalized = SpaceAmenityService.normalizeAssignments(
+                List.of(dto("BEDS", null), dto("WARDROBE", "Wardrobe / Cupboard")));
+
+        assertThat(normalized).extracting(AmenityAssignmentDto::getCode).containsExactly("BEDS", "WARDROBE");
+        assertThat(normalized.get(0).getLabel()).isEqualTo("Beds");
+    }
+
+    @Test
     void normalizeAssignments_rejectsUnknownCode() {
         assertThatThrownBy(() -> SpaceAmenityService.normalizeAssignments(List.of(dto("POOL", null))))
                 .isInstanceOf(BusinessException.class)

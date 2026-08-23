@@ -15,6 +15,8 @@ public enum AmenityCode {
     CCTV("CCTV"),
     POWER_BACKUP("Power Backup"),
     RO_WATER("RO Water"),
+    BEDS("Beds"),
+    WARDROBE("Wardrobe / Cupboard"),
     CUSTOM(null);
 
     private final String defaultLabel;
