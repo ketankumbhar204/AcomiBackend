@@ -72,6 +72,27 @@ class AuthControllerOtpTest {
     }
 
     @Test
+    void sendOtp_loginPurpose_doesNotReturnOtp() throws Exception {
+        when(authService.sendOtp(any(SendOtpRequest.class), any()))
+                .thenReturn(SendOtpResponse.builder()
+                        .mobileNumber("9876543210")
+                        .purpose(OtpPurpose.LOGIN)
+                        .expiresIn(300)
+                        .resendAfter(60)
+                        .message("OTP sent successfully")
+                        .build());
+
+        mockMvc.perform(post("/api/v1/auth/send-otp")
+                        .contentType("application/json")
+                        .content("""
+                                {"mobileNumber":"9876543210","purpose":"LOGIN"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.purpose").value("LOGIN"))
+                .andExpect(jsonPath("$.data.otp").doesNotExist());
+    }
+
+    @Test
     void verifyOtp_returnsVerificationTokenWithoutJwt() throws Exception {
         when(authService.verifyOtp(any(VerifyOtpRequest.class)))
                 .thenReturn(VerifyOtpResponse.builder()

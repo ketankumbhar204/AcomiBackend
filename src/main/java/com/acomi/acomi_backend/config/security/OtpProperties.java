@@ -39,11 +39,34 @@ public class OtpProperties {
     private int verificationTokenTtlSeconds = 600;
 
     /**
-     * Delivery implementation: {@code none} (default) or {@code dev}.
+     * Delivery implementation: {@code none} (default), {@code dev}, or {@code twofactor}.
      * Production must never use {@code dev}.
      */
     private String sender = "none";
 
     /** HMAC secret used to hash OTPs and verification tokens. Not the JWT secret. */
     private String hashSecret;
+
+    /** 2Factor.in SMS OTP provider. API key comes from TWOFACTOR_API_KEY. */
+    private TwoFactor twoFactor = new TwoFactor();
+
+    @Getter
+    @Setter
+    public static class TwoFactor {
+        /** Provider API key. Never log or return this value. */
+        private String apiKey = "";
+
+        private String baseUrl = "https://2factor.in/API/V1";
+
+        /** Trial template is OTP1. Production uses the provider-assigned template name. */
+        private String template = "OTP1";
+
+        private int timeoutMs = 10_000;
+
+        /**
+         * Optional numeric country prefix prepended to the 10-digit Indian mobile.
+         * Empty means the provider receives the 10-digit national number.
+         */
+        private String phonePrefix = "";
+    }
 }

@@ -35,5 +35,11 @@ public class OtpConfigurationValidator {
         if (production && "dev".equals(sender)) {
             throw new IllegalStateException("Development OTP sender cannot be enabled in production");
         }
+        if ("twofactor".equals(sender)
+                && (otpProperties.getTwoFactor() == null
+                        || !StringUtils.hasText(otpProperties.getTwoFactor().getApiKey()))) {
+            throw new IllegalStateException(
+                    "acomi.otp.twofactor.api-key is required when acomi.otp.sender is twofactor");
+        }
     }
 }

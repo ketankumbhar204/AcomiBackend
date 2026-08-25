@@ -119,6 +119,9 @@ public class GlobalExceptionHandler {
         if (detail.contains("uk_users_mobile_number_active")) {
             return "This mobile number is already registered.";
         }
+        if (detail.contains("chk_auth_otps_purpose")) {
+            return "Unable to send OTP. Please try again later.";
+        }
         return "A record with the same unique value already exists";
     }
 

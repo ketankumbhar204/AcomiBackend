@@ -72,5 +72,8 @@ class OtpSenderTest {
 
         properties.setSender("none");
         assertThat(configuration.otpSender(properties)).isInstanceOf(NoneOtpSender.class);
+
+        properties.setSender("twofactor");
+        assertThat(configuration.otpSender(properties)).isInstanceOf(ExternalManagedOtpSender.class);
     }
 }

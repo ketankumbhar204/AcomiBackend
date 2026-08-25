@@ -1,8 +1,10 @@
 package com.acomi.acomi_backend.auth.application.service;
 
 import com.acomi.acomi_backend.auth.api.dto.request.LoginRequest;
+import com.acomi.acomi_backend.auth.api.dto.request.OtpVerifiedActionRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.PasswordAccountDeletionRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.RegisterRequest;
+import com.acomi.acomi_backend.auth.api.dto.request.ResetPasswordRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.SendOtpRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.VerifyOtpRequest;
 import com.acomi.acomi_backend.auth.api.dto.response.AuthTokenResponse;
@@ -75,10 +77,10 @@ public class AuthService {
             throw new BusinessException("This mobile number is already registered.", HttpStatus.CONFLICT);
         }
 
-        boolean otpVerified = StringUtils.hasText(request.getVerificationToken());
-        if (otpVerified) {
-            otpService.consumeRegistrationVerificationToken(mobileNumber, request.getVerificationToken());
+        if (!StringUtils.hasText(request.getVerificationToken())) {
+            throw new BusinessException("Mobile number verification is required.");
         }
+        otpService.consumeRegistrationVerificationToken(mobileNumber, request.getVerificationToken());
 
         LocalDateTime now = LocalDateTime.now();
         UserEntity user;
@@ -87,7 +89,7 @@ public class AuthService {
                     .mobileNumber(mobileNumber)
                     .fullName(request.getFullName().trim())
                     .passwordHash(passwordEncoder.encode(request.getPassword()))
-                    .mobileVerifiedAt(otpVerified ? now : null)
+                    .mobileVerifiedAt(now)
                     .build());
             userRepository.flush();
         } catch (DataIntegrityViolationException ex) {
@@ -107,30 +109,62 @@ public class AuthService {
         return toAuthTokenResponse(user);
     }
 
+    @Transactional
+    public AuthTokenResponse loginWithOtp(OtpVerifiedActionRequest request) {
+        String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
+        otpService.consumeVerificationToken(mobileNumber, request.getVerificationToken(), OtpPurpose.LOGIN);
+        UserEntity user = userRepository.findByMobileNumberAndIsActiveTrue(mobileNumber).orElse(null);
+        if (user == null) {
+            throw new BusinessException(INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED);
+        }
+        return toAuthTokenResponse(user);
+    }
+
+    @Transactional
+    public void resetPassword(ResetPasswordRequest request) {
+        if (!request.getPassword().equals(request.getConfirmPassword())) {
+            throw new BusinessException("Passwords do not match");
+        }
+        String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
+        otpService.consumeVerificationToken(
+                mobileNumber, request.getVerificationToken(), OtpPurpose.RESET_PASSWORD);
+        UserEntity user = userRepository.findByMobileNumberAndIsActiveTrue(mobileNumber)
+                .orElseThrow(() -> new BusinessException(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE));
+        user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        userRepository.save(user);
+    }
+
     public SendOtpResponse sendOtp(SendOtpRequest request, String requestIp) {
         String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
         OtpPurpose purpose = request.getPurpose();
-        rejectRegisterOtpForActiveMobile(mobileNumber, purpose);
-        OtpDispatchResult dispatch = otpService.sendOtp(mobileNumber, purpose, requestIp);
+        if (purpose == null) {
+            throw new BusinessException("OTP purpose is required");
+        }
+        boolean accountExists = userRepository.findByMobileNumberAndIsActiveTrue(mobileNumber).isPresent();
+        if (purpose == OtpPurpose.REGISTER && accountExists) {
+            throw new BusinessException("This mobile number is already registered.", HttpStatus.CONFLICT);
+        }
+        boolean dispatch = shouldDispatchOtp(purpose, accountExists);
+        OtpDispatchResult dispatchResult = otpService.sendOtp(mobileNumber, purpose, requestIp, dispatch);
 
         return SendOtpResponse.builder()
                 .mobileNumber(mobileNumber)
                 .purpose(purpose)
-                .expiresIn(dispatch.expiresInSeconds())
-                .resendAfter(dispatch.resendAfterSeconds())
+                .expiresIn(dispatchResult.expiresInSeconds())
+                .resendAfter(dispatchResult.resendAfterSeconds())
                 .message("OTP sent successfully")
                 .build();
     }
 
     @Transactional(noRollbackFor = BusinessException.class)
     public VerifyOtpResponse verifyOtp(VerifyOtpRequest request) {
-        if (request.getPurpose() != OtpPurpose.REGISTER) {
-            throw new BusinessException("OTP purpose must be REGISTER");
+        if (request.getPurpose() == null) {
+            throw new BusinessException("OTP purpose is required");
         }
         String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
-        rejectRegisterOtpForActiveMobile(mobileNumber, OtpPurpose.REGISTER);
+        rejectRegisterOtpForActiveMobile(mobileNumber, request.getPurpose());
         RegistrationVerification verification =
-                otpService.verifyRegistrationOtp(mobileNumber, request.getOtp());
+                otpService.verifyAndIssueToken(mobileNumber, request.getOtp(), request.getPurpose());
 
         return VerifyOtpResponse.builder()
                 .verified(true)
@@ -185,7 +219,7 @@ public class AuthService {
     }
 
     @Transactional
-    public void deleteAccountByOtp(VerifyOtpRequest request) {
+    public void deleteAccountByOtp(OtpVerifiedActionRequest request) {
         accountDeletionService.deleteAccountByOtp(request);
     }
 
@@ -386,6 +420,18 @@ public class AuthService {
                 .expiresIn(jwtService.getExpirationMs())
                 .user(UserResponse.from(user))
                 .build();
+    }
+
+    /**
+     * LOGIN and RESET_PASSWORD OTP is only dispatched when the mobile already has an account.
+     * Unknown numbers still get a success response so callers cannot enumerate accounts.
+     * REGISTER is the opposite: an existing account is a conflict, not a reason to send OTP.
+     */
+    private boolean shouldDispatchOtp(OtpPurpose purpose, boolean accountExists) {
+        if (purpose == OtpPurpose.LOGIN || purpose == OtpPurpose.RESET_PASSWORD) {
+            return accountExists;
+        }
+        return true;
     }
 
     private void rejectRegisterOtpForActiveMobile(String mobileNumber, OtpPurpose purpose) {

@@ -1,7 +1,7 @@
 package com.acomi.acomi_backend.auth.application.service;
 
+import com.acomi.acomi_backend.auth.api.dto.request.OtpVerifiedActionRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.PasswordAccountDeletionRequest;
-import com.acomi.acomi_backend.auth.api.dto.request.VerifyOtpRequest;
 import com.acomi.acomi_backend.auth.domain.model.OtpPurpose;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
@@ -67,14 +67,14 @@ public class AccountDeletionService {
     }
 
     /**
-     * Public web deletion: OTP proves possession of the mobile number.
-     * Does not create a user if none exists. Already-deleted / unknown numbers
-     * return successfully so callers cannot enumerate accounts.
+     * Public deletion after POST /auth/verify-otp with purpose ACCOUNT_DELETION.
+     * Unknown / already-deleted numbers return successfully so callers cannot enumerate accounts.
      */
     @Transactional
-    public void deleteAccountByOtp(VerifyOtpRequest request) {
+    public void deleteAccountByOtp(OtpVerifiedActionRequest request) {
         String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
-        otpService.verifyAndConsume(mobileNumber, request.getOtp(), OtpPurpose.ACCOUNT_DELETION);
+        otpService.consumeVerificationToken(
+                mobileNumber, request.getVerificationToken(), OtpPurpose.ACCOUNT_DELETION);
 
         userRepository.findByMobileNumberAndIsActiveTrue(mobileNumber)
                 .ifPresent(this::deleteAccount);

@@ -47,7 +47,12 @@ class OtpHashServiceTest {
         String token = "super-secret-verification-token-value";
         String hash = hashService.hashVerificationToken("9876543210", OtpPurpose.REGISTER, token);
 
-        assertThat(hash).doesNotContain(token);
-        assertThat(hash).isNotEqualTo(hashService.hashOtp("9876543210", OtpPurpose.REGISTER, token));
+        String loginHash = hashService.hashVerificationToken("9876543210", OtpPurpose.LOGIN, token);
+        String resetHash = hashService.hashVerificationToken("9876543210", OtpPurpose.RESET_PASSWORD, token);
+        String deleteHash = hashService.hashVerificationToken("9876543210", OtpPurpose.ACCOUNT_DELETION, token);
+
+        assertThat(hash).isNotEqualTo(loginHash);
+        assertThat(loginHash).isNotEqualTo(resetHash);
+        assertThat(resetHash).isNotEqualTo(deleteHash);
     }
 }

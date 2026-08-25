@@ -31,8 +31,10 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/v1/auth/register",
                                 "/api/v1/auth/login",
+                                "/api/v1/auth/login-with-otp",
                                 "/api/v1/auth/send-otp",
                                 "/api/v1/auth/verify-otp",
+                                "/api/v1/auth/reset-password",
                                 "/api/v1/auth/account-deletion",
                                 "/api/v1/auth/account-deletion/password",
                                 "/actuator/health",

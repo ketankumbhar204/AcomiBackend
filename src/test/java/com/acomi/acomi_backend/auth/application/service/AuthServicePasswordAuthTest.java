@@ -3,12 +3,15 @@ package com.acomi.acomi_backend.auth.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.acomi.acomi_backend.auth.api.dto.request.LoginRequest;
+import com.acomi.acomi_backend.auth.api.dto.request.OtpVerifiedActionRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.RegisterRequest;
+import com.acomi.acomi_backend.auth.api.dto.request.ResetPasswordRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.SendOtpRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.VerifyOtpRequest;
 import com.acomi.acomi_backend.common.exception.BusinessException;
@@ -128,29 +131,15 @@ class AuthServicePasswordAuthTest {
     }
 
     @Test
-    void register_withoutVerificationToken_hashesPasswordAndReturnsJwt() {
-        when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210"))
-                .thenReturn(Optional.empty());
-        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> {
-            UserEntity created = invocation.getArgument(0);
-            created.setId(UUID.randomUUID());
-            return created;
-        });
-        when(jwtService.generateToken(any(UserEntity.class))).thenReturn("jwt-token");
-        when(jwtService.getExpirationMs()).thenReturn(86_400_000L);
+    void register_withoutVerificationToken_isRejected() {
+        assertThatThrownBy(() -> authService.register(registerRequest(
+                        "Priya Sharma", "9876543210", "Secret12", "Secret12", null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Mobile number verification is required.");
 
-        var response = authService.register(registerRequest(
-                "Priya Sharma", "9876543210", "Secret12", "Secret12", null));
-
-        ArgumentCaptor<UserEntity> captor = ArgumentCaptor.forClass(UserEntity.class);
+        verify(userRepository, never()).save(any());
         verify(otpService, never()).consumeRegistrationVerificationToken(any(), any());
-        verify(userRepository).save(captor.capture());
-        UserEntity saved = captor.getValue();
-        assertThat(saved.getPasswordHash()).isNotEqualTo("Secret12");
-        assertThat(passwordEncoder.matches("Secret12", saved.getPasswordHash())).isTrue();
-        assertThat(saved.getMobileVerifiedAt()).isNull();
-        assertThat(response.getAccessToken()).isEqualTo("jwt-token");
-        assertThat(response.getUser().getFullName()).isEqualTo("Priya Sharma");
+        verify(jwtService, never()).generateToken(any());
     }
 
     @Test
@@ -294,7 +283,7 @@ class AuthServicePasswordAuthTest {
                 .extracting(ex -> ((BusinessException) ex).getStatus())
                 .isEqualTo(HttpStatus.CONFLICT);
 
-        verify(otpService, never()).sendOtp(any(), any(), any());
+        verify(otpService, never()).sendOtp(any(), any(), any(), anyBoolean());
     }
 
     @Test
@@ -304,7 +293,8 @@ class AuthServicePasswordAuthTest {
         when(otpService.sendOtp(
                         "9876543210",
                         com.acomi.acomi_backend.auth.domain.model.OtpPurpose.REGISTER,
-                        "127.0.0.1"))
+                        "127.0.0.1",
+                        true))
                 .thenReturn(new com.acomi.acomi_backend.auth.application.otp.OtpDispatchResult(300, 60));
 
         SendOtpRequest request = new SendOtpRequest();
@@ -321,14 +311,18 @@ class AuthServicePasswordAuthTest {
                 .sendOtp(
                         "9876543210",
                         com.acomi.acomi_backend.auth.domain.model.OtpPurpose.REGISTER,
-                        "127.0.0.1");
+                        "127.0.0.1",
+                        true);
     }
 
     @Test
     void verifyOtp_returnsVerificationTokenWithoutCreatingUserOrIssuingJwt() {
         when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210"))
                 .thenReturn(Optional.empty());
-        when(otpService.verifyRegistrationOtp("9876543210", "482731"))
+        when(otpService.verifyAndIssueToken(
+                        "9876543210",
+                        "482731",
+                        com.acomi.acomi_backend.auth.domain.model.OtpPurpose.REGISTER))
                 .thenReturn(new com.acomi.acomi_backend.auth.application.otp.RegistrationVerification(
                         "registration-token", 600));
 
@@ -344,6 +338,143 @@ class AuthServicePasswordAuthTest {
         assertThat(response.getExpiresIn()).isEqualTo(600);
         verify(userRepository, never()).save(any());
         verify(jwtService, never()).generateToken(any());
+    }
+
+    @Test
+    void loginWithOtp_existingUser_returnsSameJwtShapeAsPasswordLogin() {
+        UserEntity user = activeUserWithPassword("9876543210", "Secret12");
+        when(jwtService.generateToken(user)).thenReturn("jwt-otp");
+        when(jwtService.getExpirationMs()).thenReturn(86_400_000L);
+        when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210"))
+                .thenReturn(Optional.of(user));
+
+        OtpVerifiedActionRequest request = new OtpVerifiedActionRequest();
+        request.setMobileNumber("9876543210");
+        request.setVerificationToken("login-token");
+
+        var response = authService.loginWithOtp(request);
+
+        assertThat(response.getAccessToken()).isEqualTo("jwt-otp");
+        assertThat(response.getTokenType()).isEqualTo("Bearer");
+        verify(otpService).consumeVerificationToken(
+                "9876543210",
+                "login-token",
+                com.acomi.acomi_backend.auth.domain.model.OtpPurpose.LOGIN);
+    }
+
+    @Test
+    void loginWithOtp_unknownMobile_doesNotEnumerate() {
+        when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210"))
+                .thenReturn(Optional.empty());
+        OtpVerifiedActionRequest request = new OtpVerifiedActionRequest();
+        request.setMobileNumber("9876543210");
+        request.setVerificationToken("login-token");
+
+        assertThatThrownBy(() -> authService.loginWithOtp(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Invalid mobile number or password.")
+                .extracting(ex -> ((BusinessException) ex).getStatus())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+        verify(jwtService, never()).generateToken(any());
+    }
+
+    @Test
+    void resetPassword_updatesHashAndConsumesResetToken() {
+        UserEntity user = activeUserWithPassword("9876543210", "Secret12");
+        when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210"))
+                .thenReturn(Optional.of(user));
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ResetPasswordRequest request = new ResetPasswordRequest();
+        request.setMobileNumber("9876543210");
+        request.setVerificationToken("reset-token");
+        request.setPassword("NewPass12");
+        request.setConfirmPassword("NewPass12");
+
+        authService.resetPassword(request);
+
+        verify(otpService).consumeVerificationToken(
+                "9876543210",
+                "reset-token",
+                com.acomi.acomi_backend.auth.domain.model.OtpPurpose.RESET_PASSWORD);
+        verify(userRepository).save(user);
+        assertThat(passwordEncoder.matches("NewPass12", user.getPasswordHash())).isTrue();
+        verify(jwtService, never()).generateToken(any());
+    }
+
+    @Test
+    void sendOtp_loginUnknownMobile_skipsProvider() {
+        when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210"))
+                .thenReturn(Optional.empty());
+        when(otpService.sendOtp(
+                        "9876543210",
+                        com.acomi.acomi_backend.auth.domain.model.OtpPurpose.LOGIN,
+                        "127.0.0.1",
+                        false))
+                .thenReturn(new com.acomi.acomi_backend.auth.application.otp.OtpDispatchResult(300, 60));
+
+        SendOtpRequest request = new SendOtpRequest();
+        request.setMobileNumber("9876543210");
+        request.setPurpose(com.acomi.acomi_backend.auth.domain.model.OtpPurpose.LOGIN);
+
+        var response = authService.sendOtp(request, "127.0.0.1");
+        assertThat(response.getMessage()).isEqualTo("OTP sent successfully");
+        verify(otpService).sendOtp(
+                "9876543210",
+                com.acomi.acomi_backend.auth.domain.model.OtpPurpose.LOGIN,
+                "127.0.0.1",
+                false);
+    }
+
+    @Test
+    void sendOtp_resetPassword_existingMobile_dispatchesOtp() {
+        when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210"))
+                .thenReturn(Optional.of(activeUserWithPassword("9876543210", "Secret12")));
+        when(otpService.sendOtp(
+                        "9876543210",
+                        com.acomi.acomi_backend.auth.domain.model.OtpPurpose.RESET_PASSWORD,
+                        "127.0.0.1",
+                        true))
+                .thenReturn(new com.acomi.acomi_backend.auth.application.otp.OtpDispatchResult(300, 60));
+
+        SendOtpRequest request = new SendOtpRequest();
+        request.setMobileNumber("9876543210");
+        request.setPurpose(com.acomi.acomi_backend.auth.domain.model.OtpPurpose.RESET_PASSWORD);
+
+        var response = authService.sendOtp(request, "127.0.0.1");
+
+        assertThat(response.getPurpose())
+                .isEqualTo(com.acomi.acomi_backend.auth.domain.model.OtpPurpose.RESET_PASSWORD);
+        assertThat(response.getMessage()).isEqualTo("OTP sent successfully");
+        verify(otpService).sendOtp(
+                "9876543210",
+                com.acomi.acomi_backend.auth.domain.model.OtpPurpose.RESET_PASSWORD,
+                "127.0.0.1",
+                true);
+    }
+
+    @Test
+    void sendOtp_resetPassword_unknownMobile_skipsProvider() {
+        when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210"))
+                .thenReturn(Optional.empty());
+        when(otpService.sendOtp(
+                        "9876543210",
+                        com.acomi.acomi_backend.auth.domain.model.OtpPurpose.RESET_PASSWORD,
+                        "127.0.0.1",
+                        false))
+                .thenReturn(new com.acomi.acomi_backend.auth.application.otp.OtpDispatchResult(300, 60));
+
+        SendOtpRequest request = new SendOtpRequest();
+        request.setMobileNumber("9876543210");
+        request.setPurpose(com.acomi.acomi_backend.auth.domain.model.OtpPurpose.RESET_PASSWORD);
+
+        var response = authService.sendOtp(request, "127.0.0.1");
+        assertThat(response.getMessage()).isEqualTo("OTP sent successfully");
+        verify(otpService).sendOtp(
+                "9876543210",
+                com.acomi.acomi_backend.auth.domain.model.OtpPurpose.RESET_PASSWORD,
+                "127.0.0.1",
+                false);
     }
 
     private UserEntity activeUserWithPassword(String mobile, String rawPassword) {

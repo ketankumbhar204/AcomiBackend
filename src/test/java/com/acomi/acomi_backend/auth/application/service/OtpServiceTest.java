@@ -68,7 +68,8 @@ class OtpServiceTest {
                 sender,
                 new OtpGenerator(properties),
                 hashService,
-                new DatabaseOtpRateLimiter(authOtpRepository, properties));
+                new DatabaseOtpRateLimiter(authOtpRepository, properties),
+                Optional.empty());
     }
 
     @Test
@@ -244,6 +245,48 @@ class OtpServiceTest {
                         otpService.consumeRegistrationVerificationToken(OTHER_MOBILE, verification.verificationToken()))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE);
+    }
+
+    @Test
+    void verificationToken_isBoundToPurpose() {
+        otpService.sendOtp(MOBILE, OtpPurpose.REGISTER, "127.0.0.1");
+        RegistrationVerification registerToken =
+                otpService.verifyAndIssueToken(MOBILE, sender.lastOtp, OtpPurpose.REGISTER);
+
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                MOBILE, registerToken.verificationToken(), OtpPurpose.LOGIN))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE);
+
+        otpService.sendOtp(MOBILE, OtpPurpose.RESET_PASSWORD, "127.0.0.1");
+        RegistrationVerification resetToken =
+                otpService.verifyAndIssueToken(MOBILE, sender.lastOtp, OtpPurpose.RESET_PASSWORD);
+
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                MOBILE, resetToken.verificationToken(), OtpPurpose.ACCOUNT_DELETION))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE);
+
+        otpService.sendOtp(MOBILE, OtpPurpose.LOGIN, "127.0.0.1");
+        RegistrationVerification loginToken =
+                otpService.verifyAndIssueToken(MOBILE, sender.lastOtp, OtpPurpose.LOGIN);
+        otpService.consumeVerificationToken(MOBILE, loginToken.verificationToken(), OtpPurpose.LOGIN);
+
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                MOBILE, loginToken.verificationToken(), OtpPurpose.LOGIN))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.CONSUMED_VERIFICATION_TOKEN_MESSAGE);
+    }
+
+    @Test
+    void sendOtp_skipDispatch_doesNotCallSender() {
+        otpService.sendOtp(MOBILE, OtpPurpose.LOGIN, "127.0.0.1", false);
+        assertThat(sender.lastOtp).isNull();
+        assertThat(store).hasSize(1);
+        assertThat(store.get(0).getPurpose()).isEqualTo(OtpPurpose.LOGIN);
     }
 
     @Test

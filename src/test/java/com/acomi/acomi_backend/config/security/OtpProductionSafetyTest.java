@@ -17,6 +17,8 @@ class OtpProductionSafetyTest {
         assertThat(yaml).doesNotContain("111111");
         assertThat(yaml).doesNotContain("mvp-code");
         assertThat(yaml).contains("sender: none");
+        assertThat(yaml).contains("${TWOFACTOR_API_KEY:}");
+        assertThat(yaml).doesNotContain("746a2919");
     }
 
     @Test
@@ -37,7 +39,7 @@ class OtpProductionSafetyTest {
         String yaml = Files.readString(
                 Path.of("src/main/resources/application-local.yml"), StandardCharsets.UTF_8);
 
-        assertThat(yaml).contains("sender: dev");
+        assertThat(yaml).contains("ACOMI_OTP_SENDER:dev");
         assertThat(yaml).doesNotContain("mvp-code");
     }
 }

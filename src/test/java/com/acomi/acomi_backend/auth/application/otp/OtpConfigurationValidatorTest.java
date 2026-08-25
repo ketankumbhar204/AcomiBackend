@@ -43,4 +43,22 @@ class OtpConfigurationValidatorTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("acomi.otp.hash-secret must be at least 32 characters");
     }
+
+    @Test
+    void twoFactorSenderRequiresApiKey() {
+        OtpProperties properties = new OtpProperties();
+        properties.setHashSecret("production-otp-hash-secret-must-be-long");
+        properties.setLength(6);
+        properties.setSender("twofactor");
+        properties.getTwoFactor().setApiKey("");
+
+        Environment environment = mock(Environment.class);
+        when(environment.getActiveProfiles()).thenReturn(new String[] {"local"});
+
+        OtpConfigurationValidator validator = new OtpConfigurationValidator(properties, environment);
+
+        assertThatThrownBy(validator::validate)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("acomi.otp.twofactor.api-key is required when acomi.otp.sender is twofactor");
+    }
 }

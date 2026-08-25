@@ -7,7 +7,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.acomi.acomi_backend.auth.api.dto.request.LoginRequest;
+import com.acomi.acomi_backend.auth.api.dto.request.OtpVerifiedActionRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.RegisterRequest;
+import com.acomi.acomi_backend.auth.api.dto.request.ResetPasswordRequest;
 import com.acomi.acomi_backend.auth.api.dto.response.AuthTokenResponse;
 import com.acomi.acomi_backend.auth.application.service.AuthService;
 import com.acomi.acomi_backend.user.api.dto.response.UserResponse;
@@ -71,6 +73,40 @@ class AuthControllerPasswordAuthTest {
                 .andExpect(status().isOk());
 
         verify(authService).login(any(LoginRequest.class));
+    }
+
+    @Test
+    void loginWithOtp_returnsOk() throws Exception {
+        when(authService.loginWithOtp(any(OtpVerifiedActionRequest.class))).thenReturn(tokenResponse());
+
+        mockMvc.perform(post("/api/v1/auth/login-with-otp")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "mobileNumber": "9876543210",
+                                  "verificationToken": "verified-login-token"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        verify(authService).loginWithOtp(any(OtpVerifiedActionRequest.class));
+    }
+
+    @Test
+    void resetPassword_returnsOk() throws Exception {
+        mockMvc.perform(post("/api/v1/auth/reset-password")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "mobileNumber": "9876543210",
+                                  "verificationToken": "verified-reset-token",
+                                  "password": "Secret12",
+                                  "confirmPassword": "Secret12"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        verify(authService).resetPassword(any(ResetPasswordRequest.class));
     }
 
     private static AuthTokenResponse tokenResponse() {

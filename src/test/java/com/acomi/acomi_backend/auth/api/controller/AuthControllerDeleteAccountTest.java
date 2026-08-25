@@ -56,7 +56,7 @@ class AuthControllerDeleteAccountTest {
     void deleteAccountByOtp_returnsNoContent() throws Exception {
         mockMvc.perform(post("/api/v1/auth/account-deletion")
                         .contentType("application/json")
-                        .content("{\"mobileNumber\":\"9876543210\",\"otp\":\"482731\"}"))
+                        .content("{\"mobileNumber\":\"9876543210\",\"verificationToken\":\"delete-token\"}"))
                 .andExpect(status().isNoContent());
 
         verify(authService).deleteAccountByOtp(org.mockito.ArgumentMatchers.any());

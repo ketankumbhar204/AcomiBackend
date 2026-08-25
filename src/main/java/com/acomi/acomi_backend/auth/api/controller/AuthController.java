@@ -1,8 +1,10 @@
 package com.acomi.acomi_backend.auth.api.controller;
 
 import com.acomi.acomi_backend.auth.api.dto.request.LoginRequest;
+import com.acomi.acomi_backend.auth.api.dto.request.OtpVerifiedActionRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.PasswordAccountDeletionRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.RegisterRequest;
+import com.acomi.acomi_backend.auth.api.dto.request.ResetPasswordRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.SendOtpRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.VerifyOtpRequest;
 import com.acomi.acomi_backend.auth.api.dto.response.AuthTokenResponse;
@@ -61,6 +63,20 @@ public class AuthController {
         return ResponseEntity.ok(ApiResponse.success("OTP verified successfully", response));
     }
 
+    @PostMapping("/login-with-otp")
+    public ResponseEntity<ApiResponse<AuthTokenResponse>> loginWithOtp(
+            @RequestBody @Valid OtpVerifiedActionRequest request) {
+        AuthTokenResponse response = authService.loginWithOtp(request);
+        return ResponseEntity.ok(ApiResponse.success("Login successful", response));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(
+            @RequestBody @Valid ResetPasswordRequest request) {
+        authService.resetPassword(request);
+        return ResponseEntity.ok(ApiResponse.success("Password updated successfully"));
+    }
+
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<UserResponse>> getCurrentUser() {
         UserResponse response = authService.getCurrentUser();
@@ -89,7 +105,7 @@ public class AuthController {
 
     @PostMapping("/account-deletion")
     public ResponseEntity<Void> deleteAccountByOtp(
-            @RequestBody @Valid VerifyOtpRequest request) {
+            @RequestBody @Valid OtpVerifiedActionRequest request) {
         authService.deleteAccountByOtp(request);
         return ResponseEntity.noContent().build();
     }

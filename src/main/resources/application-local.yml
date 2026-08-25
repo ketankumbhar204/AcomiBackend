@@ -23,7 +23,9 @@ acomi:
     # Deployed profiles require JWT_SECRET from the environment (no default).
     secret: ${JWT_SECRET:acomi-dev-secret-key-must-be-at-least-256-bits-long-for-hs256-algorithm}
   otp:
-    sender: dev
+    sender: ${ACOMI_OTP_SENDER:dev}
+    # Set ACOMI_OTP_SENDER=twofactor and TWOFACTOR_API_KEY (rotated, never committed)
+    # to send real SMS OTP locally. Default `dev` logs OTP to the backend console.
     hash-secret: ${OTP_HASH_SECRET:local-dev-otp-hash-secret-not-for-production-use}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}

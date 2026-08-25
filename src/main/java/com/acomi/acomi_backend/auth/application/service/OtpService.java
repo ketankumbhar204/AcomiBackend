@@ -6,6 +6,7 @@ import com.acomi.acomi_backend.auth.application.otp.OtpHashService;
 import com.acomi.acomi_backend.auth.application.otp.OtpRateLimiter;
 import com.acomi.acomi_backend.auth.application.otp.OtpSender;
 import com.acomi.acomi_backend.auth.application.otp.RegistrationVerification;
+import com.acomi.acomi_backend.auth.application.otp.TwoFactorOtpClient;
 import com.acomi.acomi_backend.auth.domain.model.OtpPurpose;
 import com.acomi.acomi_backend.auth.infrastructure.persistence.entity.AuthOtpEntity;
 import com.acomi.acomi_backend.auth.infrastructure.persistence.repository.AuthOtpRepository;
@@ -15,6 +16,8 @@ import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,10 +49,17 @@ public class OtpService {
     private final OtpGenerator otpGenerator;
     private final OtpHashService otpHashService;
     private final OtpRateLimiter otpRateLimiter;
+    private final Optional<TwoFactorOtpClient> twoFactorOtpClient;
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Transactional
     public OtpDispatchResult sendOtp(String mobileNumber, OtpPurpose purpose, String requestIp) {
+        return sendOtp(mobileNumber, purpose, requestIp, true);
+    }
+
+    @Transactional
+    public OtpDispatchResult sendOtp(
+            String mobileNumber, OtpPurpose purpose, String requestIp, boolean dispatchToProvider) {
         requireSupportedPurpose(purpose);
         otpRateLimiter.assertSendAllowed(mobileNumber, purpose, requestIp);
 
@@ -57,11 +67,12 @@ public class OtpService {
         authOtpRepository.consumeUnusedOtps(now, mobileNumber, purpose);
         authOtpRepository.consumeUnusedVerificationTokens(now, mobileNumber, purpose);
 
-        String otp = otpGenerator.generate();
+        boolean external = usesExternalProvider();
+        String otpMaterial = external ? UUID.randomUUID().toString() : otpGenerator.generate();
         AuthOtpEntity entity = AuthOtpEntity.builder()
                 .mobileNumber(mobileNumber)
                 .purpose(purpose)
-                .codeHash(otpHashService.hashOtp(mobileNumber, purpose, otp))
+                .codeHash(otpHashService.hashOtp(mobileNumber, purpose, otpMaterial))
                 .expiresAt(now.plusSeconds(otpProperties.getTtlSeconds()))
                 .attemptCount(0)
                 .maxAttempts(otpProperties.getMaxAttempts())
@@ -69,7 +80,19 @@ public class OtpService {
                 .build();
         authOtpRepository.save(entity);
 
-        otpSender.send(mobileNumber, otp, purpose);
+        try {
+            if (dispatchToProvider) {
+                if (external) {
+                    twoFactorOtpClient.orElseThrow().sendOtp(mobileNumber);
+                } else {
+                    otpSender.send(mobileNumber, otpMaterial, purpose);
+                }
+            }
+        } catch (RuntimeException ex) {
+            entity.setConsumedAt(LocalDateTime.now());
+            authOtpRepository.save(entity);
+            throw ex;
+        }
         log.info("OTP dispatch requested");
 
         return new OtpDispatchResult(
@@ -78,11 +101,16 @@ public class OtpService {
 
     @Transactional(noRollbackFor = BusinessException.class)
     public RegistrationVerification verifyRegistrationOtp(String mobileNumber, String otp) {
-        AuthOtpEntity entity = verifyAndConsumeInternal(mobileNumber, otp, OtpPurpose.REGISTER);
+        return verifyAndIssueToken(mobileNumber, otp, OtpPurpose.REGISTER);
+    }
+
+    @Transactional(noRollbackFor = BusinessException.class)
+    public RegistrationVerification verifyAndIssueToken(String mobileNumber, String otp, OtpPurpose purpose) {
+        AuthOtpEntity entity = verifyAndConsumeInternal(mobileNumber, otp, purpose);
         LocalDateTime now = LocalDateTime.now();
         String rawToken = generateVerificationToken();
         entity.setVerificationTokenHash(
-                otpHashService.hashVerificationToken(mobileNumber, OtpPurpose.REGISTER, rawToken));
+                otpHashService.hashVerificationToken(mobileNumber, purpose, rawToken));
         entity.setVerificationTokenExpiresAt(now.plusSeconds(otpProperties.getVerificationTokenTtlSeconds()));
         entity.setVerificationTokenConsumedAt(null);
         authOtpRepository.save(entity);
@@ -96,15 +124,21 @@ public class OtpService {
 
     @Transactional
     public void consumeRegistrationVerificationToken(String mobileNumber, String rawToken) {
+        consumeVerificationToken(mobileNumber, rawToken, OtpPurpose.REGISTER);
+    }
+
+    @Transactional
+    public void consumeVerificationToken(String mobileNumber, String rawToken, OtpPurpose purpose) {
+        requireSupportedPurpose(purpose);
         if (!StringUtils.hasText(rawToken)) {
             throw new BusinessException(INVALID_VERIFICATION_TOKEN_MESSAGE);
         }
 
-        String hash = otpHashService.hashVerificationToken(mobileNumber, OtpPurpose.REGISTER, rawToken);
+        String hash = otpHashService.hashVerificationToken(mobileNumber, purpose, rawToken);
         AuthOtpEntity entity = authOtpRepository.findByVerificationTokenHashForUpdate(hash)
                 .orElseThrow(() -> new BusinessException(INVALID_VERIFICATION_TOKEN_MESSAGE));
 
-        if (entity.getPurpose() != OtpPurpose.REGISTER
+        if (entity.getPurpose() != purpose
                 || !mobileNumber.equals(entity.getMobileNumber())
                 || entity.getConsumedAt() == null
                 || !StringUtils.hasText(entity.getVerificationTokenHash())) {
@@ -147,14 +181,27 @@ public class OtpService {
             throw new BusinessException(MAX_ATTEMPTS_MESSAGE);
         }
 
-        String presentedHash = otpHashService.hashOtp(mobileNumber, purpose, otp);
-        if (!otpHashService.matches(entity.getCodeHash(), presentedHash)) {
-            entity.setAttemptCount(entity.getAttemptCount() + 1);
-            authOtpRepository.saveAndFlush(entity);
-            if (entity.getAttemptCount() >= entity.getMaxAttempts()) {
-                throw new BusinessException(MAX_ATTEMPTS_MESSAGE);
+        if (usesExternalProvider()) {
+            try {
+                twoFactorOtpClient.orElseThrow().verifyOtp(mobileNumber, otp);
+            } catch (BusinessException ex) {
+                entity.setAttemptCount(entity.getAttemptCount() + 1);
+                authOtpRepository.saveAndFlush(entity);
+                if (entity.getAttemptCount() >= entity.getMaxAttempts()) {
+                    throw new BusinessException(MAX_ATTEMPTS_MESSAGE);
+                }
+                throw ex;
             }
-            throw new BusinessException(INVALID_OTP_MESSAGE);
+        } else {
+            String presentedHash = otpHashService.hashOtp(mobileNumber, purpose, otp);
+            if (!otpHashService.matches(entity.getCodeHash(), presentedHash)) {
+                entity.setAttemptCount(entity.getAttemptCount() + 1);
+                authOtpRepository.saveAndFlush(entity);
+                if (entity.getAttemptCount() >= entity.getMaxAttempts()) {
+                    throw new BusinessException(MAX_ATTEMPTS_MESSAGE);
+                }
+                throw new BusinessException(INVALID_OTP_MESSAGE);
+            }
         }
 
         entity.setConsumedAt(now);
@@ -167,9 +214,16 @@ public class OtpService {
         if (purpose == null) {
             throw new BusinessException("OTP purpose is required");
         }
-        if (purpose != OtpPurpose.REGISTER && purpose != OtpPurpose.ACCOUNT_DELETION) {
+        if (purpose != OtpPurpose.REGISTER
+                && purpose != OtpPurpose.LOGIN
+                && purpose != OtpPurpose.RESET_PASSWORD
+                && purpose != OtpPurpose.ACCOUNT_DELETION) {
             throw new BusinessException(UNSUPPORTED_PURPOSE_MESSAGE);
         }
+    }
+
+    private boolean usesExternalProvider() {
+        return twoFactorOtpClient != null && twoFactorOtpClient.isPresent();
     }
 
     private String generateVerificationToken() {

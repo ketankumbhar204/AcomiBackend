@@ -8,8 +8,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.acomi.acomi_backend.auth.api.dto.request.OtpVerifiedActionRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.PasswordAccountDeletionRequest;
-import com.acomi.acomi_backend.auth.api.dto.request.VerifyOtpRequest;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.config.security.UserPrincipal;
 import com.acomi.acomi_backend.member.domain.model.InvitationStatus;
@@ -217,15 +217,18 @@ class AccountDeletionServiceTest {
     }
 
     @Test
-    void deleteAccountByOtp_invalidOtp_doesNotDelete() {
-        VerifyOtpRequest request = otpRequest("9876543210", "000000");
-        org.mockito.Mockito.doThrow(new BusinessException("Invalid OTP"))
+    void deleteAccountByOtp_invalidToken_doesNotDelete() {
+        OtpVerifiedActionRequest request = otpTokenRequest("9876543210", "bad-token");
+        org.mockito.Mockito.doThrow(new BusinessException("Invalid or expired verification token."))
                 .when(otpService)
-                .verifyAndConsume("9876543210", "000000", com.acomi.acomi_backend.auth.domain.model.OtpPurpose.ACCOUNT_DELETION);
+                .consumeVerificationToken(
+                        "9876543210",
+                        "bad-token",
+                        com.acomi.acomi_backend.auth.domain.model.OtpPurpose.ACCOUNT_DELETION);
 
         assertThatThrownBy(() -> accountDeletionService.deleteAccountByOtp(request))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("Invalid OTP");
+                .hasMessage("Invalid or expired verification token.");
 
         verify(userRepository, never()).save(any());
         verify(spaceMembershipRepository, never())
@@ -234,22 +237,22 @@ class AccountDeletionServiceTest {
 
     @Test
     void deleteAccountByOtp_unknownOrAlreadyDeletedMobile_isIdempotent() {
-        VerifyOtpRequest request = otpRequest("9876543210", "482731");
+        OtpVerifiedActionRequest request = otpTokenRequest("9876543210", "delete-token");
         when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210"))
                 .thenReturn(Optional.empty());
 
         accountDeletionService.deleteAccountByOtp(request);
 
-        verify(otpService).verifyAndConsume(
+        verify(otpService).consumeVerificationToken(
                 "9876543210",
-                "482731",
+                "delete-token",
                 com.acomi.acomi_backend.auth.domain.model.OtpPurpose.ACCOUNT_DELETION);
         verify(userRepository, never()).save(any());
     }
 
     @Test
     void deleteAccountByOtp_deletesMatchingActiveAccount() {
-        VerifyOtpRequest request = otpRequest("9876543210", "482731");
+        OtpVerifiedActionRequest request = otpTokenRequest("9876543210", "delete-token");
         when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210"))
                 .thenReturn(Optional.of(user));
         when(userRepository.save(user)).thenReturn(user);
@@ -316,10 +319,10 @@ class AccountDeletionServiceTest {
                 new UsernamePasswordAuthenticationToken(principal, null, principal.getAuthorities()));
     }
 
-    private static VerifyOtpRequest otpRequest(String mobile, String otp) {
-        VerifyOtpRequest request = new VerifyOtpRequest();
+    private static OtpVerifiedActionRequest otpTokenRequest(String mobile, String token) {
+        OtpVerifiedActionRequest request = new OtpVerifiedActionRequest();
         ReflectionTestUtils.setField(request, "mobileNumber", mobile);
-        ReflectionTestUtils.setField(request, "otp", otp);
+        ReflectionTestUtils.setField(request, "verificationToken", token);
         return request;
     }
 
