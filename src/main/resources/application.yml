@@ -66,4 +66,4 @@ acomi:
       timeout-ms: 10000
       phone-prefix: ${TWOFACTOR_PHONE_PREFIX:}
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174}

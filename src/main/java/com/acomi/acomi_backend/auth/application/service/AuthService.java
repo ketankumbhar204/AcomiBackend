@@ -62,6 +62,7 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
 
     private static final String INVALID_CREDENTIALS = "Invalid mobile number or password.";
+    private static final String NO_ACCOUNT_MESSAGE = "No ACOMI account found with this mobile number.";
     /** Valid unused bcrypt hash so missing users still take a password-check path. */
     private static final String DUMMY_PASSWORD_HASH =
             "{bcrypt}$2a$10$dXJ3SW6G7P50lGmMkkmwe.20cQQubK3.HZWzG3YB1tlRy.fqvM/BG";
@@ -140,12 +141,12 @@ public class AuthService {
         if (purpose == null) {
             throw new BusinessException("OTP purpose is required");
         }
-        boolean accountExists = userRepository.findByMobileNumberAndIsActiveTrue(mobileNumber).isPresent();
-        if (purpose == OtpPurpose.REGISTER && accountExists) {
-            throw new BusinessException("This mobile number is already registered.", HttpStatus.CONFLICT);
+        UserEntity changeMobileUser = purpose == OtpPurpose.CHANGE_MOBILE ? loadCurrentUserEntity() : null;
+        if (changeMobileUser != null) {
+            assertNewMobileEligible(changeMobileUser, mobileNumber);
         }
-        boolean dispatch = shouldDispatchOtp(purpose, accountExists);
-        OtpDispatchResult dispatchResult = otpService.sendOtp(mobileNumber, purpose, requestIp, dispatch);
+        assertMobileEligibleForPurpose(mobileNumber, purpose);
+        OtpDispatchResult dispatchResult = otpService.sendOtp(mobileNumber, purpose, requestIp, true);
 
         return SendOtpResponse.builder()
                 .mobileNumber(mobileNumber)
@@ -162,15 +163,44 @@ public class AuthService {
             throw new BusinessException("OTP purpose is required");
         }
         String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
-        rejectRegisterOtpForActiveMobile(mobileNumber, request.getPurpose());
-        RegistrationVerification verification =
-                otpService.verifyAndIssueToken(mobileNumber, request.getOtp(), request.getPurpose());
+        // Re-checked here because the account can be deleted between send and verify.
+        assertMobileEligibleForPurpose(mobileNumber, request.getPurpose());
+        RegistrationVerification verification;
+        if (request.getPurpose() == OtpPurpose.CHANGE_MOBILE) {
+            UserEntity currentUser = loadCurrentUserEntity();
+            assertNewMobileEligible(currentUser, mobileNumber);
+            verification = otpService.verifyAndIssueToken(
+                    mobileNumber, request.getOtp(), request.getPurpose(), currentUser.getId());
+        } else {
+            verification = otpService.verifyAndIssueToken(
+                    mobileNumber, request.getOtp(), request.getPurpose());
+        }
 
         return VerifyOtpResponse.builder()
                 .verified(true)
                 .verificationToken(verification.verificationToken())
                 .expiresIn(verification.expiresInSeconds())
                 .build();
+    }
+
+    @Transactional
+    public AuthTokenResponse changeMobile(OtpVerifiedActionRequest request) {
+        UserEntity user = loadCurrentUserEntity();
+        String newMobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
+        assertNewMobileEligible(user, newMobileNumber);
+        otpService.consumeVerificationToken(
+                newMobileNumber, request.getVerificationToken(), OtpPurpose.CHANGE_MOBILE, user.getId());
+
+        user.setMobileNumber(newMobileNumber);
+        user.setMobileVerifiedAt(LocalDateTime.now());
+        try {
+            userRepository.save(user);
+            userRepository.flush();
+        } catch (DataIntegrityViolationException ex) {
+            throw new BusinessException("This mobile number is already registered.", HttpStatus.CONFLICT);
+        }
+        syncLinkedMemberMobiles(user);
+        return toAuthTokenResponse(user);
     }
 
     @Transactional(readOnly = true)
@@ -243,6 +273,13 @@ public class AuthService {
     private void syncLinkedMemberNames(UserEntity user) {
         for (MemberEntity member : memberRepository.findActiveByUserId(user.getId())) {
             member.setFullName(user.getFullName());
+            memberRepository.save(member);
+        }
+    }
+
+    private void syncLinkedMemberMobiles(UserEntity user) {
+        for (MemberEntity member : memberRepository.findActiveByUserId(user.getId())) {
+            member.setMobileNumber(user.getMobileNumber());
             memberRepository.save(member);
         }
     }
@@ -422,24 +459,42 @@ public class AuthService {
                 .build();
     }
 
-    /**
-     * LOGIN and RESET_PASSWORD OTP is only dispatched when the mobile already has an account.
-     * Unknown numbers still get a success response so callers cannot enumerate accounts.
-     * REGISTER is the opposite: an existing account is a conflict, not a reason to send OTP.
-     */
-    private boolean shouldDispatchOtp(OtpPurpose purpose, boolean accountExists) {
-        if (purpose == OtpPurpose.LOGIN || purpose == OtpPurpose.RESET_PASSWORD) {
-            return accountExists;
-        }
-        return true;
+    /** Purposes that authenticate an existing account rather than create or move one. */
+    private static boolean isSignInPurpose(OtpPurpose purpose) {
+        return purpose == OtpPurpose.LOGIN || purpose == OtpPurpose.RESET_PASSWORD;
     }
 
-    private void rejectRegisterOtpForActiveMobile(String mobileNumber, OtpPurpose purpose) {
-        if (purpose != OtpPurpose.REGISTER) {
+    private void assertNewMobileEligible(UserEntity currentUser, String newMobileNumber) {
+        if (newMobileNumber.equals(currentUser.getMobileNumber())) {
+            throw new BusinessException("Enter a different mobile number.");
+        }
+        userRepository.findByMobileNumberAndIsActiveTrue(newMobileNumber)
+                .filter(existing -> !existing.getId().equals(currentUser.getId()))
+                .ifPresent(existing -> {
+                    throw new BusinessException(
+                            "This mobile number is already registered.", HttpStatus.CONFLICT);
+                });
+    }
+
+    /**
+     * REGISTER needs the number to be free; LOGIN and RESET_PASSWORD need it to belong to a live
+     * account.
+     *
+     * <p>Sign-in purposes previously returned success and silently skipped the SMS for an unknown
+     * number, which stranded the caller on an OTP screen waiting for a code that was never sent.
+     * Failing fast leaks nothing new, because REGISTER already reveals whether a number is taken.
+     */
+    private void assertMobileEligibleForPurpose(String mobileNumber, OtpPurpose purpose) {
+        if (purpose != OtpPurpose.REGISTER && !isSignInPurpose(purpose)) {
             return;
         }
-        if (userRepository.findByMobileNumberAndIsActiveTrue(mobileNumber).isPresent()) {
+        boolean accountExists =
+                userRepository.findByMobileNumberAndIsActiveTrue(mobileNumber).isPresent();
+        if (purpose == OtpPurpose.REGISTER && accountExists) {
             throw new BusinessException("This mobile number is already registered.", HttpStatus.CONFLICT);
+        }
+        if (isSignInPurpose(purpose) && !accountExists) {
+            throw new BusinessException(NO_ACCOUNT_MESSAGE, HttpStatus.NOT_FOUND);
         }
     }
 
@@ -454,11 +509,11 @@ public class AuthService {
     }
 
     private UserPrincipal getAuthenticatedPrincipal() {
-        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
-        if (principal instanceof UserPrincipal userPrincipal) {
-            return userPrincipal;
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal userPrincipal)) {
+            throw new BusinessException("Invalid authentication context", HttpStatus.UNAUTHORIZED);
         }
-        throw new BusinessException("Invalid authentication context");
+        return userPrincipal;
     }
 
     private record DocumentUpload(MemberDocumentType type, String number, String fileUrl) {}

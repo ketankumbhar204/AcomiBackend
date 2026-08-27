@@ -18,5 +18,6 @@ class SecurityConfigAccountDeletionTest {
         assertThat(content).contains("/api/v1/auth/verify-otp");
         assertThat(content).contains("/api/v1/auth/account-deletion");
         assertThat(content).doesNotContain("\"/api/v1/auth/me\"");
+        assertThat(content).doesNotContain("/api/v1/auth/change-mobile");
     }
 }

@@ -7,6 +7,7 @@ import com.acomi.acomi_backend.auth.domain.model.OtpPurpose;
 import com.acomi.acomi_backend.auth.infrastructure.persistence.entity.AuthOtpEntity;
 import com.acomi.acomi_backend.auth.infrastructure.persistence.repository.AuthOtpRepository;
 import com.acomi.acomi_backend.common.exception.BusinessException;
+import com.acomi.acomi_backend.common.exception.RateLimitedException;
 import com.acomi.acomi_backend.config.security.OtpProperties;
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -77,5 +78,46 @@ class DatabaseOtpRateLimiterTest {
                         rateLimiter.assertSendAllowed("9876543210", OtpPurpose.REGISTER, "10.0.0.8"))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage(DatabaseOtpRateLimiter.RESEND_COOLDOWN_MESSAGE);
+    }
+
+    @Test
+    void cooldown_isEnforcedForChangeMobile() {
+        AuthOtpEntity latest = AuthOtpEntity.builder()
+                .mobileNumber("9123456789")
+                .purpose(OtpPurpose.CHANGE_MOBILE)
+                .codeHash("hash")
+                .expiresAt(LocalDateTime.now().plusMinutes(5))
+                .maxAttempts(5)
+                .build();
+        latest.setCreatedAt(LocalDateTime.now().minusSeconds(10));
+        when(authOtpRepository.findFirstByMobileNumberAndPurposeOrderByCreatedAtDesc(
+                        "9123456789", OtpPurpose.CHANGE_MOBILE))
+                .thenReturn(Optional.of(latest));
+
+        assertThatThrownBy(() ->
+                        rateLimiter.assertSendAllowed("9123456789", OtpPurpose.CHANGE_MOBILE, "10.0.0.8"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(DatabaseOtpRateLimiter.RESEND_COOLDOWN_MESSAGE);
+    }
+
+    @Test
+    void cooldown_reportsRemainingSecondsSoClientsCanCountDown() {
+        AuthOtpEntity latest = AuthOtpEntity.builder()
+                .mobileNumber("9876543210")
+                .purpose(OtpPurpose.LOGIN)
+                .codeHash("hash")
+                .expiresAt(LocalDateTime.now().plusMinutes(5))
+                .maxAttempts(5)
+                .build();
+        latest.setCreatedAt(LocalDateTime.now().minusSeconds(15));
+        when(authOtpRepository.findFirstByMobileNumberAndPurposeOrderByCreatedAtDesc(
+                        "9876543210", OtpPurpose.LOGIN))
+                .thenReturn(Optional.of(latest));
+
+        assertThatThrownBy(() ->
+                        rateLimiter.assertSendAllowed("9876543210", OtpPurpose.LOGIN, "10.0.0.8"))
+                .isInstanceOf(RateLimitedException.class)
+                .extracting(ex -> ((RateLimitedException) ex).getRetryAfterSeconds())
+                .isEqualTo(45L);
     }
 }

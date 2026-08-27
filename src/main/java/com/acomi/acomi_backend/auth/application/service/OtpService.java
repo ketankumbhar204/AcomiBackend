@@ -106,11 +106,21 @@ public class OtpService {
 
     @Transactional(noRollbackFor = BusinessException.class)
     public RegistrationVerification verifyAndIssueToken(String mobileNumber, String otp, OtpPurpose purpose) {
+        return verifyAndIssueToken(mobileNumber, otp, purpose, null);
+    }
+
+    @Transactional(noRollbackFor = BusinessException.class)
+    public RegistrationVerification verifyAndIssueToken(
+            String mobileNumber, String otp, OtpPurpose purpose, UUID actorUserId) {
+        if (purpose == OtpPurpose.CHANGE_MOBILE && actorUserId == null) {
+            throw new BusinessException(INVALID_VERIFICATION_TOKEN_MESSAGE);
+        }
         AuthOtpEntity entity = verifyAndConsumeInternal(mobileNumber, otp, purpose);
         LocalDateTime now = LocalDateTime.now();
         String rawToken = generateVerificationToken();
         entity.setVerificationTokenHash(
-                otpHashService.hashVerificationToken(mobileNumber, purpose, rawToken));
+                otpHashService.hashVerificationToken(
+                        mobileNumber, purpose, rawToken, changeMobileActor(purpose, actorUserId)));
         entity.setVerificationTokenExpiresAt(now.plusSeconds(otpProperties.getVerificationTokenTtlSeconds()));
         entity.setVerificationTokenConsumedAt(null);
         authOtpRepository.save(entity);
@@ -129,12 +139,22 @@ public class OtpService {
 
     @Transactional
     public void consumeVerificationToken(String mobileNumber, String rawToken, OtpPurpose purpose) {
+        consumeVerificationToken(mobileNumber, rawToken, purpose, null);
+    }
+
+    @Transactional
+    public void consumeVerificationToken(
+            String mobileNumber, String rawToken, OtpPurpose purpose, UUID actorUserId) {
         requireSupportedPurpose(purpose);
+        if (purpose == OtpPurpose.CHANGE_MOBILE && actorUserId == null) {
+            throw new BusinessException(INVALID_VERIFICATION_TOKEN_MESSAGE);
+        }
         if (!StringUtils.hasText(rawToken)) {
             throw new BusinessException(INVALID_VERIFICATION_TOKEN_MESSAGE);
         }
 
-        String hash = otpHashService.hashVerificationToken(mobileNumber, purpose, rawToken);
+        String hash = otpHashService.hashVerificationToken(
+                mobileNumber, purpose, rawToken, changeMobileActor(purpose, actorUserId));
         AuthOtpEntity entity = authOtpRepository.findByVerificationTokenHashForUpdate(hash)
                 .orElseThrow(() -> new BusinessException(INVALID_VERIFICATION_TOKEN_MESSAGE));
 
@@ -217,9 +237,16 @@ public class OtpService {
         if (purpose != OtpPurpose.REGISTER
                 && purpose != OtpPurpose.LOGIN
                 && purpose != OtpPurpose.RESET_PASSWORD
-                && purpose != OtpPurpose.ACCOUNT_DELETION) {
+                && purpose != OtpPurpose.ACCOUNT_DELETION
+                && purpose != OtpPurpose.CHANGE_MOBILE
+                && purpose != OtpPurpose.PROPERTY_REGISTRATION
+                && purpose != OtpPurpose.MESS_REGISTRATION) {
             throw new BusinessException(UNSUPPORTED_PURPOSE_MESSAGE);
         }
+    }
+
+    private UUID changeMobileActor(OtpPurpose purpose, UUID actorUserId) {
+        return purpose == OtpPurpose.CHANGE_MOBILE ? actorUserId : null;
     }
 
     private boolean usesExternalProvider() {

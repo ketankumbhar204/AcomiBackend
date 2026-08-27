@@ -116,4 +116,11 @@ public class AuthController {
         authService.deleteAccountByPassword(request);
         return ResponseEntity.noContent().build();
     }
+
+    @PostMapping("/change-mobile")
+    public ResponseEntity<ApiResponse<AuthTokenResponse>> changeMobile(
+            @RequestBody @Valid OtpVerifiedActionRequest request) {
+        AuthTokenResponse response = authService.changeMobile(request);
+        return ResponseEntity.ok(ApiResponse.success("Mobile number updated successfully", response));
+    }
 }

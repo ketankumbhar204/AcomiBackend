@@ -7,6 +7,7 @@ import java.security.InvalidKeyException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.UUID;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.stereotype.Component;
@@ -28,6 +29,18 @@ public class OtpHashService {
     }
 
     public String hashVerificationToken(String mobileNumber, OtpPurpose purpose, String token) {
+        return hashVerificationToken(mobileNumber, purpose, token, null);
+    }
+
+    /**
+     * CHANGE_MOBILE tokens include the authenticated user id so a token issued for one
+     * account cannot be consumed by another, even for the same new mobile number.
+     */
+    public String hashVerificationToken(
+            String mobileNumber, OtpPurpose purpose, String token, UUID actorUserId) {
+        if (actorUserId != null) {
+            return hmac("vtoken:" + purpose.name() + ":" + mobileNumber + ":" + actorUserId + ":" + token);
+        }
         return hmac("vtoken:" + purpose.name() + ":" + mobileNumber + ":" + token);
     }
 

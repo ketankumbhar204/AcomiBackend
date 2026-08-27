@@ -37,6 +37,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/reset-password",
                                 "/api/v1/auth/account-deletion",
                                 "/api/v1/auth/account-deletion/password",
+                                "/api/v1/property-registrations",
+                                "/api/v1/mess-registrations",
                                 "/actuator/health",
                                 "/actuator/health/**",
                                 "/v3/api-docs/**",

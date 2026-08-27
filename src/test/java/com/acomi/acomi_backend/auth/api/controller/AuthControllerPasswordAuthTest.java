@@ -109,6 +109,23 @@ class AuthControllerPasswordAuthTest {
         verify(authService).resetPassword(any(ResetPasswordRequest.class));
     }
 
+    @Test
+    void changeMobile_returnsOk() throws Exception {
+        when(authService.changeMobile(any(OtpVerifiedActionRequest.class))).thenReturn(tokenResponse());
+
+        mockMvc.perform(post("/api/v1/auth/change-mobile")
+                        .contentType("application/json")
+                        .content("""
+                                {
+                                  "mobileNumber": "9123456789",
+                                  "verificationToken": "verified-change-token"
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        verify(authService).changeMobile(any(OtpVerifiedActionRequest.class));
+    }
+
     private static AuthTokenResponse tokenResponse() {
         return AuthTokenResponse.builder()
                 .accessToken("jwt-token")

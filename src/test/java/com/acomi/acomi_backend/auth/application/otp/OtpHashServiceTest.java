@@ -55,4 +55,23 @@ class OtpHashServiceTest {
         assertThat(loginHash).isNotEqualTo(resetHash);
         assertThat(resetHash).isNotEqualTo(deleteHash);
     }
+
+    @Test
+    void hashVerificationToken_changeMobileIsBoundToUser() {
+        String token = "super-secret-verification-token-value";
+        java.util.UUID userA = java.util.UUID.fromString("11111111-1111-1111-1111-111111111111");
+        java.util.UUID userB = java.util.UUID.fromString("22222222-2222-2222-2222-222222222222");
+        String withUser = hashService.hashVerificationToken(
+                "9123456789", OtpPurpose.CHANGE_MOBILE, token, userA);
+        String otherUser = hashService.hashVerificationToken(
+                "9123456789", OtpPurpose.CHANGE_MOBILE, token, userB);
+        String withoutUser = hashService.hashVerificationToken("9123456789", OtpPurpose.CHANGE_MOBILE, token);
+        String registerHash = hashService.hashVerificationToken("9123456789", OtpPurpose.REGISTER, token);
+
+        assertThat(withUser).isNotEqualTo(otherUser);
+        assertThat(withUser).isNotEqualTo(withoutUser);
+        assertThat(withUser).isNotEqualTo(registerHash);
+        assertThat(withUser).doesNotContain(token);
+        assertThat(withUser).doesNotContain("9123456789");
+    }
 }

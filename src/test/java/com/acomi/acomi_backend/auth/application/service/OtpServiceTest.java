@@ -282,6 +282,131 @@ class OtpServiceTest {
     }
 
     @Test
+    void changeMobileToken_isBoundToUserMobileAndPurpose() {
+        UUID userId = UUID.randomUUID();
+        UUID otherUser = UUID.randomUUID();
+        otpService.sendOtp(MOBILE, OtpPurpose.CHANGE_MOBILE, "127.0.0.1");
+        RegistrationVerification token =
+                otpService.verifyAndIssueToken(MOBILE, sender.lastOtp, OtpPurpose.CHANGE_MOBILE, userId);
+
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                MOBILE, token.verificationToken(), OtpPurpose.REGISTER, userId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE);
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                MOBILE, token.verificationToken(), OtpPurpose.LOGIN, userId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE);
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                MOBILE, token.verificationToken(), OtpPurpose.RESET_PASSWORD, userId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE);
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                MOBILE, token.verificationToken(), OtpPurpose.ACCOUNT_DELETION, userId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE);
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                MOBILE, token.verificationToken(), OtpPurpose.CHANGE_MOBILE, otherUser))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE);
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                OTHER_MOBILE, token.verificationToken(), OtpPurpose.CHANGE_MOBILE, userId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE);
+
+        otpService.consumeVerificationToken(MOBILE, token.verificationToken(), OtpPurpose.CHANGE_MOBILE, userId);
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                MOBILE, token.verificationToken(), OtpPurpose.CHANGE_MOBILE, userId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.CONSUMED_VERIFICATION_TOKEN_MESSAGE);
+    }
+
+    @Test
+    void registerToken_cannotBeConsumedAsChangeMobile() {
+        UUID userId = UUID.randomUUID();
+        otpService.sendOtp(MOBILE, OtpPurpose.REGISTER, "127.0.0.1");
+        RegistrationVerification registerToken =
+                otpService.verifyAndIssueToken(MOBILE, sender.lastOtp, OtpPurpose.REGISTER);
+
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                MOBILE, registerToken.verificationToken(), OtpPurpose.CHANGE_MOBILE, userId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE);
+    }
+
+    @Test
+    void loginResetAndDeletionTokens_cannotBeConsumedAsChangeMobile() {
+        UUID userId = UUID.randomUUID();
+
+        otpService.sendOtp(MOBILE, OtpPurpose.LOGIN, "127.0.0.1");
+        RegistrationVerification loginToken =
+                otpService.verifyAndIssueToken(MOBILE, sender.lastOtp, OtpPurpose.LOGIN);
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                MOBILE, loginToken.verificationToken(), OtpPurpose.CHANGE_MOBILE, userId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE);
+
+        otpService.sendOtp(MOBILE, OtpPurpose.RESET_PASSWORD, "127.0.0.1");
+        RegistrationVerification resetToken =
+                otpService.verifyAndIssueToken(MOBILE, sender.lastOtp, OtpPurpose.RESET_PASSWORD);
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                MOBILE, resetToken.verificationToken(), OtpPurpose.CHANGE_MOBILE, userId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE);
+
+        otpService.sendOtp(MOBILE, OtpPurpose.ACCOUNT_DELETION, "127.0.0.1");
+        RegistrationVerification deletionToken =
+                otpService.verifyAndIssueToken(MOBILE, sender.lastOtp, OtpPurpose.ACCOUNT_DELETION);
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                MOBILE, deletionToken.verificationToken(), OtpPurpose.CHANGE_MOBILE, userId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE);
+    }
+
+    @Test
+    void changeMobile_expiredOtpFails() {
+        otpService.sendOtp(MOBILE, OtpPurpose.CHANGE_MOBILE, "127.0.0.1");
+        store.get(0).setExpiresAt(LocalDateTime.now().minusSeconds(1));
+
+        assertThatThrownBy(() ->
+                        otpService.verifyAndIssueToken(
+                                MOBILE, sender.lastOtp, OtpPurpose.CHANGE_MOBILE, UUID.randomUUID()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.EXPIRED_OTP_MESSAGE);
+        assertThat(store.get(0).getVerificationTokenHash()).isNull();
+    }
+
+    @Test
+    void changeMobile_wrongOtpFails() {
+        otpService.sendOtp(MOBILE, OtpPurpose.CHANGE_MOBILE, "127.0.0.1");
+        assertThatThrownBy(() ->
+                        otpService.verifyAndIssueToken(MOBILE, "000000", OtpPurpose.CHANGE_MOBILE, UUID.randomUUID()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.INVALID_OTP_MESSAGE);
+        assertThat(store.get(0).getVerificationTokenHash()).isNull();
+    }
+
+    @Test
+    void changeMobile_sendOtpGoesToRequestedNumber() {
+        otpService.sendOtp(OTHER_MOBILE, OtpPurpose.CHANGE_MOBILE, "127.0.0.1");
+        assertThat(sender.lastMobile).isEqualTo(OTHER_MOBILE);
+        assertThat(sender.lastPurpose).isEqualTo(OtpPurpose.CHANGE_MOBILE);
+        assertThat(sender.lastOtp).isNotBlank();
+        assertThat(store.get(0).getCodeHash()).doesNotContain(sender.lastOtp);
+    }
+
+    @Test
     void sendOtp_skipDispatch_doesNotCallSender() {
         otpService.sendOtp(MOBILE, OtpPurpose.LOGIN, "127.0.0.1", false);
         assertThat(sender.lastOtp).isNull();

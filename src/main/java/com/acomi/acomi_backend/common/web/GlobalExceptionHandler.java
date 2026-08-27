@@ -1,12 +1,15 @@
 package com.acomi.acomi_backend.common.web;
 
 import com.acomi.acomi_backend.common.exception.BusinessException;
+import com.acomi.acomi_backend.common.exception.RateLimitedException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -39,6 +42,21 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
                 .body(ApiResponse.error("Access denied"));
+    }
+
+    @ExceptionHandler(RateLimitedException.class)
+    public ResponseEntity<ApiResponse<Map<String, Long>>> handleRateLimited(RateLimitedException ex) {
+        log.warn("Rate limited: {}", ex.getMessage());
+        return ResponseEntity
+                .status(ex.getStatus())
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(ApiResponse.<Map<String, Long>>builder()
+                        .success(false)
+                        .message(ex.getMessage())
+                        .errorCode(ex.getErrorCode())
+                        .data(Map.of("retryAfterSeconds", ex.getRetryAfterSeconds()))
+                        .timestamp(LocalDateTime.now())
+                        .build());
     }
 
     @ExceptionHandler(BusinessException.class)
