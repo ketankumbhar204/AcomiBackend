@@ -4,6 +4,7 @@ import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.member.domain.model.MemberGender;
 import com.acomi.acomi_backend.user.domain.model.KycStatus;
 import com.acomi.acomi_backend.user.domain.model.ProfileStatus;
+import com.acomi.acomi_backend.user.domain.model.SystemRole;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -96,4 +97,9 @@ public class UserEntity extends BaseEntity {
 
     @Column(name = "mobile_verified_at")
     private LocalDateTime mobileVerifiedAt;
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "system_role", nullable = false, length = 20)
+    private SystemRole systemRole = SystemRole.USER;
 }

@@ -4,6 +4,7 @@ import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationSource;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationStatus;
+import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -115,6 +116,17 @@ public class PropertyRegistrationEntity extends BaseEntity {
 
     @Column(name = "request_ip", length = 64)
     private String requestIp;
+
+    @Column(name = "claimed_at")
+    private LocalDateTime claimedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "claimed_via", length = 40)
+    private RegistrationClaimVia claimedVia;
+
+    @Builder.Default
+    @Column(name = "test_lead", nullable = false)
+    private boolean testLead = false;
 
     @Builder.Default
     @OneToMany(

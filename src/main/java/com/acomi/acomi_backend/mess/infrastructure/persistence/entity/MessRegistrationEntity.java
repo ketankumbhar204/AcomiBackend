@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.mess.infrastructure.persistence.entity;
 import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationSource;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationStatus;
+import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -102,4 +103,15 @@ public class MessRegistrationEntity extends BaseEntity {
 
     @Column(name = "request_ip", length = 64)
     private String requestIp;
+
+    @Column(name = "claimed_at")
+    private LocalDateTime claimedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "claimed_via", length = 40)
+    private RegistrationClaimVia claimedVia;
+
+    @Builder.Default
+    @Column(name = "test_lead", nullable = false)
+    private boolean testLead = false;
 }

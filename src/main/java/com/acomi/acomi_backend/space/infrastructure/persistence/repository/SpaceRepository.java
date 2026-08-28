@@ -31,4 +31,15 @@ public interface SpaceRepository extends JpaRepository<SpaceEntity, UUID> {
     List<SpaceEntity> findByTypeAndIsActiveTrue(SpaceType type);
 
     boolean existsByIdAndOwnerIdAndIsActiveTrue(UUID id, UUID ownerId);
+
+    long countByTypeAndIsActiveTrue(SpaceType type);
+
+    @Query(
+            """
+            SELECT s FROM SpaceEntity s
+            WHERE s.isActive = true
+              AND s.type IN :types
+            ORDER BY s.createdAt DESC
+            """)
+    List<SpaceEntity> findActiveByTypes(@Param("types") List<SpaceType> types);
 }

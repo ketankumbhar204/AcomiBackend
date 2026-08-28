@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.user.api.dto.response;
 import com.acomi.acomi_backend.member.domain.model.MemberGender;
 import com.acomi.acomi_backend.user.domain.model.KycStatus;
 import com.acomi.acomi_backend.user.domain.model.ProfileStatus;
+import com.acomi.acomi_backend.user.domain.model.SystemRole;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -33,6 +34,7 @@ public class UserResponse {
     private Integer profileCompletionPercentage;
     private Integer documentsUploaded;
     private KycStatus kycStatus;
+    private SystemRole systemRole;
 
     public static UserResponse from(UserEntity user) {
         return UserResponse.builder()
@@ -55,6 +57,7 @@ public class UserResponse {
                 .profileCompletionPercentage(user.getProfileCompletionPercentage())
                 .documentsUploaded(user.getDocumentsUploaded())
                 .kycStatus(user.getKycStatus())
+                .systemRole(user.getSystemRole())
                 .build();
     }
 }
