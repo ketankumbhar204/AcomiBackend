@@ -26,11 +26,14 @@ class OtpProductionSafetyTest {
         String yaml = Files.readString(
                 Path.of("src/main/resources/application-prod.yml"), StandardCharsets.UTF_8);
 
-        assertThat(yaml).contains("sender: none");
+        assertThat(yaml).contains("sender: twofactor");
+        assertThat(yaml).doesNotContain("sender: none");
         assertThat(yaml).doesNotContain("sender: dev");
         assertThat(yaml).doesNotContain("mvp-code");
         assertThat(yaml).doesNotContain("111111");
         assertThat(yaml).contains("hash-secret: ${OTP_HASH_SECRET}");
+        assertThat(yaml).contains("api-key: ${TWOFACTOR_API_KEY}");
+        assertThat(yaml).doesNotContain("${TWOFACTOR_API_KEY:}");
         assertThat(yaml).doesNotContain("twilio");
     }
 

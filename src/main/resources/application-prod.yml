@@ -22,8 +22,11 @@ acomi:
   jwt:
     secret: ${JWT_SECRET}
   otp:
-    sender: none
+    # 2Factor SMS. TWOFACTOR_API_KEY must be set on the host; no committed default.
+    sender: twofactor
     hash-secret: ${OTP_HASH_SECRET}
+    twofactor:
+      api-key: ${TWOFACTOR_API_KEY}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS}
 
@@ -39,3 +42,5 @@ logging:
     org.hibernate.SQL: warn
     org.hibernate.orm.jdbc.bind: warn
     org.flywaydb: warn
+    org.springframework.web.client: warn
+    org.springframework.http.client: warn

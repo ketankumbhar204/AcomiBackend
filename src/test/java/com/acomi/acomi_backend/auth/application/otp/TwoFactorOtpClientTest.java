@@ -70,7 +70,34 @@ class TwoFactorOtpClientTest {
         String logs = appender.list.stream().map(ILoggingEvent::getFormattedMessage).reduce("", (a, b) -> a + b);
         assertThat(logs).doesNotContain(TEST_KEY);
         assertThat(logs).doesNotContain("session-id");
+        assertThat(logs).doesNotContain("/API/V1/");
         logger.detachAppender(appender);
+    }
+
+    @Test
+    void providerErrorDetailsRedactApiKeyAndAreNotReturnedToClient() {
+        server.expect(requestTo(
+                        "https://2factor.in/API/V1/" + TEST_KEY + "/SMS/" + MOBILE + "/AUTOGEN/OTP1"))
+                .andRespond(withSuccess(
+                        "{\"Status\":\"Error\",\"Details\":\"unauthorized " + TEST_KEY + "\"}",
+                        MediaType.APPLICATION_JSON));
+
+        Logger logger = (Logger) LoggerFactory.getLogger(TwoFactorOtpClient.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        assertThatThrownBy(() -> client.sendOtp(MOBILE))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(TwoFactorOtpClient.SEND_UNAVAILABLE_MESSAGE)
+                .extracting(ex -> ((BusinessException) ex).getMessage())
+                .isNotEqualTo(TEST_KEY);
+
+        String logs = appender.list.stream().map(ILoggingEvent::getFormattedMessage).reduce("", (a, b) -> a + b);
+        assertThat(logs).doesNotContain(TEST_KEY);
+        assertThat(logs).contains("[redacted]");
+        logger.detachAppender(appender);
+        server.verify();
     }
 
     @Test

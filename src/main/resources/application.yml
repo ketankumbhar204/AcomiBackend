@@ -60,6 +60,8 @@ acomi:
     sender: none
     hash-secret: ${OTP_HASH_SECRET:}
     twofactor:
+      # Empty default so local/dev can start without SMS. Production overrides
+      # with ${TWOFACTOR_API_KEY} (required, no fallback) in application-prod.yml.
       api-key: ${TWOFACTOR_API_KEY:}
       base-url: https://2factor.in/API/V1
       template: ${TWOFACTOR_OTP_TEMPLATE:OTP1}

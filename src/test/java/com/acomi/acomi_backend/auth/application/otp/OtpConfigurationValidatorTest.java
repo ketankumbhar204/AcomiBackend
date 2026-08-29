@@ -61,4 +61,18 @@ class OtpConfigurationValidatorTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("acomi.otp.twofactor.api-key is required when acomi.otp.sender is twofactor");
     }
+
+    @Test
+    void twoFactorSenderAcceptsConfiguredApiKey() {
+        OtpProperties properties = new OtpProperties();
+        properties.setHashSecret("production-otp-hash-secret-must-be-long");
+        properties.setLength(6);
+        properties.setSender("twofactor");
+        properties.getTwoFactor().setApiKey("unit-test-twofactor-key");
+
+        Environment environment = mock(Environment.class);
+        when(environment.getActiveProfiles()).thenReturn(new String[] {"prod"});
+
+        new OtpConfigurationValidator(properties, environment).validate();
+    }
 }

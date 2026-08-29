@@ -117,14 +117,15 @@ public class TwoFactorOtpClient {
                                     "OTP provider {} httpStatus={} providerStatus={} details={}",
                                     operation,
                                     httpStatus,
-                                    sanitizeProviderText(body.status()),
-                                    sanitizeProviderText(body.details()));
+                                    redactSecret(sanitizeProviderText(body.status())),
+                                    redactSecret(sanitizeProviderText(body.details())));
                         }
                         return body;
                     });
         } catch (BusinessException ex) {
             throw ex;
         } catch (RestClientException ex) {
+            // Do not log the exception: RestClient messages can include the request URI (API key).
             log.warn("OTP provider {} request failed", operation);
             throw unavailable(operation);
         } catch (RuntimeException ex) {
@@ -166,5 +167,12 @@ public class TwoFactorOtpClient {
         return text.trim()
                 .replaceAll("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "[id]")
                 .replaceAll("\\d{4,}", "[n]");
+    }
+
+    private String redactSecret(String text) {
+        if (!StringUtils.hasText(text) || !StringUtils.hasText(properties.getApiKey())) {
+            return text;
+        }
+        return text.replace(properties.getApiKey(), "[redacted]");
     }
 }

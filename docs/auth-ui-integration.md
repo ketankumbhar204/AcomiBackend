@@ -30,7 +30,7 @@ OTP infrastructure remains in the backend for a later implementation:
 - `POST /api/v1/auth/verify-otp`
 - `POST /api/v1/auth/account-deletion` (OTP deletion)
 
-These endpoints must **not** be used as the current production login/register UI. There is **no** hardcoded OTP (`111111`, `123456`). Production OTP sender is `none` (disabled until a real SMS provider is wired).
+These endpoints must **not** be used as the current production login/register UI. There is **no** hardcoded OTP (`111111`, `123456`). Production OTP SMS uses 2Factor (`acomi.otp.sender: twofactor`). The API key is `TWOFACTOR_API_KEY` on the server only.
 
 See [Reserved OTP APIs](#reserved-otp-apis) below.
 
@@ -304,7 +304,7 @@ Not used by the current production UI. Kept for a later OTP implementation.
 { "mobileNumber": "9876543210", "purpose": "REGISTER" }
 ```
 
-`purpose` is `REGISTER` or `ACCOUNT_DELETION`. Success does **not** return the OTP code. Production sender `none` returns **503**.
+`purpose` includes `REGISTER`, `LOGIN`, `RESET_PASSWORD`, `ACCOUNT_DELETION`, `CHANGE_MOBILE`, `PROPERTY_REGISTRATION`, and `MESS_REGISTRATION`. Success does **not** return the OTP code. Production sends SMS via 2Factor. Missing/misconfigured provider returns **503**.
 
 ### Verify OTP — `POST /api/v1/auth/verify-otp`
 
