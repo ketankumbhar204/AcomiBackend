@@ -7,10 +7,13 @@ import com.acomi.acomi_backend.property.api.dto.response.PropertyRegistrationLis
 import com.acomi.acomi_backend.property.api.dto.response.PropertyRegistrationResponse;
 import com.acomi.acomi_backend.property.application.mapper.PropertyRegistrationMapper;
 import com.acomi.acomi_backend.property.application.service.PropertyRegistrationService;
+import com.acomi.acomi_backend.registration.api.dto.request.AdminUpdateRegistrationContactRequest;
+import com.acomi.acomi_backend.registration.application.RegistrationMobiles;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationSource;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationStatus;
 import com.acomi.acomi_backend.property.infrastructure.persistence.entity.PropertyRegistrationEntity;
 import com.acomi.acomi_backend.property.infrastructure.persistence.repository.PropertyRegistrationRepository;
+import com.acomi.acomi_backend.address.application.service.SavedAddressService;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +22,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -29,6 +33,7 @@ public class AdminPropertyRegistrationService {
 
     private final PropertyRegistrationRepository propertyRegistrationRepository;
     private final PropertyRegistrationService propertyRegistrationService;
+    private final SavedAddressService savedAddressService;
 
     @Transactional(readOnly = true)
     public Page<PropertyRegistrationListItemResponse> list(
@@ -51,7 +56,28 @@ public class AdminPropertyRegistrationService {
 
     @Transactional
     public PropertyRegistrationResponse create(AdminCreatePropertyRegistrationRequest request) {
-        return propertyRegistrationService.registerAdmin(request);
+        PropertyRegistrationResponse response = propertyRegistrationService.registerAdmin(request);
+        savedAddressService.rememberFromLead(
+                request.getAddressLine(),
+                request.getCity(),
+                request.getState(),
+                request.getPincode(),
+                request.getMapUrl());
+        return response;
+    }
+
+    @Transactional
+    public PropertyRegistrationDetailResponse updateContact(UUID id, AdminUpdateRegistrationContactRequest request) {
+        PropertyRegistrationEntity entity = propertyRegistrationService.requireEntity(id);
+        if (StringUtils.hasText(request.getOwnerName())) {
+            entity.setOwnerName(request.getOwnerName().trim());
+        }
+        if (StringUtils.hasText(request.getMobileNumber())) {
+            entity.setMobileNumber(request.getMobileNumber().trim());
+        }
+        entity.setAlternateMobileNumber(
+                RegistrationMobiles.resolveAlternate(entity.getMobileNumber(), request.getAlternateMobileNumber()));
+        return PropertyRegistrationMapper.toDetail(propertyRegistrationRepository.save(entity));
     }
 
     @Transactional

@@ -14,6 +14,7 @@ import com.acomi.acomi_backend.property.infrastructure.persistence.entity.Proper
 import com.acomi.acomi_backend.property.infrastructure.persistence.entity.PropertyRegistrationEntity;
 import com.acomi.acomi_backend.property.infrastructure.persistence.repository.PropertyRegistrationRepository;
 import com.acomi.acomi_backend.registration.application.AdminLeadDefaults;
+import com.acomi.acomi_backend.registration.application.RegistrationMobiles;
 import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import com.acomi.acomi_backend.space.application.service.SpaceAmenityService;
@@ -119,6 +120,8 @@ public class PropertyRegistrationService {
         String pincode = payload.getPincode().trim();
         boolean likelyDuplicate = propertyRegistrationRepository.existsLikelyDuplicate(
                 payload.getMobileNumber(), pincode, propertyName);
+        String alternateMobileNumber =
+                RegistrationMobiles.resolveAlternate(payload.getMobileNumber(), payload.getAlternateMobileNumber());
 
         PropertyRegistrationEntity entity = PropertyRegistrationEntity.builder()
                 .reference(nextReference())
@@ -126,6 +129,7 @@ public class PropertyRegistrationService {
                 .propertyName(propertyName)
                 .ownerName(payload.getOwnerName().trim())
                 .mobileNumber(payload.getMobileNumber())
+                .alternateMobileNumber(alternateMobileNumber)
                 .mobileVerifiedAt(mobileVerifiedAt)
                 .description(trimToNull(payload.getDescription()))
                 .addressLine(payload.getAddressLine().trim())
@@ -155,6 +159,8 @@ public class PropertyRegistrationService {
         entity.setPropertyName(payload.getPropertyName().trim());
         entity.setOwnerName(payload.getOwnerName().trim());
         entity.setMobileNumber(payload.getMobileNumber());
+        entity.setAlternateMobileNumber(
+                RegistrationMobiles.resolveAlternate(payload.getMobileNumber(), payload.getAlternateMobileNumber()));
         entity.setDescription(trimToNull(payload.getDescription()));
         entity.setAddressLine(payload.getAddressLine().trim());
         entity.setCity(payload.getCity().trim());

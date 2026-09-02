@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.property.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -70,6 +71,7 @@ class PropertyRegistrationServiceClaimTest {
         assertThat(saved.getClaimedVia()).isEqualTo(RegistrationClaimVia.PUBLIC_WEBSITE);
         assertThat(saved.getMobileVerifiedAt()).isNotNull();
         assertThat(saved.getOwnerName()).isEqualTo("Ketan");
+        assertThat(saved.getAlternateMobileNumber()).isNull();
     }
 
     @Test
@@ -178,6 +180,86 @@ class PropertyRegistrationServiceClaimTest {
         assertThat(saved.getPropertyName()).isEqualTo("Untitled property");
         assertThat(saved.getPropertyType()).isEqualTo(SpaceType.PG);
         assertThat(saved.getMapUrl()).isNull();
+        assertThat(saved.getAlternateMobileNumber()).isNull();
+    }
+
+    @Test
+    void publicRegister_persistsOptionalAlternateMobile() {
+        CreatePropertyRegistrationRequest request = publicRequest(SpaceType.PG, "Sunrise PG", "9876543210");
+        request.setAlternateMobileNumber("9123456780");
+
+        when(propertyRegistrationRepository.findUnclaimedAdminLeads("9876543210", SpaceType.PG, "Sunrise PG"))
+                .thenReturn(Collections.emptyList());
+        when(propertyRegistrationRepository.existsLikelyDuplicate("9876543210", "411001", "Sunrise PG"))
+                .thenReturn(false);
+        when(propertyRegistrationRepository.nextReferenceNumber()).thenReturn(3L);
+        when(propertyRegistrationRepository.save(any(PropertyRegistrationEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.registerPublic(request, "127.0.0.1");
+
+        ArgumentCaptor<PropertyRegistrationEntity> captor = ArgumentCaptor.forClass(PropertyRegistrationEntity.class);
+        verify(propertyRegistrationRepository).save(captor.capture());
+        assertThat(captor.getValue().getMobileNumber()).isEqualTo("9876543210");
+        assertThat(captor.getValue().getAlternateMobileNumber()).isEqualTo("9123456780");
+    }
+
+    @Test
+    void publicRegister_rejectsInvalidAlternateMobile() {
+        CreatePropertyRegistrationRequest request = publicRequest(SpaceType.PG, "Sunrise PG", "9876543210");
+        request.setAlternateMobileNumber("12345");
+
+        when(propertyRegistrationRepository.findUnclaimedAdminLeads("9876543210", SpaceType.PG, "Sunrise PG"))
+                .thenReturn(Collections.emptyList());
+        when(propertyRegistrationRepository.existsLikelyDuplicate("9876543210", "411001", "Sunrise PG"))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> service.registerPublic(request, "127.0.0.1"))
+                .isInstanceOf(com.acomi.acomi_backend.common.exception.BusinessException.class)
+                .hasMessageContaining("Alternate mobile number");
+        verify(propertyRegistrationRepository, never()).save(any());
+    }
+
+    @Test
+    void publicRegister_rejectsAlternateEqualToPrimary() {
+        CreatePropertyRegistrationRequest request = publicRequest(SpaceType.PG, "Sunrise PG", "9876543210");
+        request.setAlternateMobileNumber("9876543210");
+
+        when(propertyRegistrationRepository.findUnclaimedAdminLeads("9876543210", SpaceType.PG, "Sunrise PG"))
+                .thenReturn(Collections.emptyList());
+        when(propertyRegistrationRepository.existsLikelyDuplicate("9876543210", "411001", "Sunrise PG"))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> service.registerPublic(request, "127.0.0.1"))
+                .isInstanceOf(com.acomi.acomi_backend.common.exception.BusinessException.class);
+        verify(propertyRegistrationRepository, never()).save(any());
+    }
+
+    @Test
+    void adminRegister_persistsAlternateMobile() {
+        AdminCreatePropertyRegistrationRequest request = new AdminCreatePropertyRegistrationRequest();
+        request.setMobileNumber("9876543210");
+        request.setAlternateMobileNumber("9123456780");
+
+        when(propertyRegistrationRepository.existsLikelyDuplicate("9876543210", "110001", "Untitled property"))
+                .thenReturn(false);
+        when(propertyRegistrationRepository.nextReferenceNumber()).thenReturn(4L);
+        when(propertyRegistrationRepository.save(any(PropertyRegistrationEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.registerAdmin(request);
+
+        ArgumentCaptor<PropertyRegistrationEntity> captor = ArgumentCaptor.forClass(PropertyRegistrationEntity.class);
+        verify(propertyRegistrationRepository).save(captor.capture());
+        assertThat(captor.getValue().getAlternateMobileNumber()).isEqualTo("9123456780");
+    }
+
+    @Test
+    void mapper_detailLoadsWhenAlternateIsMissing() {
+        PropertyRegistrationEntity existing = adminLead(SpaceType.PG, "Sunrise PG", "9876543210");
+        var detail = com.acomi.acomi_backend.property.application.mapper.PropertyRegistrationMapper.toDetail(existing);
+        assertThat(detail.getMobileNumber()).isEqualTo("9876543210");
+        assertThat(detail.getAlternateMobileNumber()).isNull();
     }
 
     private static CreatePropertyRegistrationRequest publicRequest(

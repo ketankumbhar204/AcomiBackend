@@ -18,6 +18,7 @@ public class PropertyRegistrationListItemResponse {
     private String propertyName;
     private String ownerName;
     private String mobileNumber;
+    private String alternateMobileNumber;
     private String city;
     private String state;
     private String pincode;

@@ -46,7 +46,8 @@ springdoc:
 
 acomi:
   jwt:
-    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+    # 30 days so closing the app overnight does not force another login.
+    expiration-ms: ${JWT_EXPIRATION_MS:2592000000}
   otp:
     length: 6
     ttl-seconds: 300

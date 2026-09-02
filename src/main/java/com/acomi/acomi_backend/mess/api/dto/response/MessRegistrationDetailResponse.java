@@ -18,6 +18,7 @@ public class MessRegistrationDetailResponse {
     private String messName;
     private String ownerName;
     private String mobileNumber;
+    private String alternateMobileNumber;
     private LocalDateTime mobileVerifiedAt;
     private String description;
     private String addressLine;

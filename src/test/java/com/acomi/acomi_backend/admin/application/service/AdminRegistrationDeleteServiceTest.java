@@ -45,15 +45,20 @@ class AdminRegistrationDeleteServiceTest {
     @Mock
     private MessRegistrationService messRegistrationService;
 
+    @Mock
+    private com.acomi.acomi_backend.address.application.service.SavedAddressService savedAddressService;
+
     private AdminPropertyRegistrationService adminPropertyRegistrationService;
     private AdminMessRegistrationService adminMessRegistrationService;
 
     @BeforeEach
     void setUp() {
         adminPropertyRegistrationService =
-                new AdminPropertyRegistrationService(propertyRegistrationRepository, propertyRegistrationService);
+                new AdminPropertyRegistrationService(
+                        propertyRegistrationRepository, propertyRegistrationService, savedAddressService);
         adminMessRegistrationService =
-                new AdminMessRegistrationService(messRegistrationRepository, messRegistrationService);
+                new AdminMessRegistrationService(
+                        messRegistrationRepository, messRegistrationService, savedAddressService);
     }
 
     @Test

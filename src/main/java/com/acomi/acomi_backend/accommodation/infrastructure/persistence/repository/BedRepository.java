@@ -105,4 +105,19 @@ public interface BedRepository extends JpaRepository<BedEntity, UUID> {
             """)
     Optional<BedEntity> findByIdAndSpaceId(
             @Param("id") UUID id, @Param("spaceId") UUID spaceId);
+
+    @Query("""
+            SELECT DISTINCT b FROM BedEntity b
+            JOIN FETCH b.room r
+            LEFT JOIN FETCH r.floor f
+            LEFT JOIN FETCH f.building
+            LEFT JOIN FETCH r.unit u
+            LEFT JOIN FETCH u.building
+            WHERE b.isActive = true
+              AND (
+                  (r.floor IS NOT NULL AND r.floor.building.id = :buildingId)
+                  OR (r.unit IS NOT NULL AND r.unit.building.id = :buildingId)
+              )
+            """)
+    List<BedEntity> findActiveFetchedByBuildingId(@Param("buildingId") UUID buildingId);
 }

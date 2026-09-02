@@ -19,4 +19,6 @@ public class AdminDashboardSummaryResponse {
     private long claimedMessLeads;
     private long activePropertySpaces;
     private long activeMessSpaces;
+    /** Phone-verified app users (unique users, not properties/messes). */
+    private long registeredUsersCount;
 }

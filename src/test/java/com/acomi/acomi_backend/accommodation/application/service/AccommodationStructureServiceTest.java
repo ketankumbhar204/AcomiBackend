@@ -149,7 +149,14 @@ class AccommodationStructureServiceTest {
                 layoutService,
                 syntheticUnitService);
         bedService = new BedService(
-                bedRepository, roomRepository, accessService, profileService, actionService, occupancyService, occupancyRepository);
+                bedRepository,
+                roomRepository,
+                accessService,
+                profileService,
+                actionService,
+                occupancyService,
+                occupancyRepository,
+                new BedPricingPropagationService(bedRepository));
 
         spaceId = UUID.randomUUID();
         ownerId = UUID.randomUUID();

@@ -22,6 +22,7 @@ public class PropertyRegistrationDetailResponse {
     private String propertyName;
     private String ownerName;
     private String mobileNumber;
+    private String alternateMobileNumber;
     private LocalDateTime mobileVerifiedAt;
     private String description;
     private String addressLine;

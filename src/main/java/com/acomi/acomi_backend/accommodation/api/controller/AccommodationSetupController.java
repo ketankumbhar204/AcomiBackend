@@ -1,8 +1,10 @@
 package com.acomi.acomi_backend.accommodation.api.controller;
 
 import com.acomi.acomi_backend.accommodation.api.dto.request.setup.AccommodationSetupRequest;
+import com.acomi.acomi_backend.accommodation.api.dto.request.setup.BuildingAvailabilityRequest;
 import com.acomi.acomi_backend.accommodation.api.dto.response.setup.AccommodationSetupPreviewResponse;
 import com.acomi.acomi_backend.accommodation.api.dto.response.setup.AccommodationSetupResultResponse;
+import com.acomi.acomi_backend.accommodation.api.dto.response.setup.BuildingAvailabilityResponse;
 import com.acomi.acomi_backend.accommodation.application.service.AccommodationSetupService;
 import com.acomi.acomi_backend.common.security.SecurityUtils;
 import com.acomi.acomi_backend.common.web.ApiResponse;
@@ -38,6 +40,16 @@ public class AccommodationSetupController {
         UUID callerId = SecurityUtils.getCurrentUserId();
         AccommodationSetupPreviewResponse response = setupService.preview(spaceId, callerId, request);
         return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
+    @PostMapping("/building-check")
+    @Operation(
+            summary = "Check building name availability",
+            description = "Returns whether an active building with this name already exists in the space.")
+    public ResponseEntity<ApiResponse<BuildingAvailabilityResponse>> checkBuilding(
+            @PathVariable UUID spaceId, @RequestBody @Valid BuildingAvailabilityRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(setupService.checkBuildingAvailability(spaceId, callerId, request)));
     }
 
     @PostMapping

@@ -32,6 +32,7 @@ public class BedService {
     private final AccommodationActionService actionService;
     private final OccupancyService occupancyService;
     private final OccupancyRepository occupancyRepository;
+    private final BedPricingPropagationService pricingPropagationService;
 
     @Transactional
     public BedResponse createBed(
@@ -58,9 +59,12 @@ public class BedService {
                 .name(request.getName())
                 .bedNumber(request.getBedNumber())
                 .status(status)
+                .defaultRent(request.getDefaultRent())
+                .defaultDeposit(request.getDefaultDeposit())
                 .build();
 
         bed = bedRepository.save(bed);
+        pricingPropagationService.propagateFrom(spaceId, bed);
         return BedResponse.from(bed);
     }
 
@@ -139,7 +143,9 @@ public class BedService {
         bed.setDefaultRent(request.getDefaultRent());
         bed.setDefaultDeposit(request.getDefaultDeposit());
 
-        return BedResponse.from(bedRepository.save(bed));
+        bed = bedRepository.save(bed);
+        pricingPropagationService.propagateFrom(spaceId, bed);
+        return BedResponse.from(bed);
     }
 
     @Transactional

@@ -11,6 +11,7 @@ import com.acomi.acomi_backend.mess.domain.model.MessRegistrationStatus;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.entity.MessRegistrationEntity;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRegistrationRepository;
 import com.acomi.acomi_backend.registration.application.AdminLeadDefaults;
+import com.acomi.acomi_backend.registration.application.RegistrationMobiles;
 import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -98,12 +99,15 @@ public class MessRegistrationService {
         String pincode = payload.getPincode().trim();
         boolean likelyDuplicate =
                 messRegistrationRepository.existsLikelyDuplicate(payload.getMobileNumber(), pincode, messName);
+        String alternateMobileNumber =
+                RegistrationMobiles.resolveAlternate(payload.getMobileNumber(), payload.getAlternateMobileNumber());
 
         MessRegistrationEntity entity = MessRegistrationEntity.builder()
                 .reference(nextReference())
                 .messName(messName)
                 .ownerName(payload.getOwnerName().trim())
                 .mobileNumber(payload.getMobileNumber())
+                .alternateMobileNumber(alternateMobileNumber)
                 .mobileVerifiedAt(mobileVerifiedAt)
                 .description(trimToNull(payload.getDescription()))
                 .addressLine(payload.getAddressLine().trim())
@@ -128,6 +132,8 @@ public class MessRegistrationService {
         entity.setMessName(payload.getMessName().trim());
         entity.setOwnerName(payload.getOwnerName().trim());
         entity.setMobileNumber(payload.getMobileNumber());
+        entity.setAlternateMobileNumber(
+                RegistrationMobiles.resolveAlternate(payload.getMobileNumber(), payload.getAlternateMobileNumber()));
         entity.setDescription(trimToNull(payload.getDescription()));
         entity.setAddressLine(payload.getAddressLine().trim());
         entity.setCity(payload.getCity().trim());

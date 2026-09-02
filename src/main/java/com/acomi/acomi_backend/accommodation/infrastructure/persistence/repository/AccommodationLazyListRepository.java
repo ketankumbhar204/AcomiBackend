@@ -252,7 +252,9 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
             SELECT new com.acomi.acomi_backend.accommodation.api.dto.response.BedListItemResponse(
                 b.id,
                 b.bedNumber,
-                b.status
+                b.status,
+                b.defaultRent,
+                b.defaultDeposit
             )
             FROM BedEntity b
             WHERE b.room.id = :roomId AND b.isActive = true

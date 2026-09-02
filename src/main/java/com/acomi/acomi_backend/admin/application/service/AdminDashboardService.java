@@ -24,6 +24,7 @@ public class AdminDashboardService {
     private final PropertyRegistrationRepository propertyRegistrationRepository;
     private final MessRegistrationRepository messRegistrationRepository;
     private final SpaceRepository spaceRepository;
+    private final AdminRegisteredUsersService adminRegisteredUsersService;
 
     @Transactional(readOnly = true)
     public AdminDashboardSummaryResponse getSummary() {
@@ -48,6 +49,7 @@ public class AdminDashboardService {
                 .claimedMessLeads(messRegistrationRepository.countByClaimedAtIsNotNull())
                 .activePropertySpaces(activePropertySpaces)
                 .activeMessSpaces(activeMessSpaces)
+                .registeredUsersCount(adminRegisteredUsersService.countRegisteredUsers())
                 .build();
     }
 

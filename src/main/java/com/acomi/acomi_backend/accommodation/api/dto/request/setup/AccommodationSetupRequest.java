@@ -34,4 +34,10 @@ public class AccommodationSetupRequest {
     @Valid
     @Schema(description = "Unit configuration for Co-Living or Rental")
     private UnitSetupConfig units;
+
+    @Valid
+    @Schema(
+            description =
+                    "Optional preview-edited layout. When present, execute persists this tree instead of regenerating from counts.")
+    private SetupStructureInput structure;
 }

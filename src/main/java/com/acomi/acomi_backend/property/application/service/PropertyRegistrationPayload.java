@@ -19,6 +19,7 @@ public class PropertyRegistrationPayload {
     private String ownerName;
     private String description;
     private String mobileNumber;
+    private String alternateMobileNumber;
     private String addressLine;
     private String city;
     private String state;
@@ -36,6 +37,7 @@ public class PropertyRegistrationPayload {
                 .ownerName(request.getOwnerName())
                 .description(request.getDescription())
                 .mobileNumber(request.getMobileNumber())
+                .alternateMobileNumber(request.getAlternateMobileNumber())
                 .addressLine(request.getAddressLine())
                 .city(request.getCity())
                 .state(request.getState())
@@ -54,6 +56,7 @@ public class PropertyRegistrationPayload {
                 .ownerName(request.getOwnerName())
                 .description(request.getDescription())
                 .mobileNumber(request.getMobileNumber())
+                .alternateMobileNumber(request.getAlternateMobileNumber())
                 .addressLine(request.getAddressLine())
                 .city(request.getCity())
                 .state(request.getState())

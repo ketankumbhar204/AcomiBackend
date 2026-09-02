@@ -1,15 +1,23 @@
 package com.acomi.acomi_backend.accommodation.application.service;
 
 import com.acomi.acomi_backend.accommodation.api.dto.request.setup.AccommodationSetupRequest;
+import com.acomi.acomi_backend.accommodation.api.dto.request.setup.BuildingAvailabilityRequest;
 import com.acomi.acomi_backend.accommodation.api.dto.request.setup.PgHostelSetupConfig;
+import com.acomi.acomi_backend.accommodation.api.dto.request.setup.SetupStructureInput;
+import com.acomi.acomi_backend.accommodation.api.dto.request.setup.SetupStructureInput.SetupBedNodeInput;
+import com.acomi.acomi_backend.accommodation.api.dto.request.setup.SetupStructureInput.SetupFloorNodeInput;
+import com.acomi.acomi_backend.accommodation.api.dto.request.setup.SetupStructureInput.SetupRoomNodeInput;
+import com.acomi.acomi_backend.accommodation.api.dto.request.setup.SetupStructureInput.SetupUnitNodeInput;
 import com.acomi.acomi_backend.accommodation.api.dto.request.setup.UnitSetupConfig;
 import com.acomi.acomi_backend.accommodation.api.dto.response.setup.AccommodationSetupPreviewResponse;
 import com.acomi.acomi_backend.accommodation.api.dto.response.setup.AccommodationSetupResultResponse;
 import com.acomi.acomi_backend.accommodation.api.dto.response.setup.AccommodationSetupSampleNode;
 import com.acomi.acomi_backend.accommodation.api.dto.response.setup.AccommodationSetupTotals;
+import com.acomi.acomi_backend.accommodation.api.dto.response.setup.BuildingAvailabilityResponse;
 import com.acomi.acomi_backend.accommodation.domain.model.AccommodationStatus;
 import com.acomi.acomi_backend.accommodation.domain.model.BedLabelStyle;
 import com.acomi.acomi_backend.accommodation.domain.model.PropertyLayoutMode;
+import com.acomi.acomi_backend.accommodation.domain.model.RoomType;
 import com.acomi.acomi_backend.accommodation.domain.policy.AccommodationLimits;
 import com.acomi.acomi_backend.accommodation.domain.policy.AccommodationNumberingService;
 import com.acomi.acomi_backend.accommodation.domain.policy.PropertyLayoutModeResolver;
@@ -45,6 +53,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.util.StringUtils;
 
 @Slf4j
 @Service
@@ -78,6 +87,25 @@ public class AccommodationSetupService {
                 .sample(computation.sample())
                 .warnings(computation.warnings())
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public BuildingAvailabilityResponse checkBuildingAvailability(
+            UUID spaceId, UUID callerId, BuildingAvailabilityRequest request) {
+        SpaceEntity space = accessService.loadAccommodationSpace(spaceId);
+        accessService.assertCanManageStructure(space.getId(), callerId);
+        String name = request.getName() == null ? "" : request.getName().trim();
+        if (name.isEmpty()) {
+            throw new BusinessException("Building name is required", HttpStatus.BAD_REQUEST);
+        }
+        boolean taken = buildingRepository.existsBySpaceIdAndNameAndIsActiveTrue(spaceId, name);
+        if (taken) {
+            return BuildingAvailabilityResponse.builder()
+                    .nameAvailable(false)
+                    .message("An active building with this name already exists in the space")
+                    .build();
+        }
+        return BuildingAvailabilityResponse.builder().nameAvailable(true).build();
     }
 
     @Transactional
@@ -119,7 +147,10 @@ public class AccommodationSetupService {
                 .layoutMode(layoutMode)
                 .build());
 
-        SetupComputation computation = applySetup(space.getType(), layoutMode, request, building, false);
+        SetupComputation computation =
+                request.getStructure() != null && request.getStructure().hasNodes()
+                        ? persistExplicitStructure(space.getType(), layoutMode, request, building)
+                        : applySetup(space.getType(), layoutMode, request, building, false);
         AccommodationSetupTotals totals = computation.totals();
 
         try {
@@ -584,6 +615,203 @@ public class AccommodationSetupService {
             warnings.add("Approaching the " + AccommodationLimits.MAX_BEDS_PER_SETUP + "-bed limit per setup");
         }
         return warnings;
+    }
+
+    private SetupComputation persistExplicitStructure(
+            SpaceType spaceType,
+            PropertyLayoutMode layoutMode,
+            AccommodationSetupRequest request,
+            BuildingEntity building) {
+        SetupStructureInput structure = request.getStructure();
+        return switch (spaceType) {
+            case PG, HOSTEL -> persistPgHostelStructure(layoutMode, request.getFloors(), structure, building);
+            case CO_LIVING -> persistCoLivingStructure(request.getUnits(), structure, building);
+            case RENTAL -> persistRentalStructure(request.getUnits(), structure, building);
+            default -> throw new BusinessException("Quick setup is not supported for this space type");
+        };
+    }
+
+    private SetupComputation persistPgHostelStructure(
+            PropertyLayoutMode layoutMode,
+            PgHostelSetupConfig config,
+            SetupStructureInput structure,
+            BuildingEntity building) {
+        RoomType roomType = config.getDefaultRoomType();
+        int defaultCapacity = config.getCapacityPerRoom();
+        List<SetupFloorNodeInput> floors =
+                structure.getFloors() == null ? List.of() : structure.getFloors();
+        int floorCount = floors.size();
+        int unitCount = 0;
+        int roomCount = 0;
+        int bedCount = 0;
+
+        for (int floorIndex = 0; floorIndex < floors.size(); floorIndex++) {
+            SetupFloorNodeInput floorInput = floors.get(floorIndex);
+            int floorNumber = floorInput.getNumber() != null ? floorInput.getNumber() : floorIndex + 1;
+            FloorEntity floor = floorRepository.save(FloorEntity.builder()
+                    .building(building)
+                    .name(firstNonBlank(floorInput.getName(), numberingService.floorDisplayName(floorNumber, false)))
+                    .floorNumber(floorNumber)
+                    .sortOrder(floorIndex)
+                    .build());
+
+            if (layoutMode == PropertyLayoutMode.APARTMENT_PG) {
+                List<SetupUnitNodeInput> units =
+                        floorInput.getUnits() == null ? List.of() : floorInput.getUnits();
+                for (SetupUnitNodeInput unitInput : units) {
+                    unitCount += 1;
+                    UnitEntity unit = unitRepository.save(UnitEntity.builder()
+                            .building(building)
+                            .floor(floor)
+                            .name(firstNonBlank(unitInput.getName(), numberingService.unitDisplayName(unitInput.getNumber())))
+                            .unitNumber(firstNonBlank(unitInput.getNumber(), unitInput.getName()))
+                            .status(AccommodationStatus.AVAILABLE)
+                            .synthetic(false)
+                            .build());
+                    int[] counts = persistRoomsUnderUnit(unit, unitInput.getRooms(), roomType, defaultCapacity);
+                    roomCount += counts[0];
+                    bedCount += counts[1];
+                }
+            } else {
+                List<SetupRoomNodeInput> rooms =
+                        floorInput.getRooms() == null ? List.of() : floorInput.getRooms();
+                for (SetupRoomNodeInput roomInput : rooms) {
+                    String roomNumber = firstNonBlank(roomInput.getNumber(), roomInput.getName());
+                    UnitEntity syntheticUnit = unitRepository.save(UnitEntity.builder()
+                            .building(building)
+                            .floor(floor)
+                            .name(numberingService.unitDisplayName(roomNumber))
+                            .unitNumber(roomNumber)
+                            .status(AccommodationStatus.AVAILABLE)
+                            .synthetic(true)
+                            .build());
+                    RoomEntity room = roomRepository.save(RoomEntity.builder()
+                            .unit(syntheticUnit)
+                            .name(firstNonBlank(roomInput.getName(), numberingService.roomDisplayName(roomNumber)))
+                            .roomNumber(roomNumber)
+                            .roomType(roomType)
+                            .capacity(roomInput.getCapacity() != null ? roomInput.getCapacity() : defaultCapacity)
+                            .status(AccommodationStatus.AVAILABLE)
+                            .build());
+                    roomCount += 1;
+                    unitCount += 1;
+                    bedCount += persistBeds(room, roomInput.getBeds());
+                }
+            }
+        }
+
+        validateLimits(floorCount, unitCount, roomCount, bedCount);
+        return new SetupComputation(
+                AccommodationSetupTotals.builder()
+                        .floors(floorCount)
+                        .units(unitCount)
+                        .rooms(roomCount)
+                        .beds(bedCount)
+                        .build(),
+                List.of(),
+                buildWarnings(bedCount));
+    }
+
+    private SetupComputation persistCoLivingStructure(
+            UnitSetupConfig config, SetupStructureInput structure, BuildingEntity building) {
+        RoomType roomType = config.getDefaultRoomType();
+        int defaultCapacity = config.getCapacityPerRoom() == null ? 1 : config.getCapacityPerRoom();
+        List<SetupUnitNodeInput> units = structure.getUnits() == null ? List.of() : structure.getUnits();
+        int roomCount = 0;
+        int bedCount = 0;
+        for (SetupUnitNodeInput unitInput : units) {
+            UnitEntity unit = unitRepository.save(UnitEntity.builder()
+                    .building(building)
+                    .name(firstNonBlank(unitInput.getName(), numberingService.unitDisplayName(unitInput.getNumber())))
+                    .unitNumber(firstNonBlank(unitInput.getNumber(), unitInput.getName()))
+                    .status(AccommodationStatus.AVAILABLE)
+                    .build());
+            int[] counts = persistRoomsUnderUnit(unit, unitInput.getRooms(), roomType, defaultCapacity);
+            roomCount += counts[0];
+            bedCount += counts[1];
+        }
+        validateLimits(0, units.size(), roomCount, bedCount);
+        return new SetupComputation(
+                AccommodationSetupTotals.builder()
+                        .floors(0)
+                        .units(units.size())
+                        .rooms(roomCount)
+                        .beds(bedCount)
+                        .build(),
+                List.of(),
+                buildWarnings(bedCount));
+    }
+
+    private SetupComputation persistRentalStructure(
+            UnitSetupConfig config, SetupStructureInput structure, BuildingEntity building) {
+        AccommodationStatus status = config.resolvedDefaultStatus();
+        List<SetupUnitNodeInput> units = structure.getUnits() == null ? List.of() : structure.getUnits();
+        for (SetupUnitNodeInput unitInput : units) {
+            unitRepository.save(UnitEntity.builder()
+                    .building(building)
+                    .name(firstNonBlank(unitInput.getName(), numberingService.unitDisplayName(unitInput.getNumber())))
+                    .unitNumber(firstNonBlank(unitInput.getNumber(), unitInput.getName()))
+                    .status(status)
+                    .build());
+        }
+        validateLimits(0, units.size(), 0, 0);
+        return new SetupComputation(
+                AccommodationSetupTotals.builder()
+                        .floors(0)
+                        .units(units.size())
+                        .rooms(0)
+                        .beds(0)
+                        .build(),
+                List.of(),
+                List.of());
+    }
+
+    private int[] persistRoomsUnderUnit(
+            UnitEntity unit, List<SetupRoomNodeInput> rooms, RoomType roomType, int defaultCapacity) {
+        List<SetupRoomNodeInput> roomInputs = rooms == null ? List.of() : rooms;
+        int roomCount = 0;
+        int bedCount = 0;
+        for (SetupRoomNodeInput roomInput : roomInputs) {
+            String roomNumber = firstNonBlank(roomInput.getNumber(), roomInput.getName());
+            RoomEntity room = roomRepository.save(RoomEntity.builder()
+                    .unit(unit)
+                    .name(firstNonBlank(roomInput.getName(), numberingService.roomDisplayName(roomNumber)))
+                    .roomNumber(roomNumber)
+                    .roomType(roomType)
+                    .capacity(roomInput.getCapacity() != null ? roomInput.getCapacity() : defaultCapacity)
+                    .status(AccommodationStatus.AVAILABLE)
+                    .build());
+            roomCount += 1;
+            bedCount += persistBeds(room, roomInput.getBeds());
+        }
+        return new int[] {roomCount, bedCount};
+    }
+
+    private int persistBeds(RoomEntity room, List<SetupBedNodeInput> beds) {
+        List<SetupBedNodeInput> bedInputs = beds == null ? List.of() : beds;
+        List<BedEntity> entities = new ArrayList<>(bedInputs.size());
+        for (SetupBedNodeInput bedInput : bedInputs) {
+            String number = firstNonBlank(bedInput.getNumber(), bedInput.getName());
+            entities.add(BedEntity.builder()
+                    .room(room)
+                    .name(firstNonBlank(bedInput.getName(), numberingService.bedDisplayName(number)))
+                    .bedNumber(number)
+                    .status(AccommodationStatus.AVAILABLE)
+                    .defaultRent(bedInput.getDefaultRent())
+                    .defaultDeposit(bedInput.getDefaultDeposit())
+                    .build());
+        }
+        if (!entities.isEmpty()) {
+            bedRepository.saveAll(entities);
+        }
+        return entities.size();
+    }
+
+    private static String firstNonBlank(String primary, String fallback) {
+        if (StringUtils.hasText(primary)) {
+            return primary.trim();
+        }
+        return fallback == null ? "" : fallback.trim();
     }
 
     private void createBedsForRoom(RoomEntity room, int count, BedLabelStyle style) {

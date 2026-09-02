@@ -38,6 +38,19 @@ public class AdminCreatePropertyRegistrationRequest {
     @Pattern(regexp = "^[6-9]\\d{9}$", message = "Mobile number must be a valid 10-digit Indian number")
     private String mobileNumber;
 
+    @Pattern(
+            regexp = "^[6-9]\\d{9}$",
+            message = "Alternate mobile number must be a valid 10-digit Indian number")
+    @Schema(description = "Optional secondary owner contact number")
+    private String alternateMobileNumber;
+
+    public void setAlternateMobileNumber(String alternateMobileNumber) {
+        this.alternateMobileNumber =
+                alternateMobileNumber == null || alternateMobileNumber.isBlank()
+                        ? null
+                        : alternateMobileNumber.trim();
+    }
+
     @Size(max = 255, message = "Address must be at most 255 characters")
     private String addressLine;
 

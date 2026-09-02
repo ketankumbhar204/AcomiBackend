@@ -8,6 +8,7 @@ import com.acomi.acomi_backend.property.api.dto.response.PropertyRegistrationDet
 import com.acomi.acomi_backend.property.api.dto.response.PropertyRegistrationListItemResponse;
 import com.acomi.acomi_backend.property.api.dto.response.PropertyRegistrationResponse;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationSource;
+import com.acomi.acomi_backend.registration.api.dto.request.AdminUpdateRegistrationContactRequest;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -55,6 +57,13 @@ public class AdminPropertyRegistrationController {
         PropertyRegistrationResponse response = adminPropertyRegistrationService.create(request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("Property registration created", response));
+    }
+
+    @PutMapping("/{id}/contact")
+    public ResponseEntity<ApiResponse<PropertyRegistrationDetailResponse>> updateContact(
+            @PathVariable UUID id, @RequestBody @Valid AdminUpdateRegistrationContactRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Owner contact updated", adminPropertyRegistrationService.updateContact(id, request)));
     }
 
     @DeleteMapping("/{id}")

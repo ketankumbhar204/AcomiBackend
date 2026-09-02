@@ -45,6 +45,9 @@ public class MessRegistrationEntity extends BaseEntity {
     @Column(name = "mobile_number", nullable = false, length = 15)
     private String mobileNumber;
 
+    @Column(name = "alternate_mobile_number", length = 15)
+    private String alternateMobileNumber;
+
     @Column(name = "mobile_verified_at", nullable = false)
     private LocalDateTime mobileVerifiedAt;
 

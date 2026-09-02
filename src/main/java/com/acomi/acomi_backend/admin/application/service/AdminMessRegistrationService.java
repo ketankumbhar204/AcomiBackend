@@ -7,10 +7,13 @@ import com.acomi.acomi_backend.mess.api.dto.response.MessRegistrationListItemRes
 import com.acomi.acomi_backend.mess.api.dto.response.MessRegistrationResponse;
 import com.acomi.acomi_backend.mess.application.mapper.MessRegistrationMapper;
 import com.acomi.acomi_backend.mess.application.service.MessRegistrationService;
+import com.acomi.acomi_backend.registration.api.dto.request.AdminUpdateRegistrationContactRequest;
+import com.acomi.acomi_backend.registration.application.RegistrationMobiles;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationSource;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationStatus;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.entity.MessRegistrationEntity;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRegistrationRepository;
+import com.acomi.acomi_backend.address.application.service.SavedAddressService;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +22,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -29,6 +33,7 @@ public class AdminMessRegistrationService {
 
     private final MessRegistrationRepository messRegistrationRepository;
     private final MessRegistrationService messRegistrationService;
+    private final SavedAddressService savedAddressService;
 
     @Transactional(readOnly = true)
     public Page<MessRegistrationListItemResponse> list(
@@ -51,7 +56,28 @@ public class AdminMessRegistrationService {
 
     @Transactional
     public MessRegistrationResponse create(AdminCreateMessRegistrationRequest request) {
-        return messRegistrationService.registerAdmin(request);
+        MessRegistrationResponse response = messRegistrationService.registerAdmin(request);
+        savedAddressService.rememberFromLead(
+                request.getAddressLine(),
+                request.getCity(),
+                request.getState(),
+                request.getPincode(),
+                request.getMapUrl());
+        return response;
+    }
+
+    @Transactional
+    public MessRegistrationDetailResponse updateContact(UUID id, AdminUpdateRegistrationContactRequest request) {
+        MessRegistrationEntity entity = messRegistrationService.requireEntity(id);
+        if (StringUtils.hasText(request.getOwnerName())) {
+            entity.setOwnerName(request.getOwnerName().trim());
+        }
+        if (StringUtils.hasText(request.getMobileNumber())) {
+            entity.setMobileNumber(request.getMobileNumber().trim());
+        }
+        entity.setAlternateMobileNumber(
+                RegistrationMobiles.resolveAlternate(entity.getMobileNumber(), request.getAlternateMobileNumber()));
+        return MessRegistrationMapper.toDetail(messRegistrationRepository.save(entity));
     }
 
     @Transactional

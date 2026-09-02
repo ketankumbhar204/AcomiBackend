@@ -144,4 +144,13 @@ public interface SpaceMembershipRepository extends JpaRepository<SpaceMembership
             @Param("userId") UUID userId,
             @Param("roles") List<MembershipRole> roles,
             @Param("spaceTypes") List<com.acomi.acomi_backend.space.domain.model.SpaceType> spaceTypes);
+
+    @Query("""
+            SELECT sm FROM SpaceMembershipEntity sm
+            JOIN FETCH sm.space s
+            JOIN FETCH sm.user u
+            WHERE sm.user.id IN :userIds
+              AND sm.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+            """)
+    List<SpaceMembershipEntity> findActiveByUserIdsWithSpace(@Param("userIds") List<UUID> userIds);
 }

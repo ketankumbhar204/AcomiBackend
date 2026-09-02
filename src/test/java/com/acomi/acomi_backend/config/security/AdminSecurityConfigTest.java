@@ -35,6 +35,24 @@ class AdminSecurityConfigTest {
     }
 
     @Test
+    void registeredUsersEndpointIsUnderAdminPath() throws Exception {
+        Path controller =
+                Path.of("src/main/java/com/acomi/acomi_backend/admin/api/controller/AdminRegisteredUsersController.java");
+
+        assertThat(Files.readString(controller, StandardCharsets.UTF_8))
+                .contains("/api/v1/admin/registered-users");
+    }
+
+    @Test
+    void savedAddressesEndpointIsUnderAdminPath() throws Exception {
+        Path controller =
+                Path.of("src/main/java/com/acomi/acomi_backend/address/api/controller/AdminSavedAddressController.java");
+
+        assertThat(Files.readString(controller, StandardCharsets.UTF_8))
+                .contains("/api/v1/admin/saved-addresses");
+    }
+
+    @Test
     void adminUserReceivesAdminAuthority() {
         UserEntity admin = UserEntity.builder()
                 .fullName("Admin")

@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.accommodation.api.dto.response;
 
 import com.acomi.acomi_backend.accommodation.domain.model.AccommodationStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.math.BigDecimal;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -21,4 +22,10 @@ public class BedListItemResponse {
 
     @Schema(description = "Bed status", example = "AVAILABLE")
     private AccommodationStatus status;
+
+    @Schema(description = "Optional default monthly rent")
+    private BigDecimal defaultRent;
+
+    @Schema(description = "Optional default deposit")
+    private BigDecimal defaultDeposit;
 }

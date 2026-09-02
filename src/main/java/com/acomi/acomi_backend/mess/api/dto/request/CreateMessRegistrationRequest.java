@@ -44,6 +44,19 @@ public class CreateMessRegistrationRequest {
     @Schema(example = "9876543210")
     private String mobileNumber;
 
+    @Pattern(
+            regexp = "^[6-9]\\d{9}$",
+            message = "Alternate mobile number must be a valid 10-digit Indian number")
+    @Schema(example = "9123456780", description = "Optional secondary owner contact number")
+    private String alternateMobileNumber;
+
+    public void setAlternateMobileNumber(String alternateMobileNumber) {
+        this.alternateMobileNumber =
+                alternateMobileNumber == null || alternateMobileNumber.isBlank()
+                        ? null
+                        : alternateMobileNumber.trim();
+    }
+
     @NotBlank(message = "Verification token is required")
     @Schema(description = "Token returned by verify-otp for purpose MESS_REGISTRATION")
     private String verificationToken;

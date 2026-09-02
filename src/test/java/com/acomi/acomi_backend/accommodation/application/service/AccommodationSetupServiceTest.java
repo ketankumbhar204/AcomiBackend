@@ -159,6 +159,84 @@ class AccommodationSetupServiceTest {
                 .hasMessageContaining("Idempotency-Key");
     }
 
+    @Test
+    void checkBuildingAvailability_rejectsActiveDuplicateName() {
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(pgSpace));
+        AccommodationAccessTestSupport.stubMembership(
+                spaceMembershipRepository, ownerId, spaceId, pgSpace,
+                com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER);
+        when(buildingRepository.existsBySpaceIdAndNameAndIsActiveTrue(spaceId, "B1")).thenReturn(true);
+
+        var request = new com.acomi.acomi_backend.accommodation.api.dto.request.setup.BuildingAvailabilityRequest();
+        setField(request, "name", "B1");
+
+        var response = setupService.checkBuildingAvailability(spaceId, ownerId, request);
+        assertThat(response.isNameAvailable()).isFalse();
+        assertThat(response.getMessage()).contains("already exists");
+    }
+
+    @Test
+    void checkBuildingAvailability_allowsNameWhenNoActiveBuilding() {
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(pgSpace));
+        AccommodationAccessTestSupport.stubMembership(
+                spaceMembershipRepository, ownerId, spaceId, pgSpace,
+                com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER);
+        when(buildingRepository.existsBySpaceIdAndNameAndIsActiveTrue(spaceId, "B2")).thenReturn(false);
+
+        var request = new com.acomi.acomi_backend.accommodation.api.dto.request.setup.BuildingAvailabilityRequest();
+        setField(request, "name", "B2");
+
+        var response = setupService.checkBuildingAvailability(spaceId, ownerId, request);
+        assertThat(response.isNameAvailable()).isTrue();
+    }
+
+    @Test
+    void execute_rejectsDuplicateActiveBuildingName() {
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(pgSpace));
+        AccommodationAccessTestSupport.stubMembership(
+                spaceMembershipRepository, ownerId, spaceId, pgSpace,
+                com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER);
+        when(idempotencyRepository.findBySpaceIdAndIdempotencyKey(spaceId, "key-1")).thenReturn(Optional.empty());
+        when(buildingRepository.existsBySpaceIdAndNameAndIsActiveTrue(spaceId, "Sunrise PG")).thenReturn(true);
+
+        assertThatThrownBy(() -> setupService.execute(spaceId, ownerId, pgSetupRequest(), "key-1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("already exists");
+        verify(buildingRepository, never()).save(any());
+    }
+
+    @Test
+    void execute_persistsExplicitBedPricingFromStructure() {
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(pgSpace));
+        AccommodationAccessTestSupport.stubMembership(
+                spaceMembershipRepository, ownerId, spaceId, pgSpace,
+                com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER);
+        when(idempotencyRepository.findBySpaceIdAndIdempotencyKey(spaceId, "key-2")).thenReturn(Optional.empty());
+        when(buildingRepository.existsBySpaceIdAndNameAndIsActiveTrue(spaceId, "Sunrise PG")).thenReturn(false);
+        when(userRepository.findByIdAndIsActiveTrue(ownerId))
+                .thenReturn(Optional.of(com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity.builder()
+                        .mobileNumber("9876543210")
+                        .fullName("Owner")
+                        .build()));
+        when(buildingRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(floorRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(unitRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(roomRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(bedRepository.saveAll(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(idempotencyRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AccommodationSetupRequest request = pgSetupRequestWithPricedStructure();
+        var response = setupService.execute(spaceId, ownerId, request, "key-2");
+
+        assertThat(response.getTotals().getFloors()).isEqualTo(1);
+        assertThat(response.getTotals().getRooms()).isEqualTo(1);
+        assertThat(response.getTotals().getBeds()).isEqualTo(2);
+        verify(bedRepository).saveAll(org.mockito.ArgumentMatchers.argThat(beds -> {
+            var list = (java.util.List<?>) beds;
+            return list.size() == 2;
+        }));
+    }
+
     private AccommodationSetupRequest pgSetupRequest() {
         PgHostelSetupConfig floors = new PgHostelSetupConfig();
         setField(floors, "count", 2);
@@ -175,6 +253,31 @@ class AccommodationSetupServiceTest {
         setField(request, "spaceType", SpaceType.PG);
         setField(request, "building", building);
         setField(request, "floors", floors);
+        return request;
+    }
+
+    private AccommodationSetupRequest pgSetupRequestWithPricedStructure() {
+        AccommodationSetupRequest request = pgSetupRequest();
+        var bedA = new com.acomi.acomi_backend.accommodation.api.dto.request.setup.SetupStructureInput.SetupBedNodeInput();
+        setField(bedA, "name", "Bed A");
+        setField(bedA, "number", "A");
+        setField(bedA, "defaultRent", new java.math.BigDecimal("5000"));
+        setField(bedA, "defaultDeposit", new java.math.BigDecimal("10000"));
+        var bedB = new com.acomi.acomi_backend.accommodation.api.dto.request.setup.SetupStructureInput.SetupBedNodeInput();
+        setField(bedB, "name", "Bed B");
+        setField(bedB, "number", "B");
+        var room = new com.acomi.acomi_backend.accommodation.api.dto.request.setup.SetupStructureInput.SetupRoomNodeInput();
+        setField(room, "name", "Room 101");
+        setField(room, "number", "101");
+        setField(room, "capacity", 2);
+        setField(room, "beds", java.util.List.of(bedA, bedB));
+        var floor = new com.acomi.acomi_backend.accommodation.api.dto.request.setup.SetupStructureInput.SetupFloorNodeInput();
+        setField(floor, "name", "Floor 1");
+        setField(floor, "number", 1);
+        setField(floor, "rooms", java.util.List.of(room));
+        var structure = new com.acomi.acomi_backend.accommodation.api.dto.request.setup.SetupStructureInput();
+        setField(structure, "floors", java.util.List.of(floor));
+        setField(request, "structure", structure);
         return request;
     }
 
