@@ -108,7 +108,7 @@ public class MemberDetailsResponse {
                 .memberId(member.getId())
                 .spaceId(member.getSpace().getId())
                 .fullName(member.getFullName())
-                .mobileNumber(member.getMobileNumber())
+                .mobileNumber(resolveMobileNumber(member))
                 .role(member.getRole())
                 .linkedUser(member.getUser() != null)
                 .linkedUserId(member.getUser() != null ? member.getUser().getId() : null)
@@ -133,6 +133,14 @@ public class MemberDetailsResponse {
                 .createdAt(member.getCreatedAt())
                 .updatedAt(member.getUpdatedAt())
                 .build();
+    }
+
+    /** Prefer live linked user mobile so profile change-mobile is reflected in member details. */
+    private static String resolveMobileNumber(MemberEntity member) {
+        if (member.getUser() != null && member.getUser().getMobileNumber() != null) {
+            return member.getUser().getMobileNumber();
+        }
+        return member.getMobileNumber();
     }
 
     private static MealBillingType resolveEffectiveMealBillingType(MemberEntity member) {

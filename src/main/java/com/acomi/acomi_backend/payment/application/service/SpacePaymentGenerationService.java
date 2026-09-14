@@ -6,14 +6,16 @@ import com.acomi.acomi_backend.dashboard.application.support.PayPerMealBillingCa
 import com.acomi.acomi_backend.meal.application.support.MealBillingResolver;
 import com.acomi.acomi_backend.meal.application.support.MealPricingPolicy;
 import com.acomi.acomi_backend.meal.domain.model.MealParticipationStatus;
-import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MealParticipationEntity;
-import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealParticipationRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
+import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealParticipationRepository;
 import com.acomi.acomi_backend.occupancy.application.service.OccupancyTargetLabelBuilder;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
+import com.acomi.acomi_backend.payment.application.support.BillingAmountCalculator;
+import com.acomi.acomi_backend.payment.application.support.BillingAmountCalculator.BillingAmountResult;
+import com.acomi.acomi_backend.payment.application.support.BillingAmountCalculator.TaxInput;
 import com.acomi.acomi_backend.payment.domain.model.PaymentTimelineEventType;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus;
@@ -25,7 +27,6 @@ import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
@@ -70,7 +71,6 @@ public class SpacePaymentGenerationService {
                 : null;
 
         String monthKey = month.toString();
-        LocalDate dueDate = month.atEndOfMonth();
 
         if (isAccommodationApplicable(space.getType())) {
             LocalDateTime monthStartTime = month.atDay(1).atStartOfDay();
@@ -86,7 +86,7 @@ public class SpacePaymentGenerationService {
                     continue;
                 }
                 if (OccupancyBillingCalculator.isBillableInMonth(occupancy, month)) {
-                    syncRentPayment(space, occupancy, month, monthKey, dueDate);
+                    syncRentPayment(space, occupancy, month, monthKey);
                 }
             }
         }
@@ -102,18 +102,17 @@ public class SpacePaymentGenerationService {
             if (billingType != MealBillingType.PAY_PER_MEAL) {
                 continue;
             }
-            syncMealPayment(space, member, month, monthKey, dueDate, callerId);
+            syncMealPayment(space, member, month, monthKey, callerId);
         }
     }
 
     private void syncRentPayment(
-            SpaceEntity space,
-            OccupancyEntity occupancy,
-            YearMonth month,
-            String monthKey,
-            LocalDate dueDate) {
-        BigDecimal amount = OccupancyBillingCalculator.computeMonthlyExpected(occupancy, month);
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            SpaceEntity space, OccupancyEntity occupancy, YearMonth month, String monthKey) {
+        BillingAmountResult billing =
+                OccupancyBillingCalculator.computeBilling(occupancy, month, space);
+        if (billing == null
+                || billing.getTotalAmount() == null
+                || billing.getTotalAmount().compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
 
@@ -125,9 +124,8 @@ public class SpacePaymentGenerationService {
                 SpacePaymentType.RENT,
                 SpacePaymentCategory.MONTHLY,
                 title,
-                amount,
+                billing,
                 DEFAULT_CURRENCY,
-                dueDate,
                 monthKey,
                 buildTargetLabel(occupancy));
     }
@@ -141,15 +139,24 @@ public class SpacePaymentGenerationService {
             MemberEntity member,
             YearMonth month,
             String monthKey,
-            LocalDate dueDate,
             UUID callerId) {
         MealLedgerContribution contribution =
                 payPerMealBillingCalculator.computeMemberContribution(
                         space.getId(), member.getId(), callerId, month);
-        BigDecimal amount = contribution.getExpected();
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+        BigDecimal activityAmount = contribution.getExpected();
+        if (activityAmount == null || activityAmount.compareTo(BigDecimal.ZERO) <= 0) {
             return;
         }
+
+        // Pay-per-meal monthly expected = activity sum (already mid-month aware via usage).
+        // Apply space tax snapshot; do not calendar-prorate activity again.
+        TaxInput tax = OccupancyBillingCalculator.resolveTaxInput(space);
+        int dueDay = space.getBillingDueDay() > 0 ? space.getBillingDueDay() : 1;
+        BillingAmountResult billing = BillingAmountCalculator.calculateFixedPeriodAmount(
+                activityAmount,
+                BillingAmountCalculator.fullMonthPeriod(month),
+                tax,
+                dueDay);
 
         String currency = contribution.getCurrencyCode() != null
                 ? contribution.getCurrencyCode()
@@ -172,9 +179,8 @@ public class SpacePaymentGenerationService {
                 SpacePaymentType.MEAL,
                 SpacePaymentCategory.MONTHLY,
                 title,
-                amount,
+                billing,
                 currency,
-                dueDate,
                 monthKey,
                 targetLabel);
     }
@@ -186,9 +192,8 @@ public class SpacePaymentGenerationService {
             SpacePaymentType paymentType,
             SpacePaymentCategory paymentCategory,
             String title,
-            BigDecimal amount,
+            BillingAmountResult billing,
             String currencyCode,
-            LocalDate dueDate,
             String monthKey,
             String targetLabel) {
         SpacePaymentEntity payment = paymentRepository
@@ -204,13 +209,14 @@ public class SpacePaymentGenerationService {
                     .paymentType(paymentType)
                     .paymentCategory(paymentCategory)
                     .title(title)
-                    .amount(amount)
+                    .amount(billing.getTotalAmount())
                     .currencyCode(currencyCode)
-                    .dueDate(dueDate)
+                    .dueDate(billing.getDueDate())
                     .month(monthKey)
                     .paymentStatus(SpacePaymentStatus.PENDING)
                     .targetLabel(targetLabel)
                     .build();
+            applyBillingSnapshot(payment, billing);
             paymentRepository.save(payment);
             timelineService.record(payment, PaymentTimelineEventType.CREATED, null, null);
             return;
@@ -223,14 +229,29 @@ public class SpacePaymentGenerationService {
         }
 
         payment.setTitle(title);
-        payment.setAmount(amount);
+        payment.setAmount(billing.getTotalAmount());
         payment.setCurrencyCode(currencyCode);
-        payment.setDueDate(dueDate);
+        payment.setDueDate(billing.getDueDate());
         payment.setTargetLabel(targetLabel);
+        applyBillingSnapshot(payment, billing);
         if (occupancy != null) {
             payment.setOccupancy(occupancy);
         }
         paymentRepository.save(payment);
+    }
+
+    private void applyBillingSnapshot(SpacePaymentEntity payment, BillingAmountResult billing) {
+        payment.setBillingPeriodStart(billing.getPeriod().getStart());
+        payment.setBillingPeriodEnd(billing.getPeriod().getEnd());
+        payment.setBillableDays(billing.getPeriod().getBillableDays());
+        payment.setDaysInMonth(billing.getPeriod().getDaysInMonth());
+        payment.setConfiguredMonthlyAmount(billing.getConfiguredMonthlyAmount());
+        payment.setProrated(billing.getPeriod().isProrated());
+        payment.setTaxEnabled(billing.isTaxEnabled());
+        payment.setTaxRatePercent(billing.getTaxRatePercent());
+        payment.setPriceTaxMode(billing.getPriceTaxMode());
+        payment.setBaseAmount(billing.getBaseAmount());
+        payment.setTaxAmount(billing.getTaxAmount());
     }
 
     private List<MemberEntity> resolveMealBillingMembers(SpaceEntity space) {

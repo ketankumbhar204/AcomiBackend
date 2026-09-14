@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.meal.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -17,6 +18,7 @@ import com.acomi.acomi_backend.meal.application.support.MealBillingResolver;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
+import com.acomi.acomi_backend.notification.application.service.MealLifecycleNotificationSyncService;
 import com.acomi.acomi_backend.space.domain.model.MealBillingType;
 import com.acomi.acomi_backend.space.domain.model.PrepaidBalanceUnit;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
@@ -56,6 +58,9 @@ class MemberMealBalanceServiceTest {
 
     @Mock
     private MealBillingResolver mealBillingResolver;
+
+    @Mock
+    private MealLifecycleNotificationSyncService mealLifecycleNotificationSyncService;
 
     @InjectMocks
     private MemberMealBalanceService service;
@@ -136,13 +141,16 @@ class MemberMealBalanceServiceTest {
         when(ledgerRepository.sumPaidAmountByMemberAndTypeInRange(
                         eq(spaceId), eq(memberId), eq(MealBalanceLedgerEntryType.PURCHASE), any(), any()))
                 .thenReturn(new BigDecimal("1500"));
-        when(ledgerRepository.findFirstByBalanceIdAndEntryTypeOrderByCreatedAtDesc(
+        lenient()
+                .when(ledgerRepository.findFirstByBalanceIdAndEntryTypeOrderByCreatedAtDesc(
                         any(), eq(MealBalanceLedgerEntryType.PURCHASE)))
                 .thenReturn(Optional.empty());
-        when(ledgerRepository.sumAmountByBalanceIdAndEntryTypeSince(
+        lenient()
+                .when(ledgerRepository.sumAmountByBalanceIdAndEntryTypeSince(
                         any(), eq(MealBalanceLedgerEntryType.DEBIT), any()))
                 .thenReturn(BigDecimal.ZERO);
-        when(ledgerRepository.sumAmountByBalanceIdAndEntryType(
+        lenient()
+                .when(ledgerRepository.sumAmountByBalanceIdAndEntryType(
                         any(), eq(MealBalanceLedgerEntryType.DEBIT)))
                 .thenReturn(BigDecimal.ZERO);
         when(ledgerRepository.sumAmountByBalanceIdAndEntryTypeSince(
@@ -151,10 +159,12 @@ class MemberMealBalanceServiceTest {
         when(ledgerRepository.sumPaidAmountByBalanceIdAndEntryTypeSince(
                         any(), eq(MealBalanceLedgerEntryType.PURCHASE), any()))
                 .thenReturn(new BigDecimal(totalPaid));
-        when(ledgerRepository.findFirstByBalanceIdAndEntryTypeOrderByCreatedAtDesc(
+        lenient()
+                .when(ledgerRepository.findFirstByBalanceIdAndEntryTypeOrderByCreatedAtDesc(
                         any(), eq(MealBalanceLedgerEntryType.ENDED)))
                 .thenReturn(Optional.empty());
-        when(ledgerRepository.findFirstByBalanceIdAndEntryTypeAndCreatedAtAfterOrderByCreatedAtAsc(
+        lenient()
+                .when(ledgerRepository.findFirstByBalanceIdAndEntryTypeAndCreatedAtAfterOrderByCreatedAtAsc(
                         any(), eq(MealBalanceLedgerEntryType.PURCHASE), any()))
                 .thenReturn(Optional.empty());
     }

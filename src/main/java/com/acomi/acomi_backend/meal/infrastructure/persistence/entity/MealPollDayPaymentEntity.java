@@ -17,6 +17,7 @@ import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -55,6 +56,9 @@ public class MealPollDayPaymentEntity extends BaseEntity {
 
     @Column(name = "proof_image_url", columnDefinition = "TEXT")
     private String proofImageUrl;
+
+    @Column(name = "proof_file_id")
+    private UUID proofFileId;
 
     @Column(name = "reference_number", length = 100)
     private String referenceNumber;

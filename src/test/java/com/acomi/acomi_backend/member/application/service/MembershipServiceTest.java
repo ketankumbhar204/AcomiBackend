@@ -13,6 +13,7 @@ import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.InvitationEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.InvitationRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
+import com.acomi.acomi_backend.notification.application.service.InvitationNotificationSyncService;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
@@ -40,6 +41,9 @@ class MembershipServiceTest {
 
     @Mock
     private InvitationRepository invitationRepository;
+
+    @Mock
+    private InvitationNotificationSyncService invitationNotificationSyncService;
 
     @InjectMocks
     private MembershipService membershipService;
@@ -132,6 +136,7 @@ class MembershipServiceTest {
 
         assertThat(invitation.getStatus()).isEqualTo(InvitationStatus.CANCELLED);
         verify(invitationRepository).save(invitation);
+        verify(invitationNotificationSyncService).onInvitationCancelledOrExpired(invitation);
     }
 
     @Test

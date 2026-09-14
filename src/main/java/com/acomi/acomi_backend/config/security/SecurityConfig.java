@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.config.security;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -37,6 +38,7 @@ public class SecurityConfig {
                                 "/api/v1/auth/reset-password",
                                 "/api/v1/auth/account-deletion",
                                 "/api/v1/auth/account-deletion/password",
+                                "/api/v1/auth/logout",
                                 "/api/v1/property-registrations",
                                 "/api/v1/mess-registrations",
                                 "/actuator/health",
@@ -44,6 +46,8 @@ public class SecurityConfig {
                                 "/v3/api-docs/**",
                                 "/swagger-ui/**",
                                 "/swagger-ui.html")
+                        .permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/spaces/discover", "/api/v1/spaces/discover/**")
                         .permitAll()
                         .requestMatchers("/api/v1/admin/**")
                         .hasAuthority("ROLE_ADMIN")

@@ -10,6 +10,7 @@ import com.acomi.acomi_backend.auth.api.dto.request.VerifyOtpRequest;
 import com.acomi.acomi_backend.auth.api.dto.response.AuthTokenResponse;
 import com.acomi.acomi_backend.auth.api.dto.response.SendOtpResponse;
 import com.acomi.acomi_backend.auth.api.dto.response.VerifyOtpResponse;
+import com.acomi.acomi_backend.auth.application.cookie.AuthCookieService;
 import com.acomi.acomi_backend.auth.application.otp.ClientIpResolver;
 import com.acomi.acomi_backend.auth.application.service.AuthService;
 import com.acomi.acomi_backend.common.web.ApiResponse;
@@ -17,6 +18,7 @@ import com.acomi.acomi_backend.user.api.dto.request.CompleteUserProfileRequest;
 import com.acomi.acomi_backend.user.api.dto.request.UpdateUserRequest;
 import com.acomi.acomi_backend.user.api.dto.response.UserResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -34,18 +36,21 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final AuthCookieService authCookieService;
 
     @PostMapping("/register")
     public ResponseEntity<ApiResponse<AuthTokenResponse>> register(
-            @RequestBody @Valid RegisterRequest request) {
+            @RequestBody @Valid RegisterRequest request, HttpServletResponse httpResponse) {
         AuthTokenResponse response = authService.register(request);
+        attachAccessCookie(httpResponse, response);
         return ResponseEntity.ok(ApiResponse.success("Account created successfully", response));
     }
 
     @PostMapping("/login")
     public ResponseEntity<ApiResponse<AuthTokenResponse>> login(
-            @RequestBody @Valid LoginRequest request) {
+            @RequestBody @Valid LoginRequest request, HttpServletResponse httpResponse) {
         AuthTokenResponse response = authService.login(request);
+        attachAccessCookie(httpResponse, response);
         return ResponseEntity.ok(ApiResponse.success("Login successful", response));
     }
 
@@ -65,8 +70,9 @@ public class AuthController {
 
     @PostMapping("/login-with-otp")
     public ResponseEntity<ApiResponse<AuthTokenResponse>> loginWithOtp(
-            @RequestBody @Valid OtpVerifiedActionRequest request) {
+            @RequestBody @Valid OtpVerifiedActionRequest request, HttpServletResponse httpResponse) {
         AuthTokenResponse response = authService.loginWithOtp(request);
+        attachAccessCookie(httpResponse, response);
         return ResponseEntity.ok(ApiResponse.success("Login successful", response));
     }
 
@@ -75,6 +81,12 @@ public class AuthController {
             @RequestBody @Valid ResetPasswordRequest request) {
         authService.resetPassword(request);
         return ResponseEntity.ok(ApiResponse.success("Password updated successfully"));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(HttpServletResponse httpResponse) {
+        authCookieService.clearAccessToken(httpResponse);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/me")
@@ -98,29 +110,37 @@ public class AuthController {
     }
 
     @DeleteMapping("/me")
-    public ResponseEntity<Void> deleteCurrentAccount() {
+    public ResponseEntity<Void> deleteCurrentAccount(HttpServletResponse httpResponse) {
         authService.deleteCurrentAccount();
+        authCookieService.clearAccessToken(httpResponse);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/account-deletion")
     public ResponseEntity<Void> deleteAccountByOtp(
-            @RequestBody @Valid OtpVerifiedActionRequest request) {
+            @RequestBody @Valid OtpVerifiedActionRequest request, HttpServletResponse httpResponse) {
         authService.deleteAccountByOtp(request);
+        authCookieService.clearAccessToken(httpResponse);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/account-deletion/password")
     public ResponseEntity<Void> deleteAccountByPassword(
-            @RequestBody @Valid PasswordAccountDeletionRequest request) {
+            @RequestBody @Valid PasswordAccountDeletionRequest request, HttpServletResponse httpResponse) {
         authService.deleteAccountByPassword(request);
+        authCookieService.clearAccessToken(httpResponse);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/change-mobile")
     public ResponseEntity<ApiResponse<AuthTokenResponse>> changeMobile(
-            @RequestBody @Valid OtpVerifiedActionRequest request) {
+            @RequestBody @Valid OtpVerifiedActionRequest request, HttpServletResponse httpResponse) {
         AuthTokenResponse response = authService.changeMobile(request);
+        attachAccessCookie(httpResponse, response);
         return ResponseEntity.ok(ApiResponse.success("Mobile number updated successfully", response));
+    }
+
+    private void attachAccessCookie(HttpServletResponse httpResponse, AuthTokenResponse response) {
+        authCookieService.setAccessToken(httpResponse, response.getAccessToken(), response.getExpiresIn());
     }
 }

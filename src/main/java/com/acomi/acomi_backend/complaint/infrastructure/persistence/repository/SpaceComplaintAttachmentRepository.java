@@ -9,4 +9,6 @@ public interface SpaceComplaintAttachmentRepository
         extends JpaRepository<SpaceComplaintAttachmentEntity, UUID> {
 
     List<SpaceComplaintAttachmentEntity> findByComplaint_IdOrderByCreatedAtAsc(UUID complaintId);
+
+    List<SpaceComplaintAttachmentEntity> findByFileId(UUID fileId);
 }

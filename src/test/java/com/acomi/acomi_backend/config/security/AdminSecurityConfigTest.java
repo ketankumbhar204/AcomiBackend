@@ -35,12 +35,41 @@ class AdminSecurityConfigTest {
     }
 
     @Test
+    void ownerLinkEndpointsAreUnderAdminPath() throws Exception {
+        Path propertyController =
+                Path.of("src/main/java/com/acomi/acomi_backend/admin/api/controller/AdminPropertyRegistrationController.java");
+        Path messController =
+                Path.of("src/main/java/com/acomi/acomi_backend/admin/api/controller/AdminMessRegistrationController.java");
+
+        assertThat(Files.readString(propertyController, StandardCharsets.UTF_8))
+                .contains("@PutMapping(\"/{id}/link-owner\")")
+                .contains("/api/v1/admin/property-registrations");
+        assertThat(Files.readString(messController, StandardCharsets.UTF_8))
+                .contains("@PutMapping(\"/{id}/link-owner\")")
+                .contains("/api/v1/admin/mess-registrations");
+    }
+
+    @Test
     void registeredUsersEndpointIsUnderAdminPath() throws Exception {
         Path controller =
                 Path.of("src/main/java/com/acomi/acomi_backend/admin/api/controller/AdminRegisteredUsersController.java");
 
         assertThat(Files.readString(controller, StandardCharsets.UTF_8))
-                .contains("/api/v1/admin/registered-users");
+                .contains("/api/v1/admin/registered-users")
+                .contains("@GetMapping(\"/{id}\")");
+    }
+
+    @Test
+    void activityAndDashboardTrendEndpointsAreUnderAdminPath() throws Exception {
+        Path activity =
+                Path.of("src/main/java/com/acomi/acomi_backend/admin/api/controller/AdminActivityController.java");
+        Path dashboard =
+                Path.of("src/main/java/com/acomi/acomi_backend/admin/api/controller/AdminDashboardController.java");
+
+        assertThat(Files.readString(activity, StandardCharsets.UTF_8)).contains("/api/v1/admin/activity");
+        assertThat(Files.readString(dashboard, StandardCharsets.UTF_8))
+                .contains("/enquiries-trend")
+                .contains("/user-registration-breakdown");
     }
 
     @Test

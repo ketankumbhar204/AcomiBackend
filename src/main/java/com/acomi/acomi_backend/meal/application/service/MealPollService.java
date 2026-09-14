@@ -66,6 +66,9 @@ import com.acomi.acomi_backend.notification.domain.model.NotificationType;
 import com.acomi.acomi_backend.payment.application.service.MealDaySpacePaymentBridge;
 import com.acomi.acomi_backend.payment.application.service.PaymentReferenceService;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentMethod;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
+import com.acomi.acomi_backend.storage.application.support.FileLegacySupport;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import com.acomi.acomi_backend.space.domain.model.MealBillingType;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
@@ -114,6 +117,7 @@ public class MealPollService {
     private final SpaceMembershipRepository membershipRepository;
     private final MealDaySpacePaymentBridge mealDaySpacePaymentBridge;
     private final PaymentReferenceService paymentReferenceService;
+    private final StoredFileService storedFileService;
 
     @Transactional(readOnly = true)
     public MealPollDayResponse getPollsForDate(UUID spaceId, UUID callerId, LocalDate date) {
@@ -134,6 +138,7 @@ public class MealPollService {
         MealPollPaymentStatus myPaymentStatus = null;
         MealPollPaymentChoice myPaymentChoice = null;
         String myProofImageUrl = null;
+        UUID myProofFileId = null;
         String myRejectionReason = null;
         Map<MealType, UUID> myLastDeliveryLocationIds = Map.of();
         List<MealDeliveryLocationResponse> deliveryLocations = List.of();
@@ -169,7 +174,9 @@ public class MealPollService {
                 MealPollDayPaymentEntity row = payment.get();
                 myPaymentStatus = row.getPaymentStatus();
                 myPaymentChoice = row.getPaymentChoice();
-                myProofImageUrl = row.getProofImageUrl();
+                myProofFileId = row.getProofFileId();
+                myProofImageUrl = storedFileService.resolveDisplayUrl(
+                        callerId, row.getProofFileId(), row.getProofImageUrl());
                 myRejectionReason = row.getRejectionReason();
                 myPrepaidOverflowAmount = row.getPrepaidOverflowAmount();
                 myPrepaidDebitedAmount = row.getPrepaidDebitedAmount();
@@ -190,6 +197,7 @@ public class MealPollService {
                 .myPaymentStatus(myPaymentStatus)
                 .myPaymentChoice(myPaymentChoice)
                 .myProofImageUrl(myProofImageUrl)
+                .myProofFileId(myProofFileId)
                 .myRejectionReason(myRejectionReason)
                 .deliveryLocations(deliveryLocations)
                 .myLastDeliveryLocationIds(myLastDeliveryLocationIds)
@@ -286,6 +294,14 @@ public class MealPollService {
 
     private void publishPollOpenedNotifications(
             UUID spaceId, MealPollEntity poll, MealType mealType, LocalDate pollDate, UUID actorId) {
+        SpaceEntity space = poll.getSpace();
+        if (space == null) {
+            space = spaceRepository.findById(spaceId).orElse(null);
+        }
+        if (!mealAccessService.isMealsApplicableForSpace(space)) {
+            return;
+        }
+        String spaceName = space != null && space.getName() != null ? space.getName() : "your Space";
         List<SpaceMembershipEntity> participants =
                 membershipRepository.findBySpaceIdAndStatus(spaceId, MembershipStatus.ACTIVE).stream()
                         .filter(m -> m.getRole() == MembershipRole.TENANT
@@ -304,9 +320,9 @@ public class MealPollService {
                     .category(NotificationCategory.INFORMATION)
                     .priority(NotificationPriority.MEDIUM)
                     .title("Meal poll opened")
-                    .message(mealType.name() + " · " + pollDate)
+                    .message(mealType.name() + " · " + pollDate + " · " + spaceName)
                     .actionLabel("Respond")
-                    .actionRoute("Dashboard")
+                    .actionRoute("DailyMenuToday")
                     .dedupeKey(
                             "INFO:MEAL_POLL_PUBLISHED:"
                                     + poll.getId()
@@ -513,6 +529,8 @@ public class MealPollService {
                     member,
                     pollDate,
                     paymentChoice,
+                    callerId,
+                    request.getProofFileId(),
                     proofImageBase64,
                     request.getReferenceNumber(),
                     request.getRemarks(),
@@ -549,11 +567,13 @@ public class MealPollService {
 
         LocalDate pollDate = date != null ? date : LocalDate.now();
         validateOptionalProofImage(request.getProofImageBase64());
+        UUID proofFileId = resolveMealProofFile(
+                callerId, space.getId(), request.getProofFileId(), request.getProofImageBase64());
         applyProofToDayPayment(
                 space,
                 member,
                 pollDate,
-                normalizeProofImage(request.getProofImageBase64()),
+                proofFileId,
                 null,
                 callerId,
                 request.getReferenceNumber(),
@@ -592,7 +612,8 @@ public class MealPollService {
             throw new BusinessException("At least one date is required", HttpStatus.BAD_REQUEST);
         }
         validateOptionalProofImage(request.getProofImageBase64());
-        String proofUrl = normalizeProofImage(request.getProofImageBase64());
+        UUID proofFileId = resolveMealProofFile(
+                callerId, space.getId(), request.getProofFileId(), request.getProofImageBase64());
         String batchId = buildPaymentBatchId(LocalDate.now());
         String sharedReference = null;
         ArrayList<MealPollDayPaymentEntity> updatedDays = new ArrayList<>();
@@ -602,7 +623,7 @@ public class MealPollService {
                     space,
                     member,
                     pollDate,
-                    proofUrl,
+                    proofFileId,
                     batchId,
                     sharedReference,
                     callerId,
@@ -628,7 +649,7 @@ public class MealPollService {
             SpaceEntity space,
             MemberEntity member,
             LocalDate pollDate,
-            String proofUrl,
+            UUID proofFileId,
             String paymentBatchId,
             UUID callerId,
             String referenceNumber,
@@ -638,7 +659,7 @@ public class MealPollService {
                 space,
                 member,
                 pollDate,
-                proofUrl,
+                proofFileId,
                 paymentBatchId,
                 null,
                 callerId,
@@ -651,7 +672,7 @@ public class MealPollService {
             SpaceEntity space,
             MemberEntity member,
             LocalDate pollDate,
-            String proofUrl,
+            UUID proofFileId,
             String paymentBatchId,
             String paymentReference,
             UUID callerId,
@@ -680,7 +701,7 @@ public class MealPollService {
 
         payment.setPaymentChoice(MealPollPaymentChoice.MARK_AS_PAID);
         payment.setPaymentStatus(MealPollPaymentStatus.PENDING_APPROVAL);
-        payment.setProofImageUrl(proofUrl);
+        applyMealProof(payment, proofFileId);
         payment.setReferenceNumber(trimToNull(referenceNumber));
         payment.setRemarks(trimToNull(remarks));
         payment.setPaymentMethod(paymentMethod);
@@ -841,6 +862,7 @@ public class MealPollService {
         payment.setPaymentChoice(MealPollPaymentChoice.PAY_LATER);
         payment.setPaymentStatus(MealPollPaymentStatus.PENDING);
         payment.setProofImageUrl(null);
+        payment.setProofFileId(null);
         payment.setProofSubmittedAt(null);
         payment.setProofReviewedAt(null);
         payment.setProofReviewedBy(null);
@@ -869,6 +891,8 @@ public class MealPollService {
             MemberEntity member,
             LocalDate pollDate,
             MealPollPaymentChoice paymentChoice,
+            UUID callerId,
+            UUID proofFileId,
             String proofImageBase64,
             String referenceNumber,
             String remarks,
@@ -898,7 +922,9 @@ public class MealPollService {
         payment.setPrepaidDebitedAmount(null);
 
         if (paymentChoice == MealPollPaymentChoice.MARK_AS_PAID) {
-            payment.setProofImageUrl(normalizeProofImage(proofImageBase64));
+            applyMealProof(
+                    payment,
+                    resolveMealProofFile(callerId, space.getId(), proofFileId, proofImageBase64));
             payment.setReferenceNumber(trimToNull(referenceNumber));
             payment.setRemarks(trimToNull(remarks));
             payment.setPaymentMethod(paymentMethod != null ? paymentMethod : SpacePaymentMethod.UPI);
@@ -908,6 +934,7 @@ public class MealPollService {
             payment.setRejectionReason(null);
         } else {
             payment.setProofImageUrl(null);
+            payment.setProofFileId(null);
             payment.setReferenceNumber(null);
             payment.setRemarks(null);
             payment.setPaymentMethod(null);
@@ -936,6 +963,28 @@ public class MealPollService {
         List<MealPollResponseEntity> responses =
                 responseRepository.findForMemberInDateRange(memberId, spaceId, pollDate, pollDate);
         return MealPollChargeCalculator.fromResponses(responses).getCurrencyTotal();
+    }
+
+    private UUID resolveMealProofFile(UUID callerId, UUID spaceId, UUID proofFileId, String legacyPayload) {
+        UUID fileId = storedFileService.resolveIncomingFile(
+                callerId,
+                FilePurpose.MEAL_PAYMENT_PROOF,
+                spaceId,
+                proofFileId,
+                legacyPayload,
+                "meal-payment-proof");
+        if (fileId != null) {
+            storedFileService.markAssociated(fileId);
+        }
+        return fileId;
+    }
+
+    private static void applyMealProof(MealPollDayPaymentEntity payment, UUID proofFileId) {
+        if (proofFileId == null) {
+            return;
+        }
+        payment.setProofFileId(proofFileId);
+        payment.setProofImageUrl(FileLegacySupport.marker(proofFileId));
     }
 
     private void validateOptionalProofImage(String proofImageBase64) {

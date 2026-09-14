@@ -32,8 +32,24 @@ public class OtpConfigurationValidator {
                 : otpProperties.getSender().trim().toLowerCase(Locale.ROOT);
         boolean production = Arrays.stream(environment.getActiveProfiles())
                 .anyMatch(profile -> "prod".equalsIgnoreCase(profile));
+        boolean local = Arrays.stream(environment.getActiveProfiles())
+                .anyMatch(profile -> "local".equalsIgnoreCase(profile));
         if (production && "dev".equals(sender)) {
             throw new IllegalStateException("Development OTP sender cannot be enabled in production");
+        }
+        if (otpProperties.isSkipRegistrationOtp()) {
+            if (production) {
+                throw new IllegalStateException(
+                        "acomi.otp.skip-registration-otp cannot be enabled in production");
+            }
+            if (!local) {
+                throw new IllegalStateException(
+                        "acomi.otp.skip-registration-otp is only allowed with the local profile");
+            }
+            if (!"dev".equals(sender)) {
+                throw new IllegalStateException(
+                        "acomi.otp.skip-registration-otp requires acomi.otp.sender=dev");
+            }
         }
         if ("twofactor".equals(sender)
                 && (otpProperties.getTwoFactor() == null

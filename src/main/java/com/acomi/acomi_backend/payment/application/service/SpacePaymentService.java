@@ -1,6 +1,10 @@
 package com.acomi.acomi_backend.payment.application.service;
 
 import com.acomi.acomi_backend.common.exception.BusinessException;
+import com.acomi.acomi_backend.common.security.SecurityUtils;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
+import com.acomi.acomi_backend.storage.application.support.FileLegacySupport;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import com.acomi.acomi_backend.occupancy.application.service.OccupancyTargetLabelBuilder;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
@@ -10,6 +14,7 @@ import com.acomi.acomi_backend.payment.api.dto.response.PaymentTimelineEventResp
 import com.acomi.acomi_backend.payment.api.dto.response.PaymentTimelineResponse;
 import com.acomi.acomi_backend.payment.api.dto.response.SpacePaymentListResponse;
 import com.acomi.acomi_backend.payment.api.dto.response.SpacePaymentResponse;
+import com.acomi.acomi_backend.payment.application.support.PaymentDueStatusCalculator;
 import com.acomi.acomi_backend.payment.domain.model.PaymentReviewAction;
 import com.acomi.acomi_backend.payment.domain.model.PaymentTimelineEventType;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory;
@@ -54,6 +59,7 @@ public class SpacePaymentService {
     private final MealDaySpacePaymentBridge mealDaySpacePaymentBridge;
     private final PaymentMonthSnapshotService snapshotService;
     private final PaymentReferenceService paymentReferenceService;
+    private final StoredFileService storedFileService;
 
     @Transactional
     public SpacePaymentListResponse listPayments(
@@ -177,8 +183,7 @@ public class SpacePaymentService {
             SubmitSpacePaymentProofRequest request,
             boolean resubmit) {
         validateProofImageIfPresent(request.getProofImageBase64());
-
-        payment.setProofUrl(normalizeProofImage(request.getProofImageBase64()));
+        applyProof(payment, callerId, request);
         payment.setReferenceNumber(trimToNull(request.getReferenceNumber()));
         payment.setRemarks(trimToNull(request.getRemarks()));
         if (request.getPaymentMethod() != null) {
@@ -214,8 +219,9 @@ public class SpacePaymentService {
             SubmitSpacePaymentProofRequest request) {
         validateProofImageIfPresent(request.getProofImageBase64());
 
-        if (request.getProofImageBase64() != null && !request.getProofImageBase64().isBlank()) {
-            payment.setProofUrl(normalizeProofImage(request.getProofImageBase64()));
+        if (request.getProofImageBase64() != null && !request.getProofImageBase64().isBlank()
+                || request.getProofFileId() != null) {
+            applyProof(payment, callerId, request);
         }
         payment.setReferenceNumber(trimToNull(request.getReferenceNumber()));
         payment.setRemarks(trimToNull(request.getRemarks()));
@@ -376,6 +382,22 @@ public class SpacePaymentService {
         }
     }
 
+    private void applyProof(
+            SpacePaymentEntity payment, UUID callerId, SubmitSpacePaymentProofRequest request) {
+        UUID fileId = storedFileService.resolveIncomingFile(
+                callerId,
+                FilePurpose.PAYMENT_PROOF,
+                payment.getSpace().getId(),
+                request.getProofFileId(),
+                request.getProofImageBase64(),
+                "payment-proof");
+        if (fileId != null) {
+            storedFileService.replaceAssociation(payment.getProofFileId(), fileId);
+            payment.setProofFileId(fileId);
+            payment.setProofUrl(FileLegacySupport.marker(fileId));
+        }
+    }
+
     /** Maps entity → API DTO including occupancy target label. */
     public SpacePaymentResponse toPublicResponse(SpacePaymentEntity entity) {
         return toResponse(entity);
@@ -383,7 +405,15 @@ public class SpacePaymentService {
 
     private SpacePaymentResponse toResponse(SpacePaymentEntity entity) {
         List<LocalDate> mealDates = mealDaySpacePaymentBridge.resolveMealDates(entity);
-        SpacePaymentResponse response = SpacePaymentResponse.from(entity, mealDates);
+        SpaceEntity space = entity.getSpace();
+        LocalDate businessDate = space != null
+                ? PaymentDueStatusCalculator.businessDate(space)
+                : LocalDate.now();
+        UUID callerId = SecurityUtils.getCurrentUserIdOrNull();
+        String proofUrl = callerId == null
+                ? entity.getProofUrl()
+                : storedFileService.resolveDisplayUrl(callerId, entity.getProofFileId(), entity.getProofUrl());
+        SpacePaymentResponse response = SpacePaymentResponse.from(entity, mealDates, businessDate, proofUrl);
         OccupancyEntity occupancy = entity.getOccupancy();
         if (occupancy == null) {
             return response;
@@ -392,35 +422,6 @@ public class SpacePaymentService {
         if (label == null || label.isBlank()) {
             return response;
         }
-        return SpacePaymentResponse.builder()
-                .paymentId(response.getPaymentId())
-                .spaceId(response.getSpaceId())
-                .memberId(response.getMemberId())
-                .memberName(response.getMemberName())
-                .occupancyId(response.getOccupancyId())
-                .paymentType(response.getPaymentType())
-                .paymentCategory(response.getPaymentCategory())
-                .title(response.getTitle())
-                .amount(response.getAmount())
-                .currencyCode(response.getCurrencyCode())
-                .dueDate(response.getDueDate())
-                .month(response.getMonth())
-                .paymentMethod(response.getPaymentMethod())
-                .paymentStatus(response.getPaymentStatus())
-                .proofUrl(response.getProofUrl())
-                .referenceNumber(response.getReferenceNumber())
-                .remarks(response.getRemarks())
-                .rejectionReason(response.getRejectionReason())
-                .rejectionCode(response.getRejectionCode())
-                .reviewedBy(response.getReviewedBy())
-                .reviewedAt(response.getReviewedAt())
-                .paymentDate(response.getPaymentDate())
-                .targetLabel(label)
-                .paymentBatchId(response.getPaymentBatchId())
-                .paymentReference(response.getPaymentReference())
-                .mealDates(response.getMealDates())
-                .createdAt(response.getCreatedAt())
-                .updatedAt(response.getUpdatedAt())
-                .build();
+        return response.withTargetLabel(label);
     }
 }

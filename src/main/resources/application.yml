@@ -5,6 +5,11 @@ spring:
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:local}
 
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
+
   datasource:
     driver-class-name: org.postgresql.Driver
 
@@ -48,6 +53,26 @@ acomi:
   jwt:
     # 30 days so closing the app overnight does not force another login.
     expiration-ms: ${JWT_EXPIRATION_MS:2592000000}
+  reminders:
+    scheduler:
+      enabled: ${ACOMI_REMINDERS_SCHEDULER_ENABLED:true}
+      # Default 09:30 server local time; eligibility still uses each space's timezone business date.
+      cron: ${ACOMI_REMINDERS_SCHEDULER_CRON:0 30 9 * * *}
+    whatsapp:
+      # disabled | logging | live — live requires tokens + approved template (never default to live)
+      mode: ${ACOMI_WHATSAPP_REMINDER_MODE:disabled}
+      provider: ${ACOMI_WHATSAPP_PROVIDER:meta_cloud}
+      base-url: ${ACOMI_WHATSAPP_BASE_URL:https://graph.facebook.com}
+      api-version: ${ACOMI_WHATSAPP_API_VERSION:v21.0}
+      access-token: ${ACOMI_WHATSAPP_ACCESS_TOKEN:}
+      phone-number-id: ${ACOMI_WHATSAPP_PHONE_NUMBER_ID:}
+      business-account-id: ${ACOMI_WHATSAPP_WABA_ID:}
+      payment-overdue-template: ${ACOMI_WHATSAPP_TEMPLATE_PAYMENT_OVERDUE:}
+      template-language: ${ACOMI_WHATSAPP_TEMPLATE_LANGUAGE:en}
+      default-country-code: ${ACOMI_WHATSAPP_DEFAULT_COUNTRY_CODE:91}
+      connect-timeout-ms: ${ACOMI_WHATSAPP_CONNECT_TIMEOUT_MS:5000}
+      read-timeout-ms: ${ACOMI_WHATSAPP_READ_TIMEOUT_MS:15000}
+      max-transient-attempts: ${ACOMI_WHATSAPP_MAX_TRANSIENT_ATTEMPTS:3}
   otp:
     length: 6
     ttl-seconds: 300
@@ -58,8 +83,13 @@ acomi:
     ip-max-sends-per-window: 20
     ip-send-window-seconds: 900
     verification-token-ttl-seconds: 600
+    # Never enable outside application-local.yml. Prod validator rejects this when true.
+    skip-registration-otp: false
     sender: none
     hash-secret: ${OTP_HASH_SECRET:}
+  discovery:
+    # Local-only: show test-lead Spaces in member Search. Keep false in prod/dev.
+    include-test-spaces: false
     twofactor:
       # Empty default so local/dev can start without SMS. Production overrides
       # with ${TWOFACTOR_API_KEY} (required, no fallback) in application-prod.yml.
@@ -69,4 +99,48 @@ acomi:
       timeout-ms: 10000
       phone-prefix: ${TWOFACTOR_PHONE_PREFIX:}
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176}
+  auth:
+    cookie:
+      domain: ${ACOMI_AUTH_COOKIE_DOMAIN:}
+      secure: ${ACOMI_AUTH_COOKIE_SECURE:false}
+      same-site: ${ACOMI_AUTH_COOKIE_SAMESITE:Lax}
+  enquiry:
+    retention-days: ${ACOMI_ENQUIRY_RETENTION_DAYS:30}
+    expiry-job-delay-ms: ${ACOMI_ENQUIRY_EXPIRY_JOB_MS:3600000}
+    auto-share-enabled: ${ACOMI_ENQUIRY_AUTO_SHARE_ENABLED:true}
+  push:
+    # FCM is off until credentials are supplied. Business operations never depend on push.
+    enabled: ${ACOMI_PUSH_ENABLED:false}
+    credentials-json: ${FIREBASE_CREDENTIALS_JSON:}
+    credentials-path: ${FIREBASE_CREDENTIALS_PATH:}
+  mail:
+    # Titan SMTP when enabled. Local default logs only and records SKIPPED (not SENT).
+    enabled: ${ACOMI_MAIL_ENABLED:false}
+    from: ${ACOMI_MAIL_FROM:support@acomi.in}
+    from-name: ${ACOMI_MAIL_FROM_NAME:ACOMI Support}
+    reply-to: ${ACOMI_MAIL_REPLY_TO:support@acomi.in}
+    support-address: ${ACOMI_MAIL_SUPPORT_ADDRESS:support@acomi.in}
+    retry:
+      max-attempts: ${ACOMI_MAIL_RETRY_MAX_ATTEMPTS:3}
+      delay-ms: ${ACOMI_MAIL_RETRY_DELAY_MS:60000}
+      job-delay-ms: ${ACOMI_MAIL_RETRY_JOB_MS:300000}
+  storage:
+    enabled: ${ACOMI_STORAGE_ENABLED:true}
+    # memory (local/tests) | s3compatible (R2, MinIO, AWS S3)
+    provider: ${ACOMI_STORAGE_PROVIDER:memory}
+    logical-name: ${ACOMI_STORAGE_LOGICAL_NAME:memory}
+    bucket: ${ACOMI_STORAGE_BUCKET:acomi-files}
+    upload-url-ttl-seconds: ${ACOMI_STORAGE_UPLOAD_TTL:900}
+    download-url-ttl-seconds: ${ACOMI_STORAGE_DOWNLOAD_TTL:120}
+    pending-ttl-seconds: ${ACOMI_STORAGE_PENDING_TTL:900}
+    unassociated-grace-days: ${ACOMI_STORAGE_UNASSOCIATED_GRACE_DAYS:7}
+    purge-delay-days: ${ACOMI_STORAGE_PURGE_DAYS:30}
+    max-upload-sessions-per-hour: ${ACOMI_STORAGE_MAX_SESSIONS_PER_HOUR:20}
+    cleanup-job-delay-ms: ${ACOMI_STORAGE_CLEANUP_JOB_MS:900000}
+    s3:
+      endpoint: ${ACOMI_STORAGE_ENDPOINT:}
+      region: ${ACOMI_STORAGE_REGION:auto}
+      path-style: ${ACOMI_STORAGE_PATH_STYLE:true}
+      access-key: ${ACOMI_STORAGE_ACCESS_KEY:}
+      secret-key: ${ACOMI_STORAGE_SECRET_KEY:}

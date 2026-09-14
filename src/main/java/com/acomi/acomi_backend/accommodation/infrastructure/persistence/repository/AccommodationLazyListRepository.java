@@ -279,7 +279,10 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                 ru.id,
                 ru.name,
                 r.id,
-                r.name
+                r.name,
+                r.roomType,
+                b.defaultRent,
+                b.defaultDeposit
             )
             FROM BedEntity b
             JOIN b.room r

@@ -9,6 +9,7 @@ import com.acomi.acomi_backend.auth.api.dto.request.RegisterRequest;
 import com.acomi.acomi_backend.config.security.JwtService;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberDocumentRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.util.Optional;
@@ -43,6 +44,9 @@ class AuthServiceAccountDeletionTest {
 
     @Mock
     private AccountDeletionService accountDeletionService;
+
+    @Mock
+    private StoredFileService storedFileService;
 
     @Mock
     private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;

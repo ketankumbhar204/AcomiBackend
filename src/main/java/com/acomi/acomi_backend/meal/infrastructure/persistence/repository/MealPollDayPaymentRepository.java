@@ -43,4 +43,6 @@ public interface MealPollDayPaymentRepository extends JpaRepository<MealPollDayP
             """)
     List<MealPollDayPaymentEntity> findPendingApprovalInDateRange(
             @Param("spaceId") UUID spaceId, @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    List<MealPollDayPaymentEntity> findByProofFileId(UUID proofFileId);
 }

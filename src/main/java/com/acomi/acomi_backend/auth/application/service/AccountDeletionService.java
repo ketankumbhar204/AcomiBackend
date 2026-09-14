@@ -16,8 +16,10 @@ import com.acomi.acomi_backend.member.infrastructure.persistence.repository.Memb
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
 import com.acomi.acomi_backend.notification.infrastructure.persistence.repository.SpaceNotificationRepository;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
 import com.acomi.acomi_backend.user.domain.model.KycStatus;
 import com.acomi.acomi_backend.user.domain.model.ProfileStatus;
+import com.acomi.acomi_backend.user.domain.model.SystemRole;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.time.LocalDateTime;
@@ -57,12 +59,41 @@ public class AccountDeletionService {
     private final SpaceMembershipRepository spaceMembershipRepository;
     private final InvitationRepository invitationRepository;
     private final SpaceNotificationRepository spaceNotificationRepository;
+    private final StoredFileService storedFileService;
 
     @Transactional
     public void deleteAuthenticatedAccount() {
         UUID userId = SecurityUtils.getCurrentUserId();
         UserEntity user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+        deleteAccount(user);
+    }
+
+    /**
+     * Admin soft-deletes a registered user (same anonymization as self-service deletion).
+     * Platform ADMIN accounts and the caller's own account cannot be deleted this way.
+     */
+    @Transactional
+    public void deleteAccountByAdmin(UUID userId) {
+        UUID adminId = SecurityUtils.getCurrentUserId();
+        if (adminId.equals(userId)) {
+            throw new BusinessException(
+                    "CANNOT_DELETE_SELF",
+                    "You cannot delete your own admin account from this list.",
+                    HttpStatus.CONFLICT);
+        }
+        UserEntity user = userRepository
+                .findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+        if (!user.isActive()) {
+            return;
+        }
+        if (user.getSystemRole() == SystemRole.ADMIN) {
+            throw new BusinessException(
+                    "CANNOT_DELETE_ADMIN",
+                    "Platform admin accounts cannot be deleted from the registered users list.",
+                    HttpStatus.CONFLICT);
+        }
         deleteAccount(user);
     }
 
@@ -122,6 +153,11 @@ public class AccountDeletionService {
             List<MemberDocumentEntity> documents =
                     memberDocumentRepository.findByMemberIdOrderByUploadedAtDesc(member.getId());
             if (!documents.isEmpty()) {
+                for (MemberDocumentEntity document : documents) {
+                    if (document.getFileId() != null) {
+                        storedFileService.scheduleDelete(document.getFileId());
+                    }
+                }
                 memberDocumentRepository.deleteAll(documents);
             }
 
@@ -138,6 +174,10 @@ public class AccountDeletionService {
     private void anonymizeUser(UserEntity user, LocalDateTime now) {
         user.setMobileNumber(DELETED_MOBILE_PREFIX + user.getId());
         user.setFullName(DELETED_USER_DISPLAY_NAME);
+        if (user.getProfilePhotoFileId() != null) {
+            storedFileService.scheduleDelete(user.getProfilePhotoFileId());
+            user.setProfilePhotoFileId(null);
+        }
         user.setProfilePhotoUrl(null);
         user.setEmail(null);
         user.setGender(null);

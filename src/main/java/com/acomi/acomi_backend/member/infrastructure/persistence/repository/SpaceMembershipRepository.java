@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.member.infrastructure.persistence.repository;
 import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -153,4 +154,32 @@ public interface SpaceMembershipRepository extends JpaRepository<SpaceMembership
               AND sm.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
             """)
     List<SpaceMembershipEntity> findActiveByUserIdsWithSpace(@Param("userIds") List<UUID> userIds);
+
+    @Query("""
+            SELECT sm.space.id FROM SpaceMembershipEntity sm
+            WHERE sm.user.id = :userId
+              AND sm.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+              AND sm.space.id IN :spaceIds
+            """)
+    List<UUID> findActiveSpaceIdsByUserIdAndSpaceIdIn(
+            @Param("userId") UUID userId, @Param("spaceIds") Collection<UUID> spaceIds);
+
+    @Query("""
+            SELECT COUNT(DISTINCT sm.user.id) FROM SpaceMembershipEntity sm
+            WHERE sm.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
+              AND sm.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+              AND sm.space.isActive = true
+            """)
+    long countDistinctActiveOwners();
+
+    @Query("""
+            SELECT COUNT(DISTINCT sm.user.id) FROM SpaceMembershipEntity sm
+            WHERE sm.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
+              AND sm.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+              AND sm.space.isActive = true
+              AND sm.joinedAt >= :fromAt
+              AND sm.joinedAt < :toAt
+            """)
+    long countDistinctActiveOwnersJoinedBetween(
+            @Param("fromAt") java.time.LocalDateTime fromAt, @Param("toAt") java.time.LocalDateTime toAt);
 }

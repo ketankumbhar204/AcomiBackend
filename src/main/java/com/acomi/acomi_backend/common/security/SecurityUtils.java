@@ -10,10 +10,26 @@ public final class SecurityUtils {
     private SecurityUtils() {}
 
     public static UUID getCurrentUserId() {
-        Object principal = SecurityContextHolder.getContext().getAuthentication().getPrincipal();
+        UUID userId = getCurrentUserIdOrNull();
+        if (userId == null) {
+            throw new BusinessException("Invalid authentication context");
+        }
+        return userId;
+    }
+
+    /**
+     * Authenticated caller id, or {@code null} for anonymous requests (public discovery).
+     * AnonymousAuthenticationToken is treated as unsigned-in.
+     */
+    public static UUID getCurrentUserIdOrNull() {
+        var authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) {
+            return null;
+        }
+        Object principal = authentication.getPrincipal();
         if (principal instanceof UserPrincipal userPrincipal) {
             return userPrincipal.getId();
         }
-        throw new BusinessException("Invalid authentication context");
+        return null;
     }
 }

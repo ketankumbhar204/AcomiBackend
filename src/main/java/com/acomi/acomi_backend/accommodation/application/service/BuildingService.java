@@ -38,7 +38,7 @@ public class BuildingService {
         SpaceEntity space = accessService.loadAccommodationSpace(spaceId);
         accessService.assertCanManageStructure(spaceId, callerId);
 
-        if (buildingRepository.existsBySpaceIdAndNameAndIsActiveTrue(spaceId, request.getName())) {
+        if (buildingRepository.existsBySpaceIdAndNameIgnoreCaseAndIsActiveTrue(spaceId, request.getName())) {
             throw new BusinessException("An active building with this name already exists in the space");
         }
 
@@ -93,8 +93,8 @@ public class BuildingService {
         BuildingEntity building = buildingRepository.findActiveByIdAndSpaceId(buildingId, spaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("Building", "id", buildingId));
 
-        if (!building.getName().equals(request.getName())
-                && buildingRepository.existsBySpaceIdAndNameAndIsActiveTrue(spaceId, request.getName())) {
+        if (!building.getName().equalsIgnoreCase(request.getName())
+                && buildingRepository.existsBySpaceIdAndNameIgnoreCaseAndIsActiveTrue(spaceId, request.getName())) {
             throw new BusinessException("An active building with this name already exists in the space");
         }
 

@@ -21,4 +21,20 @@ public class AdminDashboardSummaryResponse {
     private long activeMessSpaces;
     /** Phone-verified app users (unique users, not properties/messes). */
     private long registeredUsersCount;
+    /** Lifetime total contact enquiries. */
+    private long totalEnquiriesCount;
+    /** Distinct users with an active OWNER membership. */
+    private long ownersCount;
+    /** Active saved addresses across all admins. */
+    private long savedAddressesCount;
+    /**
+     * Period comparison deltas (selected range vs previous equivalent range), as percent change.
+     * Null when no date range was requested.
+     */
+    private Double registeredUsersDeltaPercent;
+    private Double totalEnquiriesDeltaPercent;
+    private Double propertySpacesDeltaPercent;
+    private Double messSpacesDeltaPercent;
+    private Double ownersDeltaPercent;
+    private Double savedAddressesDeltaPercent;
 }

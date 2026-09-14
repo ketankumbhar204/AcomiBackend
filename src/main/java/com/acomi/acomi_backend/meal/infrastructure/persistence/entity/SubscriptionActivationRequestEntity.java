@@ -57,6 +57,9 @@ public class SubscriptionActivationRequestEntity extends BaseEntity {
     @Column(name = "payment_proof_image_url", columnDefinition = "TEXT")
     private String paymentProofImageUrl;
 
+    @Column(name = "payment_proof_file_id")
+    private UUID paymentProofFileId;
+
     @Column(name = "customer_notes", columnDefinition = "TEXT")
     private String customerNotes;
 

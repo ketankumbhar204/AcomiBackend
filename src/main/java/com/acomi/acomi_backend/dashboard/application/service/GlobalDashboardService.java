@@ -12,6 +12,7 @@ import com.acomi.acomi_backend.notification.application.service.PendingActionSer
 import com.acomi.acomi_backend.notification.domain.model.NotificationCategory;
 import com.acomi.acomi_backend.notification.domain.model.NotificationPriority;
 import com.acomi.acomi_backend.notification.domain.model.NotificationStatus;
+import com.acomi.acomi_backend.notification.application.service.NotificationService;
 import com.acomi.acomi_backend.notification.domain.model.NotificationType;
 import com.acomi.acomi_backend.notification.infrastructure.persistence.entity.SpaceNotificationEntity;
 import com.acomi.acomi_backend.notification.infrastructure.persistence.repository.SpaceNotificationRepository;
@@ -133,11 +134,12 @@ public class GlobalDashboardService {
 
         boolean activityHasMore = recentRows.size() >= ACTIVITY_FETCH_LIMIT;
         List<GlobalActivityItemResponse> recentActivity = recentRows.stream()
+                .filter(n -> !NotificationService.ALL_ENQUIRY_TYPES.contains(n.getNotificationType()))
                 .map(n -> toActivity(n, membershipBySpace))
                 .toList();
 
-        long unreadCount = notificationRepository.countByUserAndSpacesAndStatus(
-                userId, spaceIds, NotificationStatus.UNREAD);
+        long unreadCount = notificationRepository.countByUserAndSpacesAndStatusExcludingTypes(
+                userId, spaceIds, NotificationStatus.UNREAD, NotificationService.ALL_ENQUIRY_TYPES);
 
         Map<UUID, Integer> pendingBySpace = bySpace.entrySet().stream()
                 .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().size()));

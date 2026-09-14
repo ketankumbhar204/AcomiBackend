@@ -88,10 +88,11 @@ public class SpaceController {
     }
 
     @GetMapping("/{spaceId}")
-    @Operation(summary = "Get space details", description = "Returns complete details of a single active space.")
+    @Operation(summary = "Get space details", description = "Returns complete details of a single active space. Active members only.")
     public ResponseEntity<ApiResponse<SpaceDetailsResponse>> getSpaceById(
             @PathVariable UUID spaceId) {
-        SpaceDetailsResponse response = spaceService.getSpaceById(spaceId);
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        SpaceDetailsResponse response = spaceService.getSpaceById(spaceId, callerId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

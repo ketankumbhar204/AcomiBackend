@@ -19,4 +19,6 @@ public interface SubscriptionActivationRequestRepository
             UUID memberId, SubscriptionActivationRequestStatus status);
 
     Optional<SubscriptionActivationRequestEntity> findByIdAndSpaceId(UUID id, UUID spaceId);
+
+    List<SubscriptionActivationRequestEntity> findByPaymentProofFileId(UUID paymentProofFileId);
 }

@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.config.web;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +21,12 @@ public class CorsConfig {
         List<String> origins = Arrays.stream(corsProperties.getAllowedOrigins().split(","))
                 .map(String::trim)
                 .filter(origin -> !origin.isEmpty())
-                .toList();
+                .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        for (String extra : List.of("https://www.acomi.in", "https://acomi.in", "https://app.acomi.in")) {
+            if (!origins.contains(extra)) {
+                origins.add(extra);
+            }
+        }
 
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(origins);

@@ -20,6 +20,8 @@ public class SubmitBulkMealPollPaymentProofRequest {
 
     private String proofImageBase64;
 
+    private java.util.UUID proofFileId;
+
     @Size(max = 100)
     private String referenceNumber;
 

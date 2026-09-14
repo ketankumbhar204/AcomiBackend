@@ -16,9 +16,12 @@ import com.acomi.acomi_backend.mess.domain.model.MessRegistrationSource;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationStatus;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.entity.MessRegistrationEntity;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRegistrationRepository;
+import com.acomi.acomi_backend.space.application.service.SpaceService;
+import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Collections;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,11 +39,18 @@ class MessRegistrationServiceAlternateMobileTest {
     @Mock
     private OtpService otpService;
 
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private SpaceService spaceService;
+
     private MessRegistrationService service;
 
     @BeforeEach
     void setUp() {
-        service = new MessRegistrationService(messRegistrationRepository, otpService);
+        service = new MessRegistrationService(
+                messRegistrationRepository, otpService, userRepository, spaceService);
     }
 
     @Test

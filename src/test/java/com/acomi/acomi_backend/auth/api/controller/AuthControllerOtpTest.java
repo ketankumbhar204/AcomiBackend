@@ -11,6 +11,7 @@ import com.acomi.acomi_backend.auth.api.dto.request.SendOtpRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.VerifyOtpRequest;
 import com.acomi.acomi_backend.auth.api.dto.response.SendOtpResponse;
 import com.acomi.acomi_backend.auth.api.dto.response.VerifyOtpResponse;
+import com.acomi.acomi_backend.auth.application.cookie.AuthCookieService;
 import com.acomi.acomi_backend.auth.application.service.AuthService;
 import com.acomi.acomi_backend.auth.domain.model.OtpPurpose;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,6 +33,9 @@ class AuthControllerOtpTest {
 
     @Mock
     private AuthService authService;
+
+    @Mock
+    private AuthCookieService authCookieService;
 
     @InjectMocks
     private AuthController authController;

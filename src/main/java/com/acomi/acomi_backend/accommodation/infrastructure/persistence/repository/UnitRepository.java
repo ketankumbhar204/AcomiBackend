@@ -100,4 +100,12 @@ public interface UnitRepository extends JpaRepository<UnitEntity, UUID> {
             WHERE u.building.id = :buildingId AND u.isActive = true AND u.synthetic = true
             """)
     long countSyntheticActiveByBuildingId(@Param("buildingId") UUID buildingId);
+
+    @Query("""
+            SELECT COUNT(u) FROM UnitEntity u
+            WHERE u.building.space.id = :spaceId
+              AND u.isActive = true
+              AND u.synthetic = false
+            """)
+    long countVisibleActiveBySpaceId(@Param("spaceId") UUID spaceId);
 }

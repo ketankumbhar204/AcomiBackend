@@ -11,6 +11,7 @@ import lombok.Getter;
 public class ComplaintAttachmentResponse {
 
     private UUID attachmentId;
+    private UUID fileId;
     private String storageUrl;
     private String contentType;
     private String fileName;
@@ -18,9 +19,15 @@ public class ComplaintAttachmentResponse {
     private LocalDateTime createdAt;
 
     public static ComplaintAttachmentResponse from(SpaceComplaintAttachmentEntity entity) {
+        return from(entity, entity.getStorageUrl());
+    }
+
+    public static ComplaintAttachmentResponse from(
+            SpaceComplaintAttachmentEntity entity, String resolvedStorageUrl) {
         return ComplaintAttachmentResponse.builder()
                 .attachmentId(entity.getId())
-                .storageUrl(entity.getStorageUrl())
+                .fileId(entity.getFileId())
+                .storageUrl(resolvedStorageUrl)
                 .contentType(entity.getContentType())
                 .fileName(entity.getFileName())
                 .createdByUserId(entity.getCreatedByUserId())

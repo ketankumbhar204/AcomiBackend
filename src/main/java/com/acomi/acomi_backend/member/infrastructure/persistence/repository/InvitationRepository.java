@@ -28,6 +28,15 @@ public interface InvitationRepository extends JpaRepository<InvitationEntity, UU
 
     List<InvitationEntity> findByStatusAndExpiresAtBefore(InvitationStatus status, Instant now);
 
+    @Query("""
+            SELECT i FROM InvitationEntity i
+            JOIN FETCH i.space
+            JOIN FETCH i.invitedBy
+            WHERE i.status = com.acomi.acomi_backend.member.domain.model.InvitationStatus.PENDING
+              AND i.expiresAt <= :now
+            """)
+    List<InvitationEntity> findExpiredPending(@Param("now") LocalDateTime now);
+
     boolean existsBySpaceIdAndMobileNumberAndStatus(
             UUID spaceId, String mobileNumber, InvitationStatus status);
 

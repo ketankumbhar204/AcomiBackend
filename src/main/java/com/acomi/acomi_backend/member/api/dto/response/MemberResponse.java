@@ -47,7 +47,7 @@ public class MemberResponse {
         return MemberResponse.builder()
                 .memberId(member.getId())
                 .fullName(member.getFullName())
-                .mobileNumber(member.getMobileNumber())
+                .mobileNumber(resolveMobileNumber(member))
                 .role(member.getRole())
                 .linkedUser(member.getUser() != null)
                 .linkedUserId(member.getUser() != null ? member.getUser().getId() : null)
@@ -57,5 +57,13 @@ public class MemberResponse {
                 .gender(member.getGender())
                 .createdAt(member.getCreatedAt())
                 .build();
+    }
+
+    /** Prefer live linked user mobile so profile change-mobile is reflected in member lists. */
+    private static String resolveMobileNumber(MemberEntity member) {
+        if (member.getUser() != null && member.getUser().getMobileNumber() != null) {
+            return member.getUser().getMobileNumber();
+        }
+        return member.getMobileNumber();
     }
 }

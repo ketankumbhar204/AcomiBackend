@@ -8,9 +8,12 @@ import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceAmen
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceAmenityRepository;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -38,6 +41,22 @@ public class SpaceAmenityService {
         return spaceAmenityRepository.findAllBySpaceIdOrderByDisplayOrderAscCreatedAtAsc(spaceId).stream()
                 .map(SpaceAmenityService::toDto)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Map<UUID, List<AmenityAssignmentDto>> getForSpaces(Collection<UUID> spaceIds) {
+        if (spaceIds == null || spaceIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, List<AmenityAssignmentDto>> bySpaceId = new LinkedHashMap<>();
+        for (UUID spaceId : spaceIds) {
+            bySpaceId.put(spaceId, new ArrayList<>());
+        }
+        for (SpaceAmenityEntity entity :
+                spaceAmenityRepository.findAllBySpaceIdInOrderByDisplayOrderAscCreatedAtAsc(spaceIds)) {
+            bySpaceId.computeIfAbsent(entity.getSpace().getId(), ignored -> new ArrayList<>()).add(toDto(entity));
+        }
+        return bySpaceId;
     }
 
     @Transactional

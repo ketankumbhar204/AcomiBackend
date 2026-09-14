@@ -8,6 +8,7 @@ import com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentMethod;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentType;
+import com.acomi.acomi_backend.space.domain.model.PriceTaxMode;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -96,6 +97,9 @@ public class SpacePaymentEntity extends BaseEntity {
     @Column(name = "proof_url", columnDefinition = "TEXT")
     private String proofUrl;
 
+    @Column(name = "proof_file_id")
+    private UUID proofFileId;
+
     @Column(name = "reference_number", length = 100)
     private String referenceNumber;
 
@@ -131,4 +135,40 @@ public class SpacePaymentEntity extends BaseEntity {
      */
     @Column(name = "payment_reference", length = 32)
     private String paymentReference;
+
+    @Column(name = "billing_period_start")
+    private LocalDate billingPeriodStart;
+
+    @Column(name = "billing_period_end")
+    private LocalDate billingPeriodEnd;
+
+    @Column(name = "billable_days")
+    private Integer billableDays;
+
+    @Column(name = "days_in_month")
+    private Integer daysInMonth;
+
+    @Column(name = "configured_monthly_amount", precision = 12, scale = 2)
+    private BigDecimal configuredMonthlyAmount;
+
+    @Builder.Default
+    @Column(name = "is_prorated", nullable = false)
+    private boolean prorated = false;
+
+    @Builder.Default
+    @Column(name = "tax_enabled", nullable = false)
+    private boolean taxEnabled = false;
+
+    @Column(name = "tax_rate_percent", precision = 5, scale = 2)
+    private BigDecimal taxRatePercent;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "price_tax_mode", length = 20)
+    private PriceTaxMode priceTaxMode;
+
+    @Column(name = "base_amount", precision = 12, scale = 2)
+    private BigDecimal baseAmount;
+
+    @Column(name = "tax_amount", precision = 12, scale = 2)
+    private BigDecimal taxAmount;
 }

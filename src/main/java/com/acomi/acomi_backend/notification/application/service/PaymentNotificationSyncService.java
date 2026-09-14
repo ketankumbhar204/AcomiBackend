@@ -222,8 +222,8 @@ public class PaymentNotificationSyncService {
                     .notificationType(NotificationType.PAYMENT_APPROVED)
                     .category(NotificationCategory.SUCCESS)
                     .priority(NotificationPriority.MEDIUM)
-                    .title("Payment approved")
-                    .message(payment.getTitle() + " was approved")
+                    .title("Payment recorded")
+                    .message("Your payment was recorded.")
                     .dedupeKey("INFO:" + NotificationType.PAYMENT_APPROVED + ":" + payment.getId() + ":"
                             + tenantUserId)
                     .build());

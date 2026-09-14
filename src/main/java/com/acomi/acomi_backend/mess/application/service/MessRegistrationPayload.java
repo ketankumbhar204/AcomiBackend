@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.mess.application.service;
 
 import com.acomi.acomi_backend.mess.api.dto.request.AdminCreateMessRegistrationRequest;
 import com.acomi.acomi_backend.mess.api.dto.request.CreateMessRegistrationRequest;
+import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import java.math.BigDecimal;
 import lombok.Builder;
 import lombok.Getter;
@@ -15,15 +16,22 @@ public class MessRegistrationPayload {
     private String description;
     private String mobileNumber;
     private String alternateMobileNumber;
+    private String additionalMobileNumber;
     private String addressLine;
     private String city;
     private String state;
     private String pincode;
     private String mapUrl;
+    private BigDecimal latitude;
+    private BigDecimal longitude;
     private BigDecimal monthlyPrice;
     private BigDecimal mealPrice;
     private Integer capacityEstimate;
     private Boolean testLead;
+    private String sharingNotes;
+    private Boolean foodIncludedListing;
+    private GenderPolicy genderPolicy;
+    private String unmappedAmenities;
 
     public static MessRegistrationPayload fromPublic(CreateMessRegistrationRequest request) {
         return MessRegistrationPayload.builder()
@@ -50,15 +58,22 @@ public class MessRegistrationPayload {
                 .description(request.getDescription())
                 .mobileNumber(request.getMobileNumber())
                 .alternateMobileNumber(request.getAlternateMobileNumber())
+                .additionalMobileNumber(request.getAdditionalMobileNumber())
                 .addressLine(request.getAddressLine())
                 .city(request.getCity())
                 .state(request.getState())
                 .pincode(request.getPincode())
                 .mapUrl(request.getMapUrl())
+                .latitude(request.getLatitude())
+                .longitude(request.getLongitude())
                 .monthlyPrice(request.getMonthlyPrice())
                 .mealPrice(request.getMealPrice())
                 .capacityEstimate(request.getCapacityEstimate())
                 .testLead(request.getTestLead())
+                .sharingNotes(request.getSharingNotes())
+                .foodIncludedListing(request.getFoodIncludedListing())
+                .genderPolicy(request.getGenderPolicy())
+                .unmappedAmenities(request.getUnmappedAmenities())
                 .build();
     }
 }

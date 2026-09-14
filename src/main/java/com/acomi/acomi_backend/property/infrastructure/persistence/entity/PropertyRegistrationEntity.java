@@ -5,6 +5,7 @@ import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationSource;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationStatus;
 import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
+import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -59,6 +60,9 @@ public class PropertyRegistrationEntity extends BaseEntity {
 
     @Column(name = "alternate_mobile_number", length = 15)
     private String alternateMobileNumber;
+
+    @Column(name = "additional_mobile_number", length = 15)
+    private String additionalMobileNumber;
 
     @Column(name = "mobile_verified_at", nullable = false)
     private LocalDateTime mobileVerifiedAt;
@@ -130,6 +134,22 @@ public class PropertyRegistrationEntity extends BaseEntity {
     @Builder.Default
     @Column(name = "test_lead", nullable = false)
     private boolean testLead = false;
+
+    @Column(name = "sharing_notes", columnDefinition = "TEXT")
+    private String sharingNotes;
+
+    @Column(name = "food_included_listing")
+    private Boolean foodIncludedListing;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "gender_policy", length = 20)
+    private GenderPolicy genderPolicy;
+
+    @Column(name = "unmapped_amenities", columnDefinition = "TEXT")
+    private String unmappedAmenities;
+
+    @Column(name = "linked_owner_user_id")
+    private UUID linkedOwnerUserId;
 
     @Builder.Default
     @OneToMany(

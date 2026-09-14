@@ -16,5 +16,7 @@ public class CreateSubscriptionActivationRequest {
 
     private String proofImageBase64;
 
+    private java.util.UUID proofFileId;
+
     private String customerNotes;
 }

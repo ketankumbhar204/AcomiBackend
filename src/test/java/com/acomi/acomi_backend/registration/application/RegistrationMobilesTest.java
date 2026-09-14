@@ -19,6 +19,8 @@ class RegistrationMobilesTest {
     @Test
     void normalizeOptional_acceptsValidIndianMobile() {
         assertThat(RegistrationMobiles.normalizeOptional(" 9123456780 ")).isEqualTo("9123456780");
+        assertThat(RegistrationMobiles.normalizeOptional("+91 91234 56780")).isEqualTo("9123456780");
+        assertThat(RegistrationMobiles.normalizeOptional("09123456780")).isEqualTo("9123456780");
     }
 
     @Test

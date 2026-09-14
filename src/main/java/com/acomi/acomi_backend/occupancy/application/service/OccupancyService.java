@@ -236,6 +236,7 @@ public class OccupancyService {
 
         recordHistory(occupancy, OccupancyHistoryEvent.ALLOCATED, null, targetSnapshot(target), actor, now, request.getRemarks());
         mealOccupancyBridgeService.onOccupancyActivated(occupancy, actor, request.isCreateMealParticipation());
+        occupancyNotificationSyncService.onAllocationCreated(occupancy);
         return toResponse(occupancy);
     }
 
@@ -302,6 +303,7 @@ public class OccupancyService {
                 now,
                 request.getRemarks());
 
+        occupancyNotificationSyncService.onOccupancyTransferred(next);
         return toResponse(next);
     }
 

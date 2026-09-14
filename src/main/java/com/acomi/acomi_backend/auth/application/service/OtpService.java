@@ -99,6 +99,43 @@ public class OtpService {
                 otpProperties.getTtlSeconds(), otpProperties.getResendCooldownSeconds());
     }
 
+    /**
+     * Local-only registration shortcut: issues a verification token without SMS/OTP entry.
+     * Gated by {@code acomi.otp.skip-registration-otp} (validated for local+dev only).
+     */
+    @Transactional
+    public RegistrationVerification issueRegistrationBypassToken(String mobileNumber, String requestIp) {
+        if (!otpProperties.isSkipRegistrationOtp()) {
+            throw new BusinessException("Registration OTP skip is not enabled.");
+        }
+        requireSupportedPurpose(OtpPurpose.REGISTER);
+        otpRateLimiter.assertSendAllowed(mobileNumber, OtpPurpose.REGISTER, requestIp);
+
+        LocalDateTime now = LocalDateTime.now();
+        authOtpRepository.consumeUnusedOtps(now, mobileNumber, OtpPurpose.REGISTER);
+        authOtpRepository.consumeUnusedVerificationTokens(now, mobileNumber, OtpPurpose.REGISTER);
+
+        String rawToken = generateVerificationToken();
+        String placeholderOtp = "local-skip-" + UUID.randomUUID();
+        AuthOtpEntity entity = AuthOtpEntity.builder()
+                .mobileNumber(mobileNumber)
+                .purpose(OtpPurpose.REGISTER)
+                .codeHash(otpHashService.hashOtp(mobileNumber, OtpPurpose.REGISTER, placeholderOtp))
+                .expiresAt(now.plusSeconds(otpProperties.getTtlSeconds()))
+                .attemptCount(0)
+                .maxAttempts(otpProperties.getMaxAttempts())
+                .requestIp(requestIp)
+                .consumedAt(now)
+                .verificationTokenHash(otpHashService.hashVerificationToken(
+                        mobileNumber, OtpPurpose.REGISTER, rawToken, null))
+                .verificationTokenExpiresAt(
+                        now.plusSeconds(otpProperties.getVerificationTokenTtlSeconds()))
+                .build();
+        authOtpRepository.save(entity);
+        log.warn("Registration OTP skipped for local development");
+        return new RegistrationVerification(rawToken, otpProperties.getVerificationTokenTtlSeconds());
+    }
+
     @Transactional(noRollbackFor = BusinessException.class)
     public RegistrationVerification verifyRegistrationOtp(String mobileNumber, String otp) {
         return verifyAndIssueToken(mobileNumber, otp, OtpPurpose.REGISTER);

@@ -98,7 +98,7 @@ public class AccommodationSetupService {
         if (name.isEmpty()) {
             throw new BusinessException("Building name is required", HttpStatus.BAD_REQUEST);
         }
-        boolean taken = buildingRepository.existsBySpaceIdAndNameAndIsActiveTrue(spaceId, name);
+        boolean taken = buildingRepository.existsBySpaceIdAndNameIgnoreCaseAndIsActiveTrue(spaceId, name);
         if (taken) {
             return BuildingAvailabilityResponse.builder()
                     .nameAvailable(false)

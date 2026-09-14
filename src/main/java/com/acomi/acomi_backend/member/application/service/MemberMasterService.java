@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.member.application.service;
 
+import com.acomi.acomi_backend.accommodation.application.service.PropertyReadinessService;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.common.util.MobileNumberNormalizer;
@@ -33,7 +34,13 @@ import com.acomi.acomi_backend.member.infrastructure.persistence.repository.Memb
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberNoteRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
+import com.acomi.acomi_backend.notification.application.service.InvitationNotificationSyncService;
+import com.acomi.acomi_backend.notification.application.service.MembershipNotificationSyncService;
 import com.acomi.acomi_backend.occupancy.application.service.OccupancyService;
+import com.acomi.acomi_backend.storage.application.service.FileAuthorizationService;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
+import com.acomi.acomi_backend.storage.application.support.FileLegacySupport;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import com.acomi.acomi_backend.occupancy.domain.model.MemberOccupancyStatus;
 import com.acomi.acomi_backend.space.domain.model.MealBillingType;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
@@ -54,6 +61,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Slf4j
 @Service
@@ -83,6 +91,11 @@ public class MemberMasterService {
     private final OccupancyService occupancyService;
     private final MealParticipationService mealParticipationService;
     private final InvitationProvisioner invitationProvisioner;
+    private final PropertyReadinessService propertyReadinessService;
+    private final StoredFileService storedFileService;
+    private final FileAuthorizationService fileAuthorizationService;
+    private final InvitationNotificationSyncService invitationNotificationSyncService;
+    private final MembershipNotificationSyncService membershipNotificationSyncService;
 
     @Transactional
     public MemberResponse createMember(UUID spaceId, UUID callerId, CreateMemberRequest request) {
@@ -92,6 +105,7 @@ public class MemberMasterService {
         SpaceEntity space = loadActiveSpace(spaceId);
         assertOwnerOrManager(spaceId, callerId);
         assertRoleAllowedForMemberApi(request.getRole());
+        assertPropertyReadyForMemberCreate(space);
 
         String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
         assertMobileAllowedForMemberRecord(spaceId, mobileNumber, null);
@@ -117,7 +131,9 @@ public class MemberMasterService {
                 .build();
 
         member = memberRepository.save(member);
-        invitationProvisioner.ensurePendingInvitation(space, invitedBy, mobileNumber, request.getRole());
+        invitationProvisioner
+                .ensurePendingInvitation(space, invitedBy, mobileNumber, request.getRole())
+                .ifPresent(invitationNotificationSyncService::onInvitationCreated);
         return MemberResponse.from(member);
     }
 
@@ -405,6 +421,7 @@ public class MemberMasterService {
             throw new BusinessException("OWNER role cannot be modified");
         }
 
+        MembershipRole previousRole = member.getRole();
         String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
         assertMobileAllowedForMemberRecord(spaceId, mobileNumber, memberId);
 
@@ -433,6 +450,7 @@ public class MemberMasterService {
         syncLinkedMembershipRole(member);
 
         MemberEntity saved = memberRepository.save(member);
+        membershipNotificationSyncService.onMemberRoleChanged(saved, previousRole, saved.getRole());
         return MemberDetailsResponse.from(saved);
     }
 
@@ -455,6 +473,7 @@ public class MemberMasterService {
         memberRepository.save(member);
 
         deactivateLinkedMembership(member);
+        membershipNotificationSyncService.onMemberRemoved(member);
     }
 
     @Transactional
@@ -483,6 +502,8 @@ public class MemberMasterService {
                 previousStatus.name(),
                 request.getStatus().name(),
                 callerId);
+        membershipNotificationSyncService.onMemberStatusChanged(
+                saved, previousStatus.name(), request.getStatus().name());
 
         return MemberDetailsResponse.from(saved);
     }
@@ -552,16 +573,31 @@ public class MemberMasterService {
         MemberEntity member = loadActiveMember(spaceId, memberId);
         assertCanManageMemberDocuments(spaceId, member, callerId);
 
+        UUID storedFileId = storedFileService.resolveIncomingFile(
+                callerId,
+                mapDocumentPurpose(request.getDocumentType()),
+                spaceId,
+                request.getFileId(),
+                request.getFileUrl(),
+                request.getDocumentType().name());
+        String fileUrl = storedFileId != null
+                ? FileLegacySupport.marker(storedFileId)
+                : (StringUtils.hasText(request.getFileUrl()) ? request.getFileUrl() : "pending-upload");
+        if (storedFileId != null) {
+            storedFileService.markAssociated(storedFileId);
+        }
+
         MemberDocumentEntity document = MemberDocumentEntity.builder()
                 .member(member)
                 .documentType(request.getDocumentType())
                 .documentNumber(request.getDocumentNumber())
-                .fileUrl(request.getFileUrl())
+                .fileUrl(fileUrl)
+                .fileId(storedFileId)
                 .uploadedAt(LocalDateTime.now())
                 .build();
 
         document = memberDocumentRepository.save(document);
-        return MemberDocumentResponse.from(document);
+        return toDocumentResponse(document, callerId);
     }
 
     @Transactional(readOnly = true)
@@ -571,12 +607,15 @@ public class MemberMasterService {
                 spaceId, memberId, callerId);
 
         assertSpaceExists(spaceId);
-        assertCallerBelongsToSpace(spaceId, callerId);
-        loadActiveMember(spaceId, memberId);
+        MemberEntity member = loadActiveMember(spaceId, memberId);
+        if (!fileAuthorizationService.canViewMemberDocuments(spaceId, member, callerId)) {
+            throw new BusinessException(
+                    "You do not have permission to view these documents", HttpStatus.FORBIDDEN);
+        }
 
         return memberDocumentRepository.findByMemberIdOrderByUploadedAtDesc(memberId)
                 .stream()
-                .map(MemberDocumentResponse::from)
+                .map(document -> toDocumentResponse(document, callerId))
                 .toList();
     }
 
@@ -593,6 +632,9 @@ public class MemberMasterService {
                 .findByIdAndMemberId(documentId, memberId)
                 .orElseThrow(() -> new ResourceNotFoundException("Member document", "id", documentId));
 
+        if (document.getFileId() != null) {
+            storedFileService.scheduleDelete(document.getFileId());
+        }
         memberDocumentRepository.delete(document);
     }
 
@@ -768,6 +810,22 @@ public class MemberMasterService {
                 .orElseThrow(() -> new ResourceNotFoundException("Space", "id", spaceId));
     }
 
+    private void assertPropertyReadyForMemberCreate(SpaceEntity space) {
+        SpaceType type = space.getType();
+        if (type == SpaceType.MESS) {
+            return;
+        }
+        if (!ACCOMMODATION_SPACE_TYPES.contains(type)) {
+            return;
+        }
+        if (!propertyReadinessService.isPropertyReady(space.getId(), type)) {
+            String message = type == SpaceType.RENTAL
+                    ? "Add at least one unit before adding members"
+                    : "Add accommodation (building with beds) before adding members";
+            throw new BusinessException("PROPERTY_NOT_READY", message, HttpStatus.CONFLICT);
+        }
+    }
+
     private void assertRoleAllowedForMemberApi(MembershipRole role) {
         if (role == MembershipRole.OWNER) {
             throw new BusinessException("OWNER role cannot be assigned via member APIs");
@@ -887,6 +945,7 @@ public class MemberMasterService {
                     .documentType(document.getDocumentType())
                     .documentNumber(document.getDocumentNumber())
                     .fileUrl(document.getFileUrl())
+                    .fileId(document.getFileId())
                     .verificationStatus(document.getVerificationStatus())
                     .uploadedAt(LocalDateTime.now())
                     .build();
@@ -981,5 +1040,20 @@ public class MemberMasterService {
         }
 
         return UserResponse.from(linkedUser);
+    }
+
+    private MemberDocumentResponse toDocumentResponse(MemberDocumentEntity document, UUID callerId) {
+        String url = storedFileService.resolveDisplayUrl(callerId, document.getFileId(), document.getFileUrl());
+        return MemberDocumentResponse.from(document, url);
+    }
+
+    private static FilePurpose mapDocumentPurpose(com.acomi.acomi_backend.member.domain.model.MemberDocumentType type) {
+        if (type == null) {
+            return FilePurpose.MEMBER_DOCUMENT;
+        }
+        return switch (type) {
+            case OTHER -> FilePurpose.MEMBER_DOCUMENT;
+            default -> FilePurpose.IDENTITY_DOCUMENT;
+        };
     }
 }

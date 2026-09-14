@@ -7,6 +7,7 @@ import com.acomi.acomi_backend.user.domain.model.SystemRole;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Getter;
@@ -19,6 +20,7 @@ public class UserResponse {
     private String mobileNumber;
     private String fullName;
     private String profilePhotoUrl;
+    private UUID profilePhotoFileId;
     private boolean active;
     private LocalDateTime createdAt;
     private String email;
@@ -35,13 +37,19 @@ public class UserResponse {
     private Integer documentsUploaded;
     private KycStatus kycStatus;
     private SystemRole systemRole;
+    private List<String> enquiryEmails;
 
     public static UserResponse from(UserEntity user) {
+        return from(user, user.getProfilePhotoUrl());
+    }
+
+    public static UserResponse from(UserEntity user, String resolvedPhotoUrl) {
         return UserResponse.builder()
                 .id(user.getId())
                 .mobileNumber(user.getMobileNumber())
                 .fullName(user.getFullName())
-                .profilePhotoUrl(user.getProfilePhotoUrl())
+                .profilePhotoUrl(resolvedPhotoUrl)
+                .profilePhotoFileId(user.getProfilePhotoFileId())
                 .active(user.isActive())
                 .createdAt(user.getCreatedAt())
                 .email(user.getEmail())
@@ -58,6 +66,7 @@ public class UserResponse {
                 .documentsUploaded(user.getDocumentsUploaded())
                 .kycStatus(user.getKycStatus())
                 .systemRole(user.getSystemRole())
+                .enquiryEmails(user.enquiryEmailOptions())
                 .build();
     }
 }

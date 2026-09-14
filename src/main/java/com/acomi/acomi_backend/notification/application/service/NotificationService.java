@@ -3,6 +3,9 @@ package com.acomi.acomi_backend.notification.application.service;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.notification.api.dto.response.NotificationListResponse;
 import com.acomi.acomi_backend.notification.api.dto.response.NotificationResponse;
+import com.acomi.acomi_backend.notification.api.dto.response.UserNotificationListResponse;
+import com.acomi.acomi_backend.notification.api.dto.response.UserNotificationResponse;
+import com.acomi.acomi_backend.notification.application.event.NotificationCreatedEvent;
 import com.acomi.acomi_backend.notification.application.port.in.PublishNotificationCommand;
 import com.acomi.acomi_backend.notification.domain.model.NotificationCategory;
 import com.acomi.acomi_backend.notification.domain.model.NotificationEntityType;
@@ -11,23 +14,46 @@ import com.acomi.acomi_backend.notification.domain.model.NotificationType;
 import com.acomi.acomi_backend.notification.infrastructure.persistence.entity.SpaceNotificationEntity;
 import com.acomi.acomi_backend.notification.infrastructure.persistence.repository.SpaceNotificationRepository;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class NotificationService {
 
+    private static final int MAX_PAGE_SIZE = 50;
+
     private static final Set<NotificationStatus> OPEN_STATUSES =
             EnumSet.of(NotificationStatus.UNREAD, NotificationStatus.READ);
 
+    public static final Set<NotificationType> REQUESTER_ENQUIRY_TYPES = EnumSet.of(
+            NotificationType.CONTACT_ENQUIRY_SUBMITTED,
+            NotificationType.CONTACT_ENQUIRY_SHARED,
+            NotificationType.CONTACT_ENQUIRY_REJECTED,
+            NotificationType.CONTACT_ENQUIRY_EXPIRED);
+
+    public static final Set<NotificationType> ALL_ENQUIRY_TYPES = EnumSet.of(
+            NotificationType.CONTACT_ENQUIRY,
+            NotificationType.CONTACT_ENQUIRY_SUBMITTED,
+            NotificationType.CONTACT_ENQUIRY_SHARED,
+            NotificationType.CONTACT_ENQUIRY_REJECTED,
+            NotificationType.CONTACT_ENQUIRY_EXPIRED);
+
     private final SpaceNotificationRepository notificationRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Transactional
     public NotificationResponse publish(PublishNotificationCommand command) {
@@ -46,6 +72,11 @@ public class NotificationService {
             open.setActionRoute(command.getActionRoute());
             open.setPriority(command.getPriority());
             open.setActorId(command.getActorId());
+            log.info(
+                    "notification skipped channel=FCM reason=duplicate notificationId={} type={} userId={}",
+                    open.getId(),
+                    command.getNotificationType(),
+                    command.getUserId());
             return NotificationResponse.from(notificationRepository.save(open));
         }
 
@@ -68,7 +99,25 @@ public class NotificationService {
                 .dedupeKey(dedupeKey)
                 .build();
 
-        return NotificationResponse.from(notificationRepository.save(entity));
+        SpaceNotificationEntity saved = notificationRepository.save(entity);
+        log.info(
+                "notification created notificationId={} type={} userId={} spaceId={}",
+                saved.getId(),
+                saved.getNotificationType(),
+                saved.getUserId(),
+                saved.getSpaceId());
+        eventPublisher.publishEvent(NotificationCreatedEvent.builder()
+                .notificationId(saved.getId())
+                .userId(saved.getUserId())
+                .spaceId(saved.getSpaceId())
+                .notificationType(saved.getNotificationType())
+                .entityType(saved.getEntityType())
+                .entityId(saved.getEntityId())
+                .title(saved.getTitle())
+                .body(saved.getMessage())
+                .actionRoute(saved.getActionRoute())
+                .build());
+        return NotificationResponse.from(saved);
     }
 
     @Transactional
@@ -190,11 +239,82 @@ public class NotificationService {
             entities = notificationRepository.findBySpaceIdAndUserIdAndStatusInOrderByCreatedAtDesc(
                     spaceId, userId, EnumSet.of(NotificationStatus.UNREAD, NotificationStatus.READ));
         }
+        entities = entities.stream()
+                .filter(n -> !ALL_ENQUIRY_TYPES.contains(n.getNotificationType()))
+                .toList();
         long unread = entities.stream().filter(n -> n.getStatus() == NotificationStatus.UNREAD).count();
         return NotificationListResponse.builder()
                 .notifications(entities.stream().map(NotificationResponse::from).toList())
                 .unreadCount(unread)
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public NotificationListResponse listForAdminUser(UUID userId) {
+        List<SpaceNotificationEntity> entities =
+                notificationRepository.findByUserIdAndNotificationTypeAndStatusInOrderByCreatedAtDesc(
+                        userId,
+                        NotificationType.CONTACT_ENQUIRY,
+                        EnumSet.of(NotificationStatus.UNREAD, NotificationStatus.READ));
+        long unread = notificationRepository.countByUserIdAndNotificationTypeAndStatus(
+                userId, NotificationType.CONTACT_ENQUIRY, NotificationStatus.UNREAD);
+        return NotificationListResponse.builder()
+                .notifications(entities.stream().map(NotificationResponse::from).toList())
+                .unreadCount(unread)
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public UserNotificationListResponse listForCurrentUser(UUID userId, Pageable pageable) {
+        Pageable safe = safePage(pageable);
+        Page<SpaceNotificationEntity> page =
+                notificationRepository.findByUserIdAndNotificationTypeInAndStatusIn(
+                        userId,
+                        REQUESTER_ENQUIRY_TYPES,
+                        EnumSet.of(NotificationStatus.UNREAD, NotificationStatus.READ),
+                        safe);
+        long unread = notificationRepository.countByUserIdAndNotificationTypeInAndStatus(
+                userId, REQUESTER_ENQUIRY_TYPES, NotificationStatus.UNREAD);
+        return UserNotificationListResponse.builder()
+                .notifications(page.getContent().stream().map(UserNotificationResponse::from).toList())
+                .unreadCount(unread)
+                .page(page.getNumber())
+                .size(page.getSize())
+                .totalElements(page.getTotalElements())
+                .totalPages(page.getTotalPages())
+                .build();
+    }
+
+    @Transactional
+    public NotificationResponse markReadForAdmin(UUID notificationId, UUID userId) {
+        SpaceNotificationEntity entity = notificationRepository
+                .findByIdAndUserId(notificationId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Notification", "id", notificationId));
+        if (entity.getNotificationType() != NotificationType.CONTACT_ENQUIRY) {
+            throw new ResourceNotFoundException("Notification", "id", notificationId);
+        }
+        if (entity.getStatus() == NotificationStatus.UNREAD) {
+            entity.setStatus(NotificationStatus.READ);
+            entity.setReadAt(LocalDateTime.now());
+            notificationRepository.save(entity);
+        }
+        return NotificationResponse.from(entity);
+    }
+
+    @Transactional
+    public UserNotificationResponse markReadForCurrentUser(UUID notificationId, UUID userId) {
+        SpaceNotificationEntity entity = notificationRepository
+                .findByIdAndUserId(notificationId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Notification", "id", notificationId));
+        if (!REQUESTER_ENQUIRY_TYPES.contains(entity.getNotificationType())) {
+            throw new ResourceNotFoundException("Notification", "id", notificationId);
+        }
+        if (entity.getStatus() == NotificationStatus.UNREAD) {
+            entity.setStatus(NotificationStatus.READ);
+            entity.setReadAt(LocalDateTime.now());
+            notificationRepository.save(entity);
+        }
+        return UserNotificationResponse.from(entity);
     }
 
     @Transactional(readOnly = true)
@@ -222,9 +342,27 @@ public class NotificationService {
     }
 
     private static String joinChannels(List<String> channels) {
-        if (channels == null || channels.isEmpty()) {
-            return "IN_APP";
+        List<String> resolved = new ArrayList<>();
+        if (channels != null) {
+            for (String channel : channels) {
+                if (channel != null && !channel.isBlank() && !resolved.contains(channel.trim())) {
+                    resolved.add(channel.trim());
+                }
+            }
         }
-        return String.join(",", channels);
+        if (resolved.isEmpty()) {
+            resolved.add("IN_APP");
+        }
+        if (!resolved.contains("PUSH")) {
+            resolved.add("PUSH");
+        }
+        return String.join(",", resolved);
+    }
+
+    private static Pageable safePage(Pageable pageable) {
+        int page = pageable != null ? Math.max(pageable.getPageNumber(), 0) : 0;
+        int size = pageable != null ? pageable.getPageSize() : 20;
+        int safeSize = Math.min(Math.max(size, 1), MAX_PAGE_SIZE);
+        return PageRequest.of(page, safeSize);
     }
 }

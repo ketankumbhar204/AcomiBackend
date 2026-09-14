@@ -126,9 +126,29 @@ public class OccupancyNotificationSyncService {
                     .dedupeKey("INFO:RESERVATION_CREATED:" + occupancy.getId() + ":" + managerId)
                     .build());
         }
+        publishMemberAllocation(
+                occupancy,
+                "Allocation confirmed",
+                "Your room or bed in " + spaceName(occupancy) + " is reserved.");
         if (LocalDate.now().equals(occupancy.getMoveInDate())) {
             syncSpace(spaceId);
         }
+    }
+
+    @Transactional
+    public void onAllocationCreated(OccupancyEntity occupancy) {
+        publishMemberAllocation(
+                occupancy,
+                "You're allocated",
+                "Your room or bed in " + spaceName(occupancy) + " is confirmed.");
+    }
+
+    @Transactional
+    public void onOccupancyTransferred(OccupancyEntity occupancy) {
+        publishMemberAllocation(
+                occupancy,
+                "Room or bed updated",
+                "Your room or bed in " + spaceName(occupancy) + " was updated.");
     }
 
     @Transactional
@@ -160,6 +180,23 @@ public class OccupancyNotificationSyncService {
                     .dedupeKey("INFO:MOVE_IN_COMPLETED:" + occupancy.getId() + ":" + managerId)
                     .build());
         }
+        UUID memberUserId = linkedUserId(occupancy);
+        if (memberUserId != null) {
+            notificationService.publish(PublishNotificationCommand.builder()
+                    .spaceId(spaceId)
+                    .userId(memberUserId)
+                    .entityType(NotificationEntityType.OCCUPANCY)
+                    .entityId(occupancy.getId())
+                    .notificationType(NotificationType.MOVE_IN_COMPLETED)
+                    .category(NotificationCategory.SUCCESS)
+                    .priority(NotificationPriority.MEDIUM)
+                    .title("Move-in completed")
+                    .message("Your move-in to " + occupancy.getSpace().getName() + " is complete.")
+                    .actionLabel("View Space")
+                    .actionRoute("Dashboard")
+                    .dedupeKey("INFO:MOVE_IN_COMPLETED:" + occupancy.getId() + ":" + memberUserId)
+                    .build());
+        }
     }
 
     @Transactional
@@ -186,6 +223,23 @@ public class OccupancyNotificationSyncService {
                     .dedupeKey("INFO:MOVE_OUT_COMPLETED:" + occupancy.getId() + ":" + managerId)
                     .build());
         }
+        UUID memberUserId = linkedUserId(occupancy);
+        if (memberUserId != null) {
+            notificationService.publish(PublishNotificationCommand.builder()
+                    .spaceId(spaceId)
+                    .userId(memberUserId)
+                    .entityType(NotificationEntityType.OCCUPANCY)
+                    .entityId(occupancy.getId())
+                    .notificationType(NotificationType.MOVE_OUT_COMPLETED)
+                    .category(NotificationCategory.INFORMATION)
+                    .priority(NotificationPriority.MEDIUM)
+                    .title("Move-out completed")
+                    .message("Your move-out from " + spaceName(occupancy) + " is complete.")
+                    .actionLabel("View Space")
+                    .actionRoute("Dashboard")
+                    .dedupeKey("INFO:MOVE_OUT_COMPLETED:" + occupancy.getId() + ":" + memberUserId)
+                    .build());
+        }
     }
 
     @Transactional
@@ -201,6 +255,45 @@ public class OccupancyNotificationSyncService {
                 NotificationEntityType.OCCUPANCY,
                 occupancy.getId(),
                 NotificationType.MOVE_IN_SCHEDULED_TODAY);
+        UUID memberUserId = linkedUserId(occupancy);
+        if (memberUserId != null) {
+            notificationService.publish(PublishNotificationCommand.builder()
+                    .spaceId(spaceId)
+                    .userId(memberUserId)
+                    .entityType(NotificationEntityType.OCCUPANCY)
+                    .entityId(occupancy.getId())
+                    .notificationType(NotificationType.RESERVATION_CANCELLED)
+                    .category(NotificationCategory.INFORMATION)
+                    .priority(NotificationPriority.MEDIUM)
+                    .title("Reservation cancelled")
+                    .message("Your reservation at " + spaceName(occupancy) + " was cancelled.")
+                    .actionLabel("View Space")
+                    .actionRoute("Dashboard")
+                    .dedupeKey("INFO:RESERVATION_CANCELLED:" + occupancy.getId() + ":" + memberUserId)
+                    .build());
+        }
+    }
+
+    private void publishMemberAllocation(OccupancyEntity occupancy, String title, String message) {
+        UUID memberUserId = linkedUserId(occupancy);
+        if (memberUserId == null || occupancy.getSpace() == null) {
+            return;
+        }
+        UUID spaceId = occupancy.getSpace().getId();
+        notificationService.publish(PublishNotificationCommand.builder()
+                .spaceId(spaceId)
+                .userId(memberUserId)
+                .entityType(NotificationEntityType.OCCUPANCY)
+                .entityId(occupancy.getId())
+                .notificationType(NotificationType.ALLOCATION_CREATED)
+                .category(NotificationCategory.INFORMATION)
+                .priority(NotificationPriority.MEDIUM)
+                .title(title)
+                .message(message)
+                .actionLabel("View Space")
+                .actionRoute("Dashboard")
+                .dedupeKey("INFO:ALLOCATION_CREATED:" + occupancy.getId() + ":" + memberUserId)
+                .build());
     }
 
     private void publishAction(
@@ -234,6 +327,20 @@ public class OccupancyNotificationSyncService {
             return occupancy.getMember().getFullName();
         }
         return "Member";
+    }
+
+    private static String spaceName(OccupancyEntity occupancy) {
+        if (occupancy.getSpace() != null && occupancy.getSpace().getName() != null) {
+            return occupancy.getSpace().getName();
+        }
+        return "your space";
+    }
+
+    private static UUID linkedUserId(OccupancyEntity occupancy) {
+        if (occupancy.getMember() == null || occupancy.getMember().getUser() == null) {
+            return null;
+        }
+        return occupancy.getMember().getUser().getId();
     }
 
     private List<UUID> managerUserIds(UUID spaceId) {

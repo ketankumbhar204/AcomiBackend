@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.notification.application.service;
 
+import com.acomi.acomi_backend.member.domain.model.InvitationStatus;
 import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.InvitationEntity;
@@ -102,21 +103,67 @@ public class InvitationNotificationSyncService {
                     .category(NotificationCategory.SUCCESS)
                     .priority(NotificationPriority.MEDIUM)
                     .title("Invitation accepted")
-                    .message(invitation.getMobileNumber() + " joined as " + invitation.getRole())
+                    .message("A new member joined " + invitation.getSpace().getName())
                     .actionLabel("View Members")
                     .actionRoute("Members")
                     .dedupeKey("INFO:INVITATION_ACCEPTED:" + invitation.getId() + ":" + managerId)
                     .build());
         }
+        notificationService.publish(PublishNotificationCommand.builder()
+                .spaceId(spaceId)
+                .userId(acceptedByUserId)
+                .entityType(NotificationEntityType.INVITATION)
+                .entityId(invitation.getId())
+                .notificationType(NotificationType.MEMBERSHIP_APPROVED)
+                .category(NotificationCategory.SUCCESS)
+                .priority(NotificationPriority.MEDIUM)
+                .title("Membership approved")
+                .message("You are now a member of " + invitation.getSpace().getName() + ".")
+                .actionLabel("Open Space")
+                .actionRoute("Dashboard")
+                .dedupeKey("INFO:MEMBERSHIP_APPROVED:" + invitation.getId() + ":" + acceptedByUserId)
+                .build());
     }
 
     @Transactional
     public void onInvitationCancelledOrExpired(InvitationEntity invitation) {
+        UUID spaceId = invitation.getSpace().getId();
         notificationService.resolveOpenForEntity(
-                invitation.getSpace().getId(),
+                spaceId,
                 NotificationEntityType.INVITATION,
                 invitation.getId(),
                 NotificationType.PENDING_INVITATION);
+        if (invitation.getStatus() != InvitationStatus.CANCELLED
+                && invitation.getStatus() != InvitationStatus.EXPIRED) {
+            return;
+        }
+        userRepository.findByMobileNumber(invitation.getMobileNumber()).ifPresent(invitee -> {
+            if (!invitee.isActive()) {
+                return;
+            }
+            boolean expired = invitation.getStatus() == InvitationStatus.EXPIRED;
+            NotificationType type = expired
+                    ? NotificationType.INVITATION_EXPIRED
+                    : NotificationType.MEMBERSHIP_REJECTED;
+            String title = expired ? "Invitation expired" : "Invitation withdrawn";
+            String message = expired
+                    ? "Your invitation to " + invitation.getSpace().getName() + " has expired."
+                    : "Your invitation to " + invitation.getSpace().getName() + " is no longer available.";
+            notificationService.publish(PublishNotificationCommand.builder()
+                    .spaceId(spaceId)
+                    .userId(invitee.getId())
+                    .entityType(NotificationEntityType.INVITATION)
+                    .entityId(invitation.getId())
+                    .notificationType(type)
+                    .category(NotificationCategory.INFORMATION)
+                    .priority(NotificationPriority.MEDIUM)
+                    .title(title)
+                    .message(message)
+                    .actionLabel("View Invitations")
+                    .actionRoute("AcceptInvitations")
+                    .dedupeKey("INFO:" + type.name() + ":" + invitation.getId() + ":" + invitee.getId())
+                    .build());
+        });
     }
 
     private void publishManagerPending(
@@ -130,7 +177,7 @@ public class InvitationNotificationSyncService {
                 .category(NotificationCategory.ACTION_REQUIRED)
                 .priority(NotificationPriority.MEDIUM)
                 .title("Pending invitation")
-                .message(invitation.getMobileNumber() + " · " + invitation.getRole())
+                .message("A new member has been invited to your space")
                 .actionLabel("View Invitations")
                 .actionRoute("Members")
                 .dedupeKey(dedupeKey)

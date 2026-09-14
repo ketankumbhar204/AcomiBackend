@@ -43,6 +43,17 @@ class OtpProductionSafetyTest {
                 Path.of("src/main/resources/application-local.yml"), StandardCharsets.UTF_8);
 
         assertThat(yaml).contains("ACOMI_OTP_SENDER:dev");
+        assertThat(yaml).contains("skip-registration-otp: ${ACOMI_OTP_SKIP_REGISTRATION:true}");
         assertThat(yaml).doesNotContain("mvp-code");
+    }
+
+    @Test
+    void productionYamlNeverSkipsRegistrationOtp() throws Exception {
+        String yaml = Files.readString(
+                Path.of("src/main/resources/application-prod.yml"), StandardCharsets.UTF_8);
+
+        assertThat(yaml).contains("skip-registration-otp: false");
+        assertThat(yaml).doesNotContain("skip-registration-otp: true");
+        assertThat(yaml).doesNotContain("ACOMI_OTP_SKIP_REGISTRATION");
     }
 }

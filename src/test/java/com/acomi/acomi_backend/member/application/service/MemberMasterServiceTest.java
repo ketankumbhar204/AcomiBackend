@@ -4,10 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.acomi.acomi_backend.accommodation.application.service.PropertyReadinessService;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.member.api.dto.request.CreateMemberDocumentRequest;
@@ -27,10 +29,12 @@ import com.acomi.acomi_backend.member.api.dto.response.MemberResponse;
 import com.acomi.acomi_backend.member.domain.model.DocumentVerificationStatus;
 import com.acomi.acomi_backend.member.domain.model.MemberDocumentType;
 import com.acomi.acomi_backend.member.domain.model.MemberHistoryAction;
+import com.acomi.acomi_backend.member.domain.model.InvitationStatus;
 import com.acomi.acomi_backend.member.domain.model.MemberGender;
 import com.acomi.acomi_backend.member.domain.model.MemberStatus;
 import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
+import com.acomi.acomi_backend.member.infrastructure.persistence.entity.InvitationEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberDocumentEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberHistoryEntity;
@@ -42,11 +46,15 @@ import com.acomi.acomi_backend.member.infrastructure.persistence.repository.Memb
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
 import com.acomi.acomi_backend.meal.application.service.MealParticipationService;
+import com.acomi.acomi_backend.notification.application.service.InvitationNotificationSyncService;
+import com.acomi.acomi_backend.notification.application.service.MembershipNotificationSyncService;
 import com.acomi.acomi_backend.occupancy.application.service.OccupancyService;
 import com.acomi.acomi_backend.occupancy.domain.model.MemberOccupancyStatus;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import com.acomi.acomi_backend.storage.application.service.FileAuthorizationService;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.math.BigDecimal;
@@ -95,6 +103,21 @@ class MemberMasterServiceTest {
     @Mock
     private InvitationProvisioner invitationProvisioner;
 
+    @Mock
+    private PropertyReadinessService propertyReadinessService;
+
+    @Mock
+    private InvitationNotificationSyncService invitationNotificationSyncService;
+
+    @Mock
+    private MembershipNotificationSyncService membershipNotificationSyncService;
+
+    @Mock
+    private StoredFileService storedFileService;
+
+    @Mock
+    private FileAuthorizationService fileAuthorizationService;
+
     @InjectMocks
     private MemberMasterService memberMasterService;
 
@@ -123,6 +146,33 @@ class MemberMasterServiceTest {
                 .isActive(true)
                 .build();
         space.setId(spaceId);
+
+        lenient().when(propertyReadinessService.isPropertyReady(any(UUID.class), any(SpaceType.class)))
+                .thenReturn(true);
+        lenient()
+                .when(invitationProvisioner.ensurePendingInvitation(any(), any(), any(), any()))
+                .thenReturn(Optional.empty());
+    }
+
+    @Test
+    void createMember_whenPropertyNotReady_rejects() {
+        CreateMemberRequest request = new CreateMemberRequest();
+        setField(request, "fullName", "Rahul Sharma");
+        setField(request, "mobileNumber", "9123456789");
+        setField(request, "role", MembershipRole.TENANT);
+
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, spaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(propertyReadinessService.isPropertyReady(spaceId, SpaceType.PG)).thenReturn(false);
+
+        assertThatThrownBy(() -> memberMasterService.createMember(spaceId, ownerId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("accommodation")
+                .satisfies(ex -> assertThat(((BusinessException) ex).getStatus()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(memberRepository, never()).save(any());
     }
 
     @Test
@@ -155,6 +205,46 @@ class MemberMasterServiceTest {
         assertThat(response.isLinkedUser()).isFalse();
         verify(invitationProvisioner)
                 .ensurePendingInvitation(eq(space), eq(owner), eq("9123456789"), eq(MembershipRole.TENANT));
+    }
+
+    @Test
+    void createMember_notifiesWhenInvitationIsCreated() {
+        CreateMemberRequest request = new CreateMemberRequest();
+        setField(request, "fullName", "Rahul Sharma");
+        setField(request, "mobileNumber", "9123456789");
+        setField(request, "role", MembershipRole.TENANT);
+
+        InvitationEntity invitation = InvitationEntity.builder()
+                .space(space)
+                .invitedBy(owner)
+                .mobileNumber("9123456789")
+                .role(MembershipRole.TENANT)
+                .status(InvitationStatus.PENDING)
+                .expiresAt(LocalDateTime.now().plusDays(30))
+                .build();
+        invitation.setId(UUID.randomUUID());
+
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, spaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(memberRepository.findActiveBySpaceIdAndMobileNumber(spaceId, "9123456789"))
+                .thenReturn(Optional.empty());
+        when(userRepository.findByMobileNumber("9123456789")).thenReturn(Optional.empty());
+        when(userRepository.findByIdAndIsActiveTrue(ownerId)).thenReturn(Optional.of(owner));
+        when(memberRepository.save(any(MemberEntity.class))).thenAnswer(invocation -> {
+            MemberEntity member = invocation.getArgument(0);
+            member.setId(memberId);
+            member.setCreatedAt(LocalDateTime.now());
+            return member;
+        });
+        when(invitationProvisioner.ensurePendingInvitation(
+                        eq(space), eq(owner), eq("9123456789"), eq(MembershipRole.TENANT)))
+                .thenReturn(Optional.of(invitation));
+
+        memberMasterService.createMember(spaceId, ownerId, request);
+
+        verify(invitationNotificationSyncService).onInvitationCreated(invitation);
     }
 
     @Test
@@ -383,6 +473,7 @@ class MemberMasterServiceTest {
 
         assertThat(member.isActive()).isFalse();
         verify(memberRepository).save(member);
+        verify(membershipNotificationSyncService).onMemberRemoved(member);
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.address.api.controller;
 
 import com.acomi.acomi_backend.address.api.dto.request.SavedAddressRequest;
+import com.acomi.acomi_backend.address.api.dto.response.AdminSavedAddressesSummaryResponse;
 import com.acomi.acomi_backend.address.api.dto.response.SavedAddressResponse;
 import com.acomi.acomi_backend.address.application.service.SavedAddressService;
 import com.acomi.acomi_backend.common.web.ApiResponse;
@@ -36,9 +37,17 @@ public class AdminSavedAddressController {
     @GetMapping
     public ResponseEntity<ApiResponse<PagedResponse<SavedAddressResponse>>> list(
             @RequestParam(required = false) String search,
+            @RequestParam(required = false) String city,
+            @RequestParam(required = false) String state,
+            @RequestParam(required = false) String usage,
             @PageableDefault(size = 10) Pageable pageable) {
-        return ResponseEntity.ok(
-                ApiResponse.success(PagedResponse.from(savedAddressService.list(search, pageable))));
+        return ResponseEntity.ok(ApiResponse.success(
+                PagedResponse.from(savedAddressService.list(search, city, state, usage, pageable))));
+    }
+
+    @GetMapping("/summary")
+    public ResponseEntity<ApiResponse<AdminSavedAddressesSummaryResponse>> summary() {
+        return ResponseEntity.ok(ApiResponse.success(savedAddressService.summary()));
     }
 
     @GetMapping("/{id}")

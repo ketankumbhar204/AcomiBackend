@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.admin.application.service;
 
+import com.acomi.acomi_backend.admin.api.dto.response.AdminMessRegistrationsSummaryResponse;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.mess.api.dto.request.AdminCreateMessRegistrationRequest;
 import com.acomi.acomi_backend.mess.api.dto.response.MessRegistrationDetailResponse;
@@ -14,6 +15,9 @@ import com.acomi.acomi_backend.mess.domain.model.MessRegistrationStatus;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.entity.MessRegistrationEntity;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRegistrationRepository;
 import com.acomi.acomi_backend.address.application.service.SavedAddressService;
+import com.acomi.acomi_backend.space.domain.model.SpaceType;
+import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -34,15 +38,29 @@ public class AdminMessRegistrationService {
     private final MessRegistrationRepository messRegistrationRepository;
     private final MessRegistrationService messRegistrationService;
     private final SavedAddressService savedAddressService;
+    private final AdminRegistrationConversionService adminRegistrationConversionService;
+    private final SpaceRepository spaceRepository;
 
     @Transactional(readOnly = true)
     public Page<MessRegistrationListItemResponse> list(
             MessRegistrationSource source, boolean leadsOnly, Pageable pageable) {
+        return list(null, source, null, leadsOnly, null, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<MessRegistrationListItemResponse> list(
+            String q,
+            MessRegistrationSource source,
+            MessRegistrationStatus status,
+            boolean leadsOnly,
+            Boolean claimed,
+            Pageable pageable) {
+        String query = StringUtils.hasText(q) ? q.trim() : null;
+        boolean filtered = query != null || source != null || status != null || claimed != null || leadsOnly;
         Page<MessRegistrationEntity> page;
-        if (source != null) {
-            page = messRegistrationRepository.findBySourceOrderByCreatedAtDesc(source, pageable);
-        } else if (leadsOnly) {
-            page = messRegistrationRepository.findByStatusNotInOrderByCreatedAtDesc(CLOSED_STATUSES, pageable);
+        if (filtered) {
+            page = messRegistrationRepository.searchFiltered(
+                    query, source, status, leadsOnly, CLOSED_STATUSES, claimed, pageable);
         } else {
             page = messRegistrationRepository.findAllByOrderByCreatedAtDesc(pageable);
         }
@@ -50,8 +68,52 @@ public class AdminMessRegistrationService {
     }
 
     @Transactional(readOnly = true)
+    public AdminMessRegistrationsSummaryResponse summary() {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime last30From = now.minusDays(30);
+        LocalDateTime prev30From = now.minusDays(60);
+
+        // Total = open leads + active mess spaces (matches list tabs; excludes closed registrations).
+        long leads = messRegistrationRepository.countByStatusNotIn(CLOSED_STATUSES);
+        long active = spaceRepository.countByTypeAndIsActiveTrue(SpaceType.MESS);
+        long total = leads + active;
+        long byVendors = messRegistrationRepository.countBySource(MessRegistrationSource.PUBLIC_WEBSITE);
+
+        long leadsNow = messRegistrationRepository.countByStatusNotInAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                CLOSED_STATUSES, last30From, now);
+        long leadsPrev = messRegistrationRepository.countByStatusNotInAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                CLOSED_STATUSES, prev30From, last30From);
+        long activeNow = spaceRepository.countByTypeInAndIsActiveTrueAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                List.of(SpaceType.MESS), last30From, now);
+        long activePrev = spaceRepository.countByTypeInAndIsActiveTrueAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                List.of(SpaceType.MESS), prev30From, last30From);
+        long vendorsNow = messRegistrationRepository.countBySourceAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                MessRegistrationSource.PUBLIC_WEBSITE, last30From, now);
+        long vendorsPrev = messRegistrationRepository.countBySourceAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
+                MessRegistrationSource.PUBLIC_WEBSITE, prev30From, last30From);
+
+        return AdminMessRegistrationsSummaryResponse.builder()
+                .totalMess(total)
+                .leads(leads)
+                .activeMess(active)
+                .registeredByVendors(byVendors)
+                .totalMessDeltaPercent(deltaPercent(leadsNow + activeNow, leadsPrev + activePrev))
+                .leadsDeltaPercent(deltaPercent(leadsNow, leadsPrev))
+                .activeMessDeltaPercent(deltaPercent(activeNow, activePrev))
+                .registeredByVendorsDeltaPercent(deltaPercent(vendorsNow, vendorsPrev))
+                .build();
+    }
+
+    private static Double deltaPercent(long current, long previous) {
+        if (previous == 0) {
+            return current == 0 ? 0.0 : 100.0;
+        }
+        return ((current - previous) * 100.0) / previous;
+    }
+
+    @Transactional(readOnly = true)
     public MessRegistrationDetailResponse getById(UUID id) {
-        return MessRegistrationMapper.toDetail(messRegistrationService.requireEntity(id));
+        return adminRegistrationConversionService.enrichMessDetail(messRegistrationService.requireEntity(id));
     }
 
     @Transactional
@@ -62,7 +124,11 @@ public class AdminMessRegistrationService {
                 request.getCity(),
                 request.getState(),
                 request.getPincode(),
-                request.getMapUrl());
+                request.getMapUrl(),
+                com.acomi.acomi_backend.address.domain.model.SavedAddressLeadKind.MESS);
+        messRegistrationRepository
+                .findByReference(response.getReference())
+                .ifPresent(entity -> adminRegistrationConversionService.convertMess(entity.getId()));
         return response;
     }
 
@@ -77,7 +143,7 @@ public class AdminMessRegistrationService {
         }
         entity.setAlternateMobileNumber(
                 RegistrationMobiles.resolveAlternate(entity.getMobileNumber(), request.getAlternateMobileNumber()));
-        return MessRegistrationMapper.toDetail(messRegistrationRepository.save(entity));
+        return adminRegistrationConversionService.enrichMessDetail(messRegistrationRepository.save(entity));
     }
 
     @Transactional

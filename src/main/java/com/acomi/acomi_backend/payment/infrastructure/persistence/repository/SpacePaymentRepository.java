@@ -140,4 +140,51 @@ public interface SpacePaymentRepository extends JpaRepository<SpacePaymentEntity
             """)
     List<SpacePaymentEntity> findBySpaceIdAndMonth(
             @Param("spaceId") UUID spaceId, @Param("month") String month);
+
+    /**
+     * Overdue candidates: due before business date, not PAID, active member.
+     * Outstanding is derived in service (PAID = settled; no partial column yet).
+     */
+    @Query(
+            value = """
+                    SELECT p FROM SpacePaymentEntity p
+                    JOIN p.member m
+                    JOIN p.space s
+                    WHERE p.space.id = :spaceId
+                      AND p.dueDate < :businessDate
+                      AND p.paymentStatus <> com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus.PAID
+                      AND p.amount > 0
+                      AND m.isActive = true
+                      AND (:statusesEmpty = true OR p.paymentStatus IN :statuses)
+                      AND (:paymentType IS NULL OR p.paymentType = :paymentType)
+                    """,
+            countQuery = """
+                    SELECT COUNT(p) FROM SpacePaymentEntity p
+                    JOIN p.member m
+                    WHERE p.space.id = :spaceId
+                      AND p.dueDate < :businessDate
+                      AND p.paymentStatus <> com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus.PAID
+                      AND p.amount > 0
+                      AND m.isActive = true
+                      AND (:statusesEmpty = true OR p.paymentStatus IN :statuses)
+                      AND (:paymentType IS NULL OR p.paymentType = :paymentType)
+                    """)
+    Page<SpacePaymentEntity> findOverdueCandidates(
+            @Param("spaceId") UUID spaceId,
+            @Param("businessDate") java.time.LocalDate businessDate,
+            @Param("statuses") Collection<SpacePaymentStatus> statuses,
+            @Param("statusesEmpty") boolean statusesEmpty,
+            @Param("paymentType") SpacePaymentType paymentType,
+            Pageable pageable);
+
+    @Query("""
+            SELECT p FROM SpacePaymentEntity p
+            JOIN FETCH p.member m
+            LEFT JOIN FETCH m.user
+            JOIN FETCH p.space s
+            WHERE p.id IN :ids
+            """)
+    List<SpacePaymentEntity> findAllByIdInWithMemberAndSpace(@Param("ids") Collection<UUID> ids);
+
+    List<SpacePaymentEntity> findByProofFileId(UUID proofFileId);
 }

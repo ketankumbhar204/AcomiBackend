@@ -3,15 +3,18 @@ package com.acomi.acomi_backend.admin.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.acomi.acomi_backend.common.exception.BusinessException;
+import com.acomi.acomi_backend.mess.application.mapper.MessRegistrationMapper;
 import com.acomi.acomi_backend.mess.application.service.MessRegistrationService;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationSource;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationStatus;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.entity.MessRegistrationEntity;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRegistrationRepository;
+import com.acomi.acomi_backend.property.application.mapper.PropertyRegistrationMapper;
 import com.acomi.acomi_backend.property.application.service.PropertyRegistrationService;
 import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationSource;
@@ -47,6 +50,9 @@ class AdminRegistrationContactServiceTest {
     @Mock
     private com.acomi.acomi_backend.address.application.service.SavedAddressService savedAddressService;
 
+    @Mock
+    private AdminRegistrationConversionService conversionService;
+
     private AdminPropertyRegistrationService adminPropertyRegistrationService;
     private AdminMessRegistrationService adminMessRegistrationService;
 
@@ -54,10 +60,28 @@ class AdminRegistrationContactServiceTest {
     void setUp() {
         adminPropertyRegistrationService =
                 new AdminPropertyRegistrationService(
-                        propertyRegistrationRepository, propertyRegistrationService, savedAddressService);
+                        propertyRegistrationRepository,
+                        propertyRegistrationService,
+                        savedAddressService,
+                        conversionService,
+                        org.mockito.Mockito.mock(
+                                com.acomi.acomi_backend.space.infrastructure.persistence.repository
+                                        .SpaceRepository.class));
         adminMessRegistrationService =
                 new AdminMessRegistrationService(
-                        messRegistrationRepository, messRegistrationService, savedAddressService);
+                        messRegistrationRepository,
+                        messRegistrationService,
+                        savedAddressService,
+                        conversionService,
+                        org.mockito.Mockito.mock(
+                                com.acomi.acomi_backend.space.infrastructure.persistence.repository
+                                        .SpaceRepository.class));
+        lenient()
+                .when(conversionService.enrichPropertyDetail(any(PropertyRegistrationEntity.class)))
+                .thenAnswer(invocation -> PropertyRegistrationMapper.toDetail(invocation.getArgument(0)));
+        lenient()
+                .when(conversionService.enrichMessDetail(any(MessRegistrationEntity.class)))
+                .thenAnswer(invocation -> MessRegistrationMapper.toDetail(invocation.getArgument(0)));
     }
 
     @Test

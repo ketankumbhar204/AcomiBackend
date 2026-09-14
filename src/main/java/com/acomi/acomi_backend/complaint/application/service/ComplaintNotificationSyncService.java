@@ -198,6 +198,9 @@ public class ComplaintNotificationSyncService {
         }
         if (creatorId != null && creatorId.equals(commenterId)) {
             for (UUID managerId : managerUserIds(spaceId)) {
+                if (managerId.equals(commenterId)) {
+                    continue;
+                }
                 notificationService.publish(PublishNotificationCommand.builder()
                         .spaceId(spaceId)
                         .userId(managerId)

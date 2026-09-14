@@ -146,4 +146,20 @@ public class InvitationService {
 
         return SpaceMembershipResponse.from(membership);
     }
+
+    /**
+     * Marks pending invitations past {@code expiresAt} as EXPIRED and notifies the invitee once.
+     */
+    @Transactional
+    public int expireDue() {
+        List<InvitationEntity> due = invitationRepository.findExpiredPending(LocalDateTime.now());
+        int expired = 0;
+        for (InvitationEntity invitation : due) {
+            invitation.setStatus(InvitationStatus.EXPIRED);
+            invitationRepository.save(invitation);
+            invitationNotificationSyncService.onInvitationCancelledOrExpired(invitation);
+            expired++;
+        }
+        return expired;
+    }
 }

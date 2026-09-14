@@ -19,6 +19,11 @@ import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.Member
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.SubscriptionActivationRequestRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
+import com.acomi.acomi_backend.notification.application.service.MealLifecycleNotificationSyncService;
+import com.acomi.acomi_backend.notification.application.service.PendingActionService;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
+import com.acomi.acomi_backend.storage.application.support.FileLegacySupport;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import com.acomi.acomi_backend.space.domain.model.MealBillingType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
@@ -47,6 +52,9 @@ public class SubscriptionActivationRequestService {
     private final MemberSubscriptionPolicy subscriptionPolicy;
     private final MemberMealBalanceRepository balanceRepository;
     private final MemberMealBalanceLedgerRepository ledgerRepository;
+    private final MealLifecycleNotificationSyncService mealLifecycleNotificationSyncService;
+    private final PendingActionService pendingActionService;
+    private final StoredFileService storedFileService;
 
     @Transactional(readOnly = true)
     public List<SubscriptionActivationRequestResponse> listPendingForSpace(UUID spaceId, UUID callerId) {
@@ -54,7 +62,7 @@ public class SubscriptionActivationRequestService {
         return requestRepository
                 .findBySpaceIdAndStatusOrderByCreatedAtDesc(spaceId, SubscriptionActivationRequestStatus.PENDING)
                 .stream()
-                .map(SubscriptionActivationRequestResponse::from)
+                .map(entity -> toResponse(callerId, entity))
                 .toList();
     }
 
@@ -65,7 +73,7 @@ public class SubscriptionActivationRequestService {
         MemberEntity member = loadMember(spaceId, memberId);
         mealAccessService.requireViewParticipation(spaceId, memberId, callerId, member);
         return requestRepository.findByMemberIdOrderByCreatedAtDesc(memberId).stream()
-                .map(SubscriptionActivationRequestResponse::from)
+                .map(entity -> toResponse(callerId, entity))
                 .toList();
     }
 
@@ -100,6 +108,17 @@ public class SubscriptionActivationRequestService {
             throw new BusinessException("Selected plan is no longer available", HttpStatus.BAD_REQUEST);
         }
 
+        UUID proofFileId = storedFileService.resolveIncomingFile(
+                callerId,
+                FilePurpose.SUBSCRIPTION_PAYMENT_PROOF,
+                spaceId,
+                request.getProofFileId(),
+                request.getProofImageBase64(),
+                "subscription-payment-proof");
+        if (proofFileId != null) {
+            storedFileService.markAssociated(proofFileId);
+        }
+
         SubscriptionActivationRequestEntity entity = requestRepository.save(
                 SubscriptionActivationRequestEntity.builder()
                         .space(space)
@@ -107,10 +126,13 @@ public class SubscriptionActivationRequestService {
                         .plan(plan)
                         .status(SubscriptionActivationRequestStatus.PENDING)
                         .paymentReference(trim(request.getPaymentReference()))
-                        .paymentProofImageUrl(normalizeProofImage(request.getProofImageBase64()))
+                        .paymentProofFileId(proofFileId)
+                        .paymentProofImageUrl(
+                                proofFileId != null ? FileLegacySupport.marker(proofFileId) : null)
                         .customerNotes(trim(request.getCustomerNotes()))
                         .build());
-        return SubscriptionActivationRequestResponse.from(entity);
+        pendingActionService.syncMealOperations(spaceId);
+        return toResponse(callerId, entity);
     }
 
     @Transactional
@@ -134,7 +156,10 @@ public class SubscriptionActivationRequestService {
         entity.setOwnerNotes(trim(body != null ? body.getOwnerNotes() : null));
         entity.setResolvedBy(callerId);
         entity.setResolvedAt(LocalDateTime.now());
-        return SubscriptionActivationRequestResponse.from(requestRepository.save(entity));
+        SubscriptionActivationRequestEntity saved = requestRepository.save(entity);
+        mealLifecycleNotificationSyncService.onSubscriptionApproved(saved, callerId);
+        pendingActionService.syncMealOperations(spaceId);
+        return toResponse(callerId, saved);
     }
 
     @Transactional
@@ -149,7 +174,10 @@ public class SubscriptionActivationRequestService {
         entity.setOwnerNotes(trim(body != null ? body.getOwnerNotes() : null));
         entity.setResolvedBy(callerId);
         entity.setResolvedAt(LocalDateTime.now());
-        return SubscriptionActivationRequestResponse.from(requestRepository.save(entity));
+        SubscriptionActivationRequestEntity saved = requestRepository.save(entity);
+        mealLifecycleNotificationSyncService.onSubscriptionRejected(saved, callerId);
+        pendingActionService.syncMealOperations(spaceId);
+        return toResponse(callerId, saved);
     }
 
     @Transactional(readOnly = true)
@@ -218,6 +246,13 @@ public class SubscriptionActivationRequestService {
                 .orElseThrow(() -> new ResourceNotFoundException("SubscriptionActivationRequest", "id", requestId));
     }
 
+    private SubscriptionActivationRequestResponse toResponse(
+            UUID callerId, SubscriptionActivationRequestEntity entity) {
+        String url = storedFileService.resolveDisplayUrl(
+                callerId, entity.getPaymentProofFileId(), entity.getPaymentProofImageUrl());
+        return SubscriptionActivationRequestResponse.from(entity, url);
+    }
+
     private MemberEntity loadMember(UUID spaceId, UUID memberId) {
         return memberRepository
                 .findByIdAndSpaceIdAndActiveTrue(memberId, spaceId)
@@ -236,19 +271,5 @@ public class SubscriptionActivationRequestService {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
-    }
-
-    private static String normalizeProofImage(String proofImageBase64) {
-        if (proofImageBase64 == null || proofImageBase64.isBlank()) {
-            return null;
-        }
-        String normalized = proofImageBase64.trim();
-        if (!normalized.startsWith("data:image/")) {
-            throw new BusinessException("Payment screenshot must be an image", HttpStatus.BAD_REQUEST);
-        }
-        if (normalized.length() > 4_000_000) {
-            throw new BusinessException("Payment screenshot is too large", HttpStatus.BAD_REQUEST);
-        }
-        return normalized;
     }
 }

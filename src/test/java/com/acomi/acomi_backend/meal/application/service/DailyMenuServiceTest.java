@@ -82,6 +82,9 @@ class DailyMenuServiceTest {
     @Mock
     private MenuPlanningHistoryService menuPlanningHistoryService;
 
+    @Mock
+    private com.acomi.acomi_backend.notification.application.service.NotificationService notificationService;
+
     private DailyMenuService dailyMenuService;
 
     private UUID spaceId;
@@ -102,7 +105,9 @@ class DailyMenuServiceTest {
                 spaceRepository,
                 new MealAccessService(new SpaceMembershipResolver(spaceMembershipRepository), memberRepository),
                 new ObjectMapper(),
-                menuPlanningHistoryService);
+                menuPlanningHistoryService,
+                notificationService,
+                spaceMembershipRepository);
         spaceId = UUID.randomUUID();
         callerId = UUID.randomUUID();
         itemId = UUID.randomUUID();
@@ -268,6 +273,41 @@ class DailyMenuServiceTest {
         assertThatThrownBy(() -> dailyMenuService.publishMenu(spaceId, callerId, menuDate, MealType.LUNCH))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("At least one available option is required to publish");
+    }
+
+    @Test
+    void publishMenu_whenAlreadyPublishedWithUnchangedSnapshot_doesNotNotify() {
+        stubOwnerMembership();
+        DailyMenuEntity published = menu(MealType.LUNCH, DailyMenuStatus.PUBLISHED);
+        DailyMenuEntryEntity entry = DailyMenuEntryEntity.builder()
+                .dailyMenu(published)
+                .entryType(DailyMenuEntryType.ITEM)
+                .label("Rice")
+                .isAvailable(true)
+                .sortOrder(0)
+                .build();
+        entry.setId(UUID.randomUUID());
+        UserEntity diner = UserEntity.builder().fullName("Diner").mobileNumber("9111111111").build();
+        diner.setId(UUID.randomUUID());
+        SpaceMembershipEntity dinerMembership = SpaceMembershipEntity.builder()
+                .user(diner)
+                .space(published.getSpace())
+                .role(MembershipRole.CUSTOMER)
+                .status(MembershipStatus.ACTIVE)
+                .build();
+        when(spaceMembershipRepository.findBySpaceIdAndStatus(spaceId, MembershipStatus.ACTIVE))
+                .thenReturn(List.of(dinerMembership));
+        when(dailyMenuRepository.findBySpaceDateAndType(spaceId, menuDate, MealType.LUNCH))
+                .thenReturn(Optional.of(published));
+        when(dailyMenuEntryRepository.findByDailyMenuId(published.getId())).thenReturn(List.of(entry));
+        when(dailyMenuRepository.save(any(DailyMenuEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        dailyMenuService.publishMenu(spaceId, callerId, menuDate, MealType.LUNCH);
+        verify(notificationService).publish(any());
+        org.mockito.Mockito.reset(notificationService);
+        dailyMenuService.publishMenu(spaceId, callerId, menuDate, MealType.LUNCH);
+
+        verify(notificationService, never()).publish(any());
     }
 
     @Test

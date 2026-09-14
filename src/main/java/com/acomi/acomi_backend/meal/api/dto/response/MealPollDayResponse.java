@@ -21,6 +21,7 @@ public class MealPollDayResponse {
     private MealPollPaymentStatus myPaymentStatus;
     private MealPollPaymentChoice myPaymentChoice;
     private String myProofImageUrl;
+    private UUID myProofFileId;
     private String myRejectionReason;
     private java.util.List<MealDeliveryLocationResponse> deliveryLocations;
     private Map<MealType, UUID> myLastDeliveryLocationIds;

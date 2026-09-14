@@ -19,12 +19,18 @@ public class SubscriptionActivationRequestResponse {
     private SubscriptionActivationRequestStatus status;
     private String paymentReference;
     private String paymentProofImageUrl;
+    private UUID paymentProofFileId;
     private String customerNotes;
     private String ownerNotes;
     private LocalDateTime createdAt;
     private LocalDateTime resolvedAt;
 
     public static SubscriptionActivationRequestResponse from(SubscriptionActivationRequestEntity entity) {
+        return from(entity, entity.getPaymentProofImageUrl());
+    }
+
+    public static SubscriptionActivationRequestResponse from(
+            SubscriptionActivationRequestEntity entity, String resolvedProofUrl) {
         return SubscriptionActivationRequestResponse.builder()
                 .requestId(entity.getId())
                 .memberId(entity.getMember().getId())
@@ -33,7 +39,8 @@ public class SubscriptionActivationRequestResponse {
                 .planName(entity.getPlan().getName())
                 .status(entity.getStatus())
                 .paymentReference(entity.getPaymentReference())
-                .paymentProofImageUrl(entity.getPaymentProofImageUrl())
+                .paymentProofImageUrl(resolvedProofUrl)
+                .paymentProofFileId(entity.getPaymentProofFileId())
                 .customerNotes(entity.getCustomerNotes())
                 .ownerNotes(entity.getOwnerNotes())
                 .createdAt(entity.getCreatedAt())

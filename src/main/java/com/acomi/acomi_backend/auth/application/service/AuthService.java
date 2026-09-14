@@ -17,12 +17,16 @@ import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.common.util.MobileNumberNormalizer;
 import com.acomi.acomi_backend.config.security.JwtService;
+import com.acomi.acomi_backend.config.security.OtpProperties;
 import com.acomi.acomi_backend.config.security.UserPrincipal;
 import com.acomi.acomi_backend.member.domain.model.MemberDocumentType;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberDocumentEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberDocumentRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
+import com.acomi.acomi_backend.storage.application.support.FileLegacySupport;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import com.acomi.acomi_backend.user.api.dto.request.CompleteUserProfileRequest;
 import com.acomi.acomi_backend.user.api.dto.request.UpdateUserRequest;
 import com.acomi.acomi_backend.user.api.dto.response.UserResponse;
@@ -37,6 +41,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -54,12 +59,14 @@ public class AuthService {
     private static final int MAX_DOCUMENT_FILE_URL_LENGTH = 1024;
 
     private final OtpService otpService;
+    private final OtpProperties otpProperties;
     private final JwtService jwtService;
     private final UserRepository userRepository;
     private final MemberRepository memberRepository;
     private final MemberDocumentRepository memberDocumentRepository;
     private final AccountDeletionService accountDeletionService;
     private final PasswordEncoder passwordEncoder;
+    private final StoredFileService storedFileService;
 
     private static final String INVALID_CREDENTIALS = "Invalid mobile number or password.";
     private static final String NO_ACCOUNT_MESSAGE = "No ACOMI account found with this mobile number.";
@@ -146,6 +153,23 @@ public class AuthService {
             assertNewMobileEligible(changeMobileUser, mobileNumber);
         }
         assertMobileEligibleForPurpose(mobileNumber, purpose);
+
+        boolean skipRegistrationOtp =
+                purpose == OtpPurpose.REGISTER && otpProperties.isSkipRegistrationOtp();
+        if (skipRegistrationOtp) {
+            RegistrationVerification verification =
+                    otpService.issueRegistrationBypassToken(mobileNumber, requestIp);
+            return SendOtpResponse.builder()
+                    .mobileNumber(mobileNumber)
+                    .purpose(purpose)
+                    .expiresIn(verification.expiresInSeconds())
+                    .resendAfter(otpProperties.getResendCooldownSeconds())
+                    .message("OTP skipped for local development")
+                    .otpSkipped(true)
+                    .verificationToken(verification.verificationToken())
+                    .build();
+        }
+
         OtpDispatchResult dispatchResult = otpService.sendOtp(mobileNumber, purpose, requestIp, true);
 
         return SendOtpResponse.builder()
@@ -154,6 +178,7 @@ public class AuthService {
                 .expiresIn(dispatchResult.expiresInSeconds())
                 .resendAfter(dispatchResult.resendAfterSeconds())
                 .message("OTP sent successfully")
+                .otpSkipped(false)
                 .build();
     }
 
@@ -206,7 +231,7 @@ public class AuthService {
     @Transactional(readOnly = true)
     public UserResponse getCurrentUser() {
         UserEntity user = loadCurrentUserEntity();
-        return UserResponse.from(user);
+        return toUserResponse(user);
     }
 
     @Transactional
@@ -215,7 +240,7 @@ public class AuthService {
         user.setFullName(request.getFullName().trim());
         UserEntity saved = userRepository.save(user);
         syncLinkedMemberNames(saved);
-        return UserResponse.from(saved);
+        return toUserResponse(saved);
     }
 
     @Transactional
@@ -236,7 +261,7 @@ public class AuthService {
 
         UserEntity saved = userRepository.save(user);
         syncLinkedMembersFromProfile(saved, request);
-        return UserResponse.from(saved);
+        return toUserResponse(saved);
     }
 
     /**
@@ -263,29 +288,66 @@ public class AuthService {
         user.setGender(request.getGender());
         user.setDateOfBirth(parseDateOfBirth(request.getDateOfBirth()));
         user.setEmail(trimToNull(request.getEmail()));
-        user.setProfilePhotoUrl(trimToNull(request.getProfilePhotoUrl()));
+        applyProfilePhoto(user, request);
         user.setPermanentAddress(request.getPermanentAddress().trim());
         user.setCity(request.getCity().trim());
         user.setState(request.getState().trim());
         user.setPincode(request.getPincode().trim());
     }
 
+    private void applyProfilePhoto(UserEntity user, CompleteUserProfileRequest request) {
+        UUID incomingFileId = storedFileService.resolveIncomingFile(
+                user.getId(),
+                FilePurpose.PROFILE_PHOTO,
+                null,
+                request.getProfilePhotoFileId(),
+                request.getProfilePhotoUrl(),
+                "profile-photo");
+        if (incomingFileId != null) {
+            storedFileService.replaceAssociation(user.getProfilePhotoFileId(), incomingFileId);
+            user.setProfilePhotoFileId(incomingFileId);
+            user.setProfilePhotoUrl(FileLegacySupport.marker(incomingFileId));
+            return;
+        }
+        String raw = trimToNull(request.getProfilePhotoUrl());
+        if (raw == null) {
+            if (request.getProfilePhotoUrl() != null && request.getProfilePhotoFileId() == null) {
+                storedFileService.replaceAssociation(user.getProfilePhotoFileId(), null);
+                user.setProfilePhotoFileId(null);
+                user.setProfilePhotoUrl(null);
+            }
+            return;
+        }
+        if (FileLegacySupport.isLocalFileUri(raw) || FileLegacySupport.isPendingPlaceholder(raw)) {
+            return;
+        }
+        if (FileLegacySupport.isHttpUrl(raw)) {
+            user.setProfilePhotoUrl(raw);
+        }
+    }
+
+    private UserResponse toUserResponse(UserEntity user) {
+        String photoUrl = storedFileService.resolveDisplayUrl(
+                user.getId(), user.getProfilePhotoFileId(), user.getProfilePhotoUrl());
+        return UserResponse.from(user, photoUrl);
+    }
+
     private void syncLinkedMemberNames(UserEntity user) {
-        for (MemberEntity member : memberRepository.findActiveByUserId(user.getId())) {
+        for (MemberEntity member : memberRepository.findByUser_Id(user.getId())) {
             member.setFullName(user.getFullName());
             memberRepository.save(member);
         }
     }
 
     private void syncLinkedMemberMobiles(UserEntity user) {
-        for (MemberEntity member : memberRepository.findActiveByUserId(user.getId())) {
+        for (MemberEntity member : memberRepository.findByUser_Id(user.getId())) {
             member.setMobileNumber(user.getMobileNumber());
             memberRepository.save(member);
         }
     }
 
     private void syncLinkedMembersFromProfile(UserEntity user, CompleteUserProfileRequest request) {
-        for (MemberEntity member : memberRepository.findActiveByUserId(user.getId())) {
+        for (MemberEntity member : memberRepository.findByUser_Id(user.getId())) {
             member.setFullName(user.getFullName());
             member.setGender(user.getGender());
 
@@ -315,6 +377,7 @@ public class AuthService {
                 MemberDocumentEntity document = matched.get();
                 document.setDocumentNumber(upload.number());
                 document.setFileUrl(upload.fileUrl());
+                document.setFileId(upload.fileId());
                 document.setUploadedAt(now);
                 memberDocumentRepository.save(document);
                 continue;
@@ -325,6 +388,7 @@ public class AuthService {
                     .documentType(upload.type())
                     .documentNumber(upload.number())
                     .fileUrl(upload.fileUrl())
+                    .fileId(upload.fileId())
                     .uploadedAt(now)
                     .build());
         }
@@ -340,41 +404,75 @@ public class AuthService {
 
     private List<DocumentUpload> buildDocumentUploads(CompleteUserProfileRequest request) {
         List<DocumentUpload> uploads = new ArrayList<>();
+        UUID callerId = loadCurrentUserEntity().getId();
 
-        String identityFileUrl = resolveDocumentFileUrl(request.getIdentityProofFileUrl());
+        UUID identityFileId = storedFileService.resolveIncomingFile(
+                callerId,
+                FilePurpose.IDENTITY_DOCUMENT,
+                null,
+                request.getIdentityProofFileId(),
+                request.getIdentityProofFileUrl(),
+                "identity-proof");
+        String identityFileUrl = resolveDocumentFileUrl(identityFileId, request.getIdentityProofFileUrl());
         if (request.getIdentityDocumentType() != null
-                && (StringUtils.hasText(request.getIdentityDocumentNumber()) || identityFileUrl != null)) {
+                && (StringUtils.hasText(request.getIdentityDocumentNumber())
+                        || identityFileUrl != null
+                        || identityFileId != null)) {
             uploads.add(new DocumentUpload(
                     request.getIdentityDocumentType(),
                     StringUtils.hasText(request.getIdentityDocumentNumber())
                             ? request.getIdentityDocumentNumber().trim()
                             : "Identity document",
-                    identityFileUrl != null ? identityFileUrl : PENDING_UPLOAD_FILE_URL));
-        } else if (identityFileUrl != null) {
+                    identityFileUrl != null ? identityFileUrl : PENDING_UPLOAD_FILE_URL,
+                    identityFileId));
+        } else if (identityFileUrl != null || identityFileId != null) {
             uploads.add(new DocumentUpload(
-                    MemberDocumentType.OTHER, "Identity proof", identityFileUrl));
+                    MemberDocumentType.OTHER,
+                    "Identity proof",
+                    identityFileUrl != null ? identityFileUrl : FileLegacySupport.marker(identityFileId),
+                    identityFileId));
         }
 
-        String addressFileUrl = resolveDocumentFileUrl(request.getAddressProofFileUrl());
-        if (addressFileUrl != null) {
+        UUID addressFileId = storedFileService.resolveIncomingFile(
+                callerId,
+                FilePurpose.ADDRESS_PROOF,
+                null,
+                request.getAddressProofFileId(),
+                request.getAddressProofFileUrl(),
+                "address-proof");
+        String addressFileUrl = resolveDocumentFileUrl(addressFileId, request.getAddressProofFileUrl());
+        if (addressFileUrl != null || addressFileId != null) {
             uploads.add(new DocumentUpload(
-                    MemberDocumentType.OTHER, "Address proof", addressFileUrl));
+                    MemberDocumentType.OTHER,
+                    "Address proof",
+                    addressFileUrl != null ? addressFileUrl : FileLegacySupport.marker(addressFileId),
+                    addressFileId));
         }
 
-        String additionalFileUrl = resolveDocumentFileUrl(request.getAdditionalDocumentFileUrl());
-        if (additionalFileUrl != null) {
+        UUID additionalFileId = storedFileService.resolveIncomingFile(
+                callerId,
+                FilePurpose.MEMBER_DOCUMENT,
+                null,
+                request.getAdditionalDocumentFileId(),
+                request.getAdditionalDocumentFileUrl(),
+                "additional-document");
+        String additionalFileUrl = resolveDocumentFileUrl(additionalFileId, request.getAdditionalDocumentFileUrl());
+        if (additionalFileUrl != null || additionalFileId != null) {
             uploads.add(new DocumentUpload(
-                    MemberDocumentType.OTHER, "Additional document", additionalFileUrl));
+                    MemberDocumentType.OTHER,
+                    "Additional document",
+                    additionalFileUrl != null ? additionalFileUrl : FileLegacySupport.marker(additionalFileId),
+                    additionalFileId));
         }
 
         return uploads;
     }
 
-    private int countRequestedDocuments(CompleteUserProfileRequest request) {
-        return buildDocumentUploads(request).size();
-    }
-
-    private String resolveDocumentFileUrl(String raw) {
+    private String resolveDocumentFileUrl(UUID fileId, String raw) {
+        if (fileId != null) {
+            storedFileService.markAssociated(fileId);
+            return FileLegacySupport.marker(fileId);
+        }
         String trimmed = trimToNull(raw);
         if (trimmed == null) {
             return null;
@@ -382,7 +480,14 @@ public class AuthService {
         if (trimmed.startsWith("file://") || trimmed.length() > MAX_DOCUMENT_FILE_URL_LENGTH) {
             return PENDING_UPLOAD_FILE_URL;
         }
+        if (FileLegacySupport.isInlinePayload(trimmed)) {
+            return PENDING_UPLOAD_FILE_URL;
+        }
         return trimmed;
+    }
+
+    private int countRequestedDocuments(CompleteUserProfileRequest request) {
+        return buildDocumentUploads(request).size();
     }
 
     private int calculateCompletionPercentage(UserEntity user, int documentsUploaded) {
@@ -392,7 +497,7 @@ public class AuthService {
                 && !"user".equals(user.getFullName().trim().toLowerCase(Locale.ROOT))) {
             completed++;
         }
-        if (StringUtils.hasText(user.getProfilePhotoUrl())) {
+        if (StringUtils.hasText(user.getProfilePhotoUrl()) || user.getProfilePhotoFileId() != null) {
             completed++;
         }
         if (user.getGender() != null) {
@@ -455,7 +560,7 @@ public class AuthService {
                 .accessToken(jwtService.generateToken(user))
                 .tokenType("Bearer")
                 .expiresIn(jwtService.getExpirationMs())
-                .user(UserResponse.from(user))
+                .user(toUserResponse(user))
                 .build();
     }
 
@@ -516,5 +621,5 @@ public class AuthService {
         return userPrincipal;
     }
 
-    private record DocumentUpload(MemberDocumentType type, String number, String fileUrl) {}
+    private record DocumentUpload(MemberDocumentType type, String number, String fileUrl, UUID fileId) {}
 }

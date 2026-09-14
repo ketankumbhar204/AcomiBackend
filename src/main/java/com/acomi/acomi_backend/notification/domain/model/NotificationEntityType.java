@@ -9,5 +9,6 @@ public enum NotificationEntityType {
     INVITATION,
     COMPLAINT,
     SUBSCRIPTION,
-    SPACE
+    SPACE,
+    SPACE_ENQUIRY
 }

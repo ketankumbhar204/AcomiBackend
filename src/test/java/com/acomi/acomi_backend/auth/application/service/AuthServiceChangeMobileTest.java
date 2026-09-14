@@ -18,10 +18,12 @@ import com.acomi.acomi_backend.auth.application.otp.RegistrationVerification;
 import com.acomi.acomi_backend.auth.domain.model.OtpPurpose;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.config.security.JwtService;
+import com.acomi.acomi_backend.config.security.OtpProperties;
 import com.acomi.acomi_backend.config.security.UserPrincipal;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberDocumentRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.util.List;
@@ -51,6 +53,9 @@ class AuthServiceChangeMobileTest {
     private OtpService otpService;
 
     @Mock
+    private OtpProperties otpProperties;
+
+    @Mock
     private JwtService jwtService;
 
     @Mock
@@ -65,6 +70,9 @@ class AuthServiceChangeMobileTest {
     @Mock
     private AccountDeletionService accountDeletionService;
 
+    @Mock
+    private StoredFileService storedFileService;
+
     private final PasswordEncoder passwordEncoder =
             PasswordEncoderFactories.createDelegatingPasswordEncoder();
 
@@ -76,12 +84,14 @@ class AuthServiceChangeMobileTest {
     void setUp() {
         authService = new AuthService(
                 otpService,
+                otpProperties,
                 jwtService,
                 userRepository,
                 memberRepository,
                 memberDocumentRepository,
                 accountDeletionService,
-                passwordEncoder);
+                passwordEncoder,
+                storedFileService);
         userId = UUID.randomUUID();
         user = UserEntity.builder()
                 .mobileNumber(CURRENT)
@@ -172,7 +182,7 @@ class AuthServiceChangeMobileTest {
         when(userRepository.findByIdAndIsActiveTrue(userId)).thenReturn(Optional.of(user));
         when(userRepository.findByMobileNumberAndIsActiveTrue(NEW_MOBILE)).thenReturn(Optional.empty());
         when(userRepository.save(user)).thenReturn(user);
-        when(memberRepository.findActiveByUserId(userId)).thenReturn(List.of());
+        when(memberRepository.findByUser_Id(userId)).thenReturn(List.of());
         when(jwtService.generateToken(user)).thenReturn("new-jwt");
         when(jwtService.getExpirationMs()).thenReturn(86_400_000L);
 
@@ -254,7 +264,7 @@ class AuthServiceChangeMobileTest {
         when(userRepository.findByIdAndIsActiveTrue(userId)).thenReturn(Optional.of(user));
         when(userRepository.findByMobileNumberAndIsActiveTrue(NEW_MOBILE)).thenReturn(Optional.empty());
         when(userRepository.save(user)).thenReturn(user);
-        when(memberRepository.findActiveByUserId(userId)).thenReturn(List.of(member));
+        when(memberRepository.findByUser_Id(userId)).thenReturn(List.of(member));
         when(memberRepository.save(member)).thenReturn(member);
         when(jwtService.generateToken(user)).thenReturn("new-jwt");
         when(jwtService.getExpirationMs()).thenReturn(86_400_000L);

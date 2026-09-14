@@ -15,6 +15,7 @@ public enum NotificationType {
     PAYMENT_APPROVED,
     PAYMENT_REJECTED,
     PAYMENT_UPDATE_REQUESTED,
+    PAYMENT_REMINDER_SENT,
 
     // Meals — actionable
     MEAL_POLL_NOT_PUBLISHED,
@@ -24,8 +25,13 @@ public enum NotificationType {
     SUBSCRIPTION_ACTIVATION_PENDING,
 
     // Meals — informational
+    MENU_PUBLISHED,
     MEAL_POLL_PUBLISHED,
     MEAL_POLL_REMINDER,
+    SUBSCRIPTION_ACTIVATION_APPROVED,
+    SUBSCRIPTION_ACTIVATION_REJECTED,
+    MEAL_BALANCE_UPDATED,
+    MEAL_PARTICIPATION_CHANGED,
 
     // Accommodation — actionable
     RESERVATION_STARTING_TODAY,
@@ -36,6 +42,8 @@ public enum NotificationType {
 
     // Accommodation — informational
     RESERVATION_CREATED,
+    RESERVATION_CANCELLED,
+    ALLOCATION_CREATED,
     MOVE_IN_COMPLETED,
     MOVE_OUT_COMPLETED,
 
@@ -47,12 +55,28 @@ public enum NotificationType {
 
     // Members — informational
     INVITATION_ACCEPTED,
+    INVITATION_EXPIRED,
+    MEMBERSHIP_APPROVED,
+    MEMBERSHIP_REJECTED,
+    MEMBERSHIP_REMOVED,
+    MEMBERSHIP_ROLE_CHANGED,
     TENANT_PROFILE_COMPLETED,
+    SPACE_DEACTIVATED,
+    OWNERSHIP_TRANSFERRED,
 
     // Complaints
     COMPLAINT_PENDING,
     COMPLAINT_OVERDUE,
     COMPLAINT_CREATED,
     COMPLAINT_COMMENTED,
-    COMPLAINT_RESOLVED
+    COMPLAINT_RESOLVED,
+
+    // Discovery contact enquiries — Admin inbox
+    CONTACT_ENQUIRY,
+
+    // Discovery contact enquiries — requester inbox (never includes owner contact)
+    CONTACT_ENQUIRY_SUBMITTED,
+    CONTACT_ENQUIRY_SHARED,
+    CONTACT_ENQUIRY_REJECTED,
+    CONTACT_ENQUIRY_EXPIRED
 }

@@ -6,6 +6,8 @@ import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
+import com.acomi.acomi_backend.space.domain.model.SpaceType;
+import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +33,7 @@ public class MealAccessService {
 
     public SpaceMembershipEntity requireManageMeals(UUID spaceId, UUID callerId) {
         SpaceMembershipEntity membership = membershipResolver.requireActive(spaceId, callerId);
+        assertMealsApplicable(membership);
         if (!MANAGE_MEALS_ROLES.contains(membership.getRole())) {
             throw new BusinessException("Only OWNER or MANAGER can manage meals", HttpStatus.FORBIDDEN);
         }
@@ -57,7 +60,14 @@ public class MealAccessService {
     }
 
     public boolean canManageMeals(SpaceMembershipEntity membership) {
-        return MANAGE_MEALS_ROLES.contains(membership.getRole());
+        return MANAGE_MEALS_ROLES.contains(membership.getRole()) && isMealsApplicable(membership);
+    }
+
+    public boolean isMealsApplicableForSpace(SpaceEntity space) {
+        if (space == null || space.getType() == null) {
+            return true;
+        }
+        return space.getType() != SpaceType.RENTAL;
     }
 
     public boolean isParticipantScopeOnly(SpaceMembershipEntity membership) {
@@ -70,5 +80,18 @@ public class MealAccessService {
                 .findActiveBySpaceIdAndUserId(spaceId, callerId)
                 .map(MemberEntity::getId)
                 .orElseThrow(() -> new BusinessException("No member profile linked to your account", HttpStatus.FORBIDDEN));
+    }
+
+    private void assertMealsApplicable(SpaceMembershipEntity membership) {
+        if (!isMealsApplicable(membership)) {
+            throw new BusinessException(
+                    "MEALS_NOT_APPLICABLE",
+                    "Meals are not available for Rental spaces",
+                    HttpStatus.CONFLICT);
+        }
+    }
+
+    private boolean isMealsApplicable(SpaceMembershipEntity membership) {
+        return isMealsApplicableForSpace(membership.getSpace());
     }
 }

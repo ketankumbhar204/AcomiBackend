@@ -13,6 +13,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
+import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -43,6 +44,9 @@ public class MemberDocumentEntity extends BaseEntity {
 
     @Column(name = "file_url", nullable = false, length = 1024)
     private String fileUrl;
+
+    @Column(name = "file_id")
+    private UUID fileId;
 
     @Builder.Default
     @Enumerated(EnumType.STRING)

@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.acomi.acomi_backend.auth.application.cookie.AuthCookieService;
 import com.acomi.acomi_backend.auth.application.service.AuthService;
 import java.lang.reflect.Method;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +27,9 @@ class AuthControllerDeleteAccountTest {
     @Mock
     private AuthService authService;
 
+    @Mock
+    private AuthCookieService authCookieService;
+
     @InjectMocks
     private AuthController authController;
 
@@ -44,9 +48,10 @@ class AuthControllerDeleteAccountTest {
 
     @Test
     void deleteMe_doesNotAcceptUserIdFromClient() throws Exception {
-        Method method = AuthController.class.getMethod("deleteCurrentAccount");
+        Method method = AuthController.class.getMethod("deleteCurrentAccount", jakarta.servlet.http.HttpServletResponse.class);
 
-        assertThat(method.getParameterCount()).isZero();
+        assertThat(method.getParameterCount()).isEqualTo(1);
+        assertThat(method.getParameterTypes()).containsExactly(jakarta.servlet.http.HttpServletResponse.class);
         DeleteMapping mapping = method.getAnnotation(DeleteMapping.class);
         assertThat(mapping).isNotNull();
         assertThat(mapping.value()).containsExactly("/me");

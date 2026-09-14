@@ -1,7 +1,9 @@
 package com.acomi.acomi_backend.address.application.service;
 
 import com.acomi.acomi_backend.address.api.dto.request.SavedAddressRequest;
+import com.acomi.acomi_backend.address.api.dto.response.AdminSavedAddressesSummaryResponse;
 import com.acomi.acomi_backend.address.api.dto.response.SavedAddressResponse;
+import com.acomi.acomi_backend.address.domain.model.SavedAddressLeadKind;
 import com.acomi.acomi_backend.address.infrastructure.persistence.entity.SavedAddressEntity;
 import com.acomi.acomi_backend.address.infrastructure.persistence.repository.SavedAddressRepository;
 import com.acomi.acomi_backend.common.exception.BusinessException;
@@ -34,9 +36,40 @@ public class SavedAddressService {
 
     @Transactional(readOnly = true)
     public Page<SavedAddressResponse> list(String search, Pageable pageable) {
+        return list(search, null, null, null, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<SavedAddressResponse> list(
+            String search, String city, String state, String usage, Pageable pageable) {
         UUID ownerId = currentAdminId();
         String term = sanitizeSearch(search);
-        return savedAddressRepository.searchActiveByOwner(ownerId, term, pageable).map(this::toResponse);
+        String cityFilter = StringUtils.hasText(city) ? city.trim() : null;
+        String stateFilter = StringUtils.hasText(state) ? state.trim() : null;
+        String usageFilter = normalizeUsage(usage);
+        boolean filtered = cityFilter != null || stateFilter != null || usageFilter != null;
+        Page<SavedAddressEntity> page = filtered
+                ? savedAddressRepository.searchFiltered(
+                        ownerId, term, cityFilter, stateFilter, usageFilter, pageable)
+                : savedAddressRepository.searchActiveByOwner(ownerId, term, pageable);
+        return page.map(this::toResponse);
+    }
+
+    @Transactional(readOnly = true)
+    public AdminSavedAddressesSummaryResponse summary() {
+        UUID ownerId = currentAdminId();
+        return AdminSavedAddressesSummaryResponse.builder()
+                .totalAddresses(savedAddressRepository.countByCreatedByUserIdAndIsActiveTrue(ownerId))
+                .usedForProperties(
+                        savedAddressRepository.countByCreatedByUserIdAndIsActiveTrueAndPropertyUsageCountGreaterThan(
+                                ownerId, 0))
+                .usedForMesses(
+                        savedAddressRepository.countByCreatedByUserIdAndIsActiveTrueAndMessUsageCountGreaterThan(
+                                ownerId, 0))
+                .sharedAddresses(savedAddressRepository.countSharedByOwner(ownerId))
+                .cities(savedAddressRepository.findDistinctCitiesByOwner(ownerId))
+                .states(savedAddressRepository.findDistinctStatesByOwner(ownerId))
+                .build();
     }
 
     @Transactional(readOnly = true)
@@ -48,7 +81,7 @@ public class SavedAddressService {
     public SavedAddressResponse create(SavedAddressRequest request) {
         UUID ownerId = currentAdminId();
         AddressFields fields = requireRealAddress(request);
-        SavedAddressEntity saved = findOrCreate(ownerId, fields, false);
+        SavedAddressEntity saved = findOrCreate(ownerId, fields, false, null);
         return toResponse(saved);
     }
 
@@ -85,6 +118,17 @@ public class SavedAddressService {
      */
     @Transactional
     public void rememberFromLead(String addressLine, String city, String state, String pincode, String mapUrl) {
+        rememberFromLead(addressLine, city, state, pincode, mapUrl, SavedAddressLeadKind.PROPERTY);
+    }
+
+    @Transactional
+    public void rememberFromLead(
+            String addressLine,
+            String city,
+            String state,
+            String pincode,
+            String mapUrl,
+            SavedAddressLeadKind kind) {
         if (isPlaceholder(addressLine, city, state)) {
             return;
         }
@@ -93,10 +137,11 @@ public class SavedAddressService {
         if (!StringUtils.hasText(fields.pincode())) {
             return;
         }
-        findOrCreate(ownerId, fields, true);
+        findOrCreate(ownerId, fields, true, kind == null ? SavedAddressLeadKind.PROPERTY : kind);
     }
 
-    private SavedAddressEntity findOrCreate(UUID ownerId, AddressFields fields, boolean markUsed) {
+    private SavedAddressEntity findOrCreate(
+            UUID ownerId, AddressFields fields, boolean markUsed, SavedAddressLeadKind kind) {
         String fingerprint = fingerprint(fields);
         SavedAddressEntity existing = savedAddressRepository
                 .findFirstByCreatedByUserIdAndFingerprintAndIsActiveTrue(ownerId, fingerprint)
@@ -109,7 +154,7 @@ public class SavedAddressService {
                 applyFields(existing, fields, fingerprint);
             }
             if (markUsed) {
-                markUsed(existing);
+                markUsed(existing, kind);
             }
             return savedAddressRepository.save(existing);
         }
@@ -123,6 +168,8 @@ public class SavedAddressService {
                 .mapUrl(fields.mapUrl())
                 .fingerprint(fingerprint)
                 .usageCount(markUsed ? 1 : 0)
+                .propertyUsageCount(markUsed && kind == SavedAddressLeadKind.PROPERTY ? 1 : 0)
+                .messUsageCount(markUsed && kind == SavedAddressLeadKind.MESS ? 1 : 0)
                 .lastUsedAt(markUsed ? LocalDateTime.now() : null)
                 .isActive(true)
                 .build();
@@ -135,16 +182,21 @@ public class SavedAddressService {
                             ownerId, fingerprint))
                     .orElseThrow(() -> ex);
             if (markUsed) {
-                markUsed(raced);
+                markUsed(raced, kind);
                 return savedAddressRepository.save(raced);
             }
             return raced;
         }
     }
 
-    private void markUsed(SavedAddressEntity entity) {
+    private void markUsed(SavedAddressEntity entity, SavedAddressLeadKind kind) {
         entity.setUsageCount(entity.getUsageCount() + 1);
         entity.setLastUsedAt(LocalDateTime.now());
+        if (kind == SavedAddressLeadKind.MESS) {
+            entity.setMessUsageCount(entity.getMessUsageCount() + 1);
+        } else if (kind == SavedAddressLeadKind.PROPERTY) {
+            entity.setPropertyUsageCount(entity.getPropertyUsageCount() + 1);
+        }
     }
 
     private SavedAddressEntity requireOwnedActive(UUID id, UUID ownerId) {
@@ -186,6 +238,17 @@ public class SavedAddressService {
         }
         String collapsed = raw.trim().replaceAll("\\s+", " ");
         return collapsed.replace("%", "").replace("_", "").replace("\\", "").toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeUsage(String usage) {
+        if (!StringUtils.hasText(usage)) {
+            return null;
+        }
+        String normalized = usage.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "UNUSED", "USED", "SHARED", "PROPERTY", "MESS" -> normalized;
+            default -> null;
+        };
     }
 
     static String fingerprint(AddressFields fields) {
@@ -244,6 +307,8 @@ public class SavedAddressService {
                 .pincode(entity.getPincode())
                 .mapUrl(entity.getMapUrl())
                 .usageCount(entity.getUsageCount())
+                .propertyUsageCount(entity.getPropertyUsageCount())
+                .messUsageCount(entity.getMessUsageCount())
                 .lastUsedAt(entity.getLastUsedAt())
                 .createdAt(entity.getCreatedAt())
                 .build();

@@ -24,11 +24,17 @@ acomi:
   otp:
     # 2Factor SMS. TWOFACTOR_API_KEY must be set on the host; no committed default.
     sender: twofactor
+    skip-registration-otp: false
     hash-secret: ${OTP_HASH_SECRET}
     twofactor:
       api-key: ${TWOFACTOR_API_KEY}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS}
+  auth:
+    cookie:
+      domain: ${ACOMI_AUTH_COOKIE_DOMAIN:}
+      secure: true
+      same-site: Lax
 
 springdoc:
   api-docs:

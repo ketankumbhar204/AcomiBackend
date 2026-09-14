@@ -23,6 +23,7 @@ public class MemberMealActivityDayPaymentResponse {
     /** Immutable human-readable payment reference (e.g. PAY-20260720-000123). */
     private String paymentReference;
     private String proofImageUrl;
+    private UUID proofFileId;
     private String referenceNumber;
     private String remarks;
     private SpacePaymentMethod paymentMethod;

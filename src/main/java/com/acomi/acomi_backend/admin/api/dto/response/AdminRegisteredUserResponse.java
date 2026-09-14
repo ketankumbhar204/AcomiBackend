@@ -13,13 +13,20 @@ public class AdminRegisteredUserResponse {
     private UUID id;
     private String fullName;
     private String mobileNumber;
+    private String email;
     private boolean mobileVerified;
     private LocalDateTime mobileVerifiedAt;
     private LocalDateTime registeredAt;
+    private LocalDateTime updatedAt;
     /** OWNER, MEMBER, OWNER_AND_MEMBER, or NOT_SELECTED. Derived from space memberships. */
     private String selectedRole;
     /** COMPLETE when the user has at least one active space membership; otherwise INCOMPLETE. */
     private String onboardingStatus;
     private boolean profileCompleted;
     private List<AdminRegisteredUserSpaceResponse> spaces;
+    /** Platform system role: USER or ADMIN. */
+    private String systemRole;
+    private boolean active;
+    /** Admin-marked test account (excluded from production analytics when filtered). */
+    private boolean testUser;
 }

@@ -7,8 +7,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Getter
+@Setter
 @NoArgsConstructor
 @Schema(description = "Request body for completing the signed-in user's onboarding profile")
 public class CompleteUserProfileRequest {
@@ -23,6 +25,8 @@ public class CompleteUserProfileRequest {
     private String email;
 
     private String profilePhotoUrl;
+
+    private java.util.UUID profilePhotoFileId;
 
     @NotBlank(message = "Permanent address is required")
     private String permanentAddress;
@@ -51,6 +55,12 @@ public class CompleteUserProfileRequest {
     private String identityProofFileUrl;
 
     private String additionalDocumentFileUrl;
+
+    private java.util.UUID identityProofFileId;
+
+    private java.util.UUID addressProofFileId;
+
+    private java.util.UUID additionalDocumentFileId;
 
     private Boolean profileCompleted;
 

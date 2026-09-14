@@ -22,6 +22,7 @@ import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEn
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
 import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
+import com.acomi.acomi_backend.notification.application.service.MealLifecycleNotificationSyncService;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
@@ -52,6 +53,7 @@ public class MealParticipationService {
     private final MealAccessService mealAccessService;
     private final MealDeliveryLocationService deliveryLocationService;
     private final MealOccupancyPolicy occupancyPolicy;
+    private final MealLifecycleNotificationSyncService mealLifecycleNotificationSyncService;
 
     @Transactional(readOnly = true)
     public PagedResponse<MealParticipationResponse> listParticipations(
@@ -261,8 +263,13 @@ public class MealParticipationService {
         mealAccessService.requireManageParticipation(spaceId, callerId);
         UserEntity actor = loadUser(callerId);
         MealParticipationEntity participation = loadParticipation(spaceId, participationId);
+        MealParticipationStatus previous = participation.getStatus();
         applyStatusChange(participation, status, actor);
-        return MealParticipationResponse.from(participationRepository.save(participation));
+        MealParticipationEntity saved = participationRepository.save(participation);
+        if (saved.getStatus() != previous) {
+            mealLifecycleNotificationSyncService.onParticipationChanged(saved, saved.getStatus());
+        }
+        return MealParticipationResponse.from(saved);
     }
 
     private void applyStatusChange(

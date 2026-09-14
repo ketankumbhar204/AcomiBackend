@@ -4,6 +4,7 @@ import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationSource;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationStatus;
 import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
+import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -13,7 +14,7 @@ import lombok.Builder;
 import lombok.Getter;
 
 @Getter
-@Builder
+@Builder(toBuilder = true)
 public class PropertyRegistrationDetailResponse {
 
     private UUID id;
@@ -23,12 +24,15 @@ public class PropertyRegistrationDetailResponse {
     private String ownerName;
     private String mobileNumber;
     private String alternateMobileNumber;
+    private String additionalMobileNumber;
     private LocalDateTime mobileVerifiedAt;
     private String description;
     private String addressLine;
     private String city;
     private String state;
     private String pincode;
+    private BigDecimal latitude;
+    private BigDecimal longitude;
     private String mapUrl;
     private BigDecimal startingPrice;
     private PriceBasis priceBasis;
@@ -36,6 +40,17 @@ public class PropertyRegistrationDetailResponse {
     private PropertyRegistrationStatus status;
     private PropertyRegistrationSource source;
     private UUID convertedSpaceId;
+    private UUID linkedOwnerUserId;
+    private String linkedOwnerName;
+    private String linkedOwnerMobile;
+    private String ownershipStatus;
+    private Boolean autoShareEligible;
+    private String autoShareReason;
+    private String sharingNotes;
+    private Boolean foodIncludedListing;
+    private GenderPolicy genderPolicy;
+    private String unmappedAmenities;
+    private String reviewNotes;
     private LocalDateTime claimedAt;
     private RegistrationClaimVia claimedVia;
     private LocalDateTime createdAt;

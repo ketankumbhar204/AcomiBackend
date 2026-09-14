@@ -1,11 +1,13 @@
 package com.acomi.acomi_backend.admin.api.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUsersSummaryResponse;
 import com.acomi.acomi_backend.admin.application.service.AdminRegisteredUsersService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,10 +41,28 @@ class AdminRegisteredUsersControllerTest {
 
     @Test
     void list_returnsOk() throws Exception {
-        when(adminRegisteredUsersService.list(any(Pageable.class))).thenReturn(Page.empty());
+        when(adminRegisteredUsersService.list(
+                        isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
+                .thenReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/admin/registered-users")).andExpect(status().isOk());
 
-        verify(adminRegisteredUsersService).list(any(Pageable.class));
+        verify(adminRegisteredUsersService)
+                .list(isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class));
+    }
+
+    @Test
+    void summary_returnsOk() throws Exception {
+        when(adminRegisteredUsersService.summary())
+                .thenReturn(AdminRegisteredUsersSummaryResponse.builder()
+                        .totalUsers(1)
+                        .verifiedUsers(1)
+                        .newUsersLast30Days(0)
+                        .withSpaceAssociation(0)
+                        .build());
+
+        mockMvc.perform(get("/api/v1/admin/registered-users/summary")).andExpect(status().isOk());
+
+        verify(adminRegisteredUsersService).summary();
     }
 }

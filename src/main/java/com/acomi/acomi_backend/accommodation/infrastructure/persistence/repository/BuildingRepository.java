@@ -31,6 +31,15 @@ public interface BuildingRepository extends JpaRepository<BuildingEntity, UUID> 
 
     boolean existsBySpaceIdAndNameAndIsActiveTrue(UUID spaceId, String name);
 
+    boolean existsBySpaceIdAndNameIgnoreCaseAndIsActiveTrue(UUID spaceId, String name);
+
+    @Query("""
+            SELECT COUNT(b) FROM BuildingEntity b
+            WHERE b.space.id = :spaceId
+              AND b.isActive = true
+            """)
+    long countActiveBySpaceId(@Param("spaceId") UUID spaceId);
+
     @Query("""
             SELECT b FROM BuildingEntity b
             WHERE b.id = :id

@@ -16,6 +16,8 @@ public class SavedAddressResponse {
     private String pincode;
     private String mapUrl;
     private int usageCount;
+    private int propertyUsageCount;
+    private int messUsageCount;
     private LocalDateTime lastUsedAt;
     private LocalDateTime createdAt;
 }

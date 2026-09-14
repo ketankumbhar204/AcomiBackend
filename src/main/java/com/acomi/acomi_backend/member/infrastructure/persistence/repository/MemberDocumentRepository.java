@@ -26,4 +26,6 @@ public interface MemberDocumentRepository extends JpaRepository<MemberDocumentEn
             """)
     Optional<MemberDocumentEntity> findByIdAndMemberId(
             @Param("documentId") UUID documentId, @Param("memberId") UUID memberId);
+
+    List<MemberDocumentEntity> findByFileId(UUID fileId);
 }

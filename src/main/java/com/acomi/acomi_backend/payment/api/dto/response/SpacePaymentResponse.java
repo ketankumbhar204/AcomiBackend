@@ -1,11 +1,16 @@
 package com.acomi.acomi_backend.payment.api.dto.response;
 
+import com.acomi.acomi_backend.payment.application.support.PaymentDueStatusCalculator;
+import com.acomi.acomi_backend.payment.application.support.PaymentDueStatusCalculator.DueStatus;
 import com.acomi.acomi_backend.payment.domain.model.PaymentRejectionReason;
+import com.acomi.acomi_backend.payment.domain.model.PaymentSettlementStatus;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentMethod;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentType;
 import com.acomi.acomi_backend.payment.infrastructure.persistence.entity.SpacePaymentEntity;
+import com.acomi.acomi_backend.space.domain.model.PriceTaxMode;
+import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -33,6 +38,7 @@ public class SpacePaymentResponse {
     private SpacePaymentMethod paymentMethod;
     private SpacePaymentStatus paymentStatus;
     private String proofUrl;
+    private java.util.UUID proofFileId;
     private String referenceNumber;
     private String remarks;
     private String rejectionReason;
@@ -41,23 +47,55 @@ public class SpacePaymentResponse {
     private LocalDateTime reviewedAt;
     private LocalDate paymentDate;
     private String targetLabel;
-    /** Present when this payment covers multiple meal days from one bulk proof. */
     private String paymentBatchId;
-    /**
-     * Immutable human-readable payment reference (e.g. PAY-20260720-000123).
-     * Prefer this over paymentBatchId / paymentId for customer and owner display.
-     */
     private String paymentReference;
-    /** Meal day dates covered by this payment (what was paid). */
     private List<LocalDate> mealDates;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
+    private LocalDate billingPeriodStart;
+    private LocalDate billingPeriodEnd;
+    private Integer billableDays;
+    private Integer daysInMonth;
+    private Boolean isProrated;
+    private BigDecimal configuredMonthlyAmount;
+    private Boolean taxEnabled;
+    private BigDecimal taxRatePercent;
+    private PriceTaxMode priceTaxMode;
+    private BigDecimal baseAmount;
+    private BigDecimal taxAmount;
+    private BigDecimal paidAmount;
+    private BigDecimal outstandingAmount;
+    private PaymentSettlementStatus settlementStatus;
+    private Boolean isOverdue;
+    private Integer daysOverdue;
+    private Boolean reminderEligible;
+
     public static SpacePaymentResponse from(SpacePaymentEntity entity) {
-        return from(entity, null);
+        LocalDate today = entity.getSpace() != null
+                ? PaymentDueStatusCalculator.businessDate(entity.getSpace())
+                : LocalDate.now();
+        return from(entity, null, today);
     }
 
     public static SpacePaymentResponse from(SpacePaymentEntity entity, List<LocalDate> mealDates) {
+        LocalDate today = entity.getSpace() != null
+                ? PaymentDueStatusCalculator.businessDate(entity.getSpace())
+                : LocalDate.now();
+        return from(entity, mealDates, today);
+    }
+
+    public static SpacePaymentResponse from(
+            SpacePaymentEntity entity, List<LocalDate> mealDates, LocalDate businessDate) {
+        return from(entity, mealDates, businessDate, entity.getProofUrl());
+    }
+
+    public static SpacePaymentResponse from(
+            SpacePaymentEntity entity,
+            List<LocalDate> mealDates,
+            LocalDate businessDate,
+            String resolvedProofUrl) {
+        DueStatus due = PaymentDueStatusCalculator.calculate(entity, businessDate);
         return SpacePaymentResponse.builder()
                 .paymentId(entity.getId())
                 .spaceId(entity.getSpace().getId())
@@ -73,7 +111,8 @@ public class SpacePaymentResponse {
                 .month(entity.getMonth())
                 .paymentMethod(entity.getPaymentMethod())
                 .paymentStatus(entity.getPaymentStatus())
-                .proofUrl(entity.getProofUrl())
+                .proofUrl(resolvedProofUrl)
+                .proofFileId(entity.getProofFileId())
                 .referenceNumber(entity.getReferenceNumber())
                 .remarks(entity.getRemarks())
                 .rejectionReason(entity.getRejectionReason())
@@ -87,6 +126,80 @@ public class SpacePaymentResponse {
                 .mealDates(mealDates)
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
+                .billingPeriodStart(entity.getBillingPeriodStart())
+                .billingPeriodEnd(entity.getBillingPeriodEnd())
+                .billableDays(entity.getBillableDays())
+                .daysInMonth(entity.getDaysInMonth())
+                .isProrated(entity.isProrated())
+                .configuredMonthlyAmount(entity.getConfiguredMonthlyAmount())
+                .taxEnabled(entity.isTaxEnabled())
+                .taxRatePercent(entity.getTaxRatePercent())
+                .priceTaxMode(entity.getPriceTaxMode())
+                .baseAmount(entity.getBaseAmount())
+                .taxAmount(entity.getTaxAmount())
+                .paidAmount(due.getPaidAmount())
+                .outstandingAmount(due.getOutstandingAmount())
+                .settlementStatus(due.getSettlementStatus())
+                .isOverdue(due.isOverdue())
+                .daysOverdue(due.getDaysOverdue())
+                .reminderEligible(due.isReminderEligible())
+                .build();
+    }
+
+    public static SpacePaymentResponse from(
+            SpacePaymentEntity entity, List<LocalDate> mealDates, SpaceEntity space) {
+        return from(entity, mealDates, PaymentDueStatusCalculator.businessDate(space));
+    }
+
+    /** Copy with an updated target label without dropping billing/due fields. */
+    public SpacePaymentResponse withTargetLabel(String label) {
+        return SpacePaymentResponse.builder()
+                .paymentId(paymentId)
+                .spaceId(spaceId)
+                .memberId(memberId)
+                .memberName(memberName)
+                .occupancyId(occupancyId)
+                .paymentType(paymentType)
+                .paymentCategory(paymentCategory)
+                .title(title)
+                .amount(amount)
+                .currencyCode(currencyCode)
+                .dueDate(dueDate)
+                .month(month)
+                .paymentMethod(paymentMethod)
+                .paymentStatus(paymentStatus)
+                .proofUrl(proofUrl)
+                .proofFileId(proofFileId)
+                .referenceNumber(referenceNumber)
+                .remarks(remarks)
+                .rejectionReason(rejectionReason)
+                .rejectionCode(rejectionCode)
+                .reviewedBy(reviewedBy)
+                .reviewedAt(reviewedAt)
+                .paymentDate(paymentDate)
+                .targetLabel(label)
+                .paymentBatchId(paymentBatchId)
+                .paymentReference(paymentReference)
+                .mealDates(mealDates)
+                .createdAt(createdAt)
+                .updatedAt(updatedAt)
+                .billingPeriodStart(billingPeriodStart)
+                .billingPeriodEnd(billingPeriodEnd)
+                .billableDays(billableDays)
+                .daysInMonth(daysInMonth)
+                .isProrated(isProrated)
+                .configuredMonthlyAmount(configuredMonthlyAmount)
+                .taxEnabled(taxEnabled)
+                .taxRatePercent(taxRatePercent)
+                .priceTaxMode(priceTaxMode)
+                .baseAmount(baseAmount)
+                .taxAmount(taxAmount)
+                .paidAmount(paidAmount)
+                .outstandingAmount(outstandingAmount)
+                .settlementStatus(settlementStatus)
+                .isOverdue(isOverdue)
+                .daysOverdue(daysOverdue)
+                .reminderEligible(reminderEligible)
                 .build();
     }
 }

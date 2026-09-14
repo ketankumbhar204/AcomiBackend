@@ -23,6 +23,7 @@ public class SpaceResponse {
     private String address;
     private String contactNumber;
     private boolean isActive;
+    private boolean discoverable;
     private UUID ownerId;
     private String ownerName;
     private LocalDateTime createdAt;
@@ -35,6 +36,7 @@ public class SpaceResponse {
                 .address(space.getAddress())
                 .contactNumber(space.getContactNumber())
                 .isActive(space.isActive())
+                .discoverable(space.isDiscoverable())
                 .ownerId(space.getOwner().getId())
                 .ownerName(space.getOwner().getFullName())
                 .createdAt(space.getCreatedAt())

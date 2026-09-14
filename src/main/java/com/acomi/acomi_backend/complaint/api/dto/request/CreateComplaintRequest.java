@@ -35,4 +35,7 @@ public class CreateComplaintRequest {
 
     /** Optional initial photo attachments (data-URL or raw base64), same as payment proofs. */
     private List<String> attachmentImagesBase64;
+
+    /** Preferred: stored file IDs from POST /api/v1/files/upload-sessions. */
+    private List<java.util.UUID> attachmentFileIds;
 }

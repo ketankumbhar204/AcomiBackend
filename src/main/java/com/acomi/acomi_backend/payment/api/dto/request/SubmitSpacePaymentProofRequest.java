@@ -9,6 +9,8 @@ public class SubmitSpacePaymentProofRequest {
 
     private String proofImageBase64;
 
+    private java.util.UUID proofFileId;
+
     private String referenceNumber;
     private String remarks;
     private SpacePaymentMethod paymentMethod;

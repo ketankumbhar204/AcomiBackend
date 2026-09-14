@@ -1,6 +1,8 @@
 package com.acomi.acomi_backend.auth.api.controller;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -11,6 +13,7 @@ import com.acomi.acomi_backend.auth.api.dto.request.OtpVerifiedActionRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.RegisterRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.ResetPasswordRequest;
 import com.acomi.acomi_backend.auth.api.dto.response.AuthTokenResponse;
+import com.acomi.acomi_backend.auth.application.cookie.AuthCookieService;
 import com.acomi.acomi_backend.auth.application.service.AuthService;
 import com.acomi.acomi_backend.user.api.dto.response.UserResponse;
 import java.util.UUID;
@@ -30,6 +33,9 @@ class AuthControllerPasswordAuthTest {
 
     @Mock
     private AuthService authService;
+
+    @Mock
+    private AuthCookieService authCookieService;
 
     @InjectMocks
     private AuthController authController;
@@ -56,6 +62,7 @@ class AuthControllerPasswordAuthTest {
                 .andExpect(status().isOk());
 
         verify(authService).register(any(RegisterRequest.class));
+        verify(authCookieService).setAccessToken(any(), eq("jwt-token"), anyLong());
     }
 
     @Test
@@ -73,6 +80,7 @@ class AuthControllerPasswordAuthTest {
                 .andExpect(status().isOk());
 
         verify(authService).login(any(LoginRequest.class));
+        verify(authCookieService).setAccessToken(any(), eq("jwt-token"), anyLong());
     }
 
     @Test
@@ -90,6 +98,7 @@ class AuthControllerPasswordAuthTest {
                 .andExpect(status().isOk());
 
         verify(authService).loginWithOtp(any(OtpVerifiedActionRequest.class));
+        verify(authCookieService).setAccessToken(any(), eq("jwt-token"), anyLong());
     }
 
     @Test
@@ -124,6 +133,7 @@ class AuthControllerPasswordAuthTest {
                 .andExpect(status().isOk());
 
         verify(authService).changeMobile(any(OtpVerifiedActionRequest.class));
+        verify(authCookieService).setAccessToken(any(), eq("jwt-token"), anyLong());
     }
 
     private static AuthTokenResponse tokenResponse() {

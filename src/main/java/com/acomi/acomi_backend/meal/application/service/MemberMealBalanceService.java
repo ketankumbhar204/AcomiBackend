@@ -21,6 +21,7 @@ import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.Member
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealPollResponseRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
+import com.acomi.acomi_backend.notification.application.service.MealLifecycleNotificationSyncService;
 import com.acomi.acomi_backend.space.domain.model.MealBillingType;
 import com.acomi.acomi_backend.space.domain.model.PrepaidBalanceUnit;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
@@ -54,6 +55,7 @@ public class MemberMealBalanceService {
     private final MemberRepository memberRepository;
     private final MealAccessService mealAccessService;
     private final MealBillingResolver mealBillingResolver;
+    private final MealLifecycleNotificationSyncService mealLifecycleNotificationSyncService;
 
     @Transactional(readOnly = true)
     public MemberMealBalanceResponse getBalance(UUID spaceId, UUID memberId, UUID callerId) {
@@ -156,6 +158,12 @@ public class MemberMealBalanceService {
         ledgerRepository.save(ledgerBuilder.build());
 
         YearMonth month = YearMonth.now();
+        if (!Boolean.TRUE.equals(request.getReplaceBalance())) {
+            mealLifecycleNotificationSyncService.onMealBalanceUpdated(
+                    member,
+                    "Meal credits added",
+                    "Your meal balance at " + space.getName() + " was updated.");
+        }
         return buildResponse(spaceId, memberId, month, balance);
     }
 
@@ -197,6 +205,10 @@ public class MemberMealBalanceService {
                 .build());
 
         YearMonth month = YearMonth.now();
+        mealLifecycleNotificationSyncService.onMealBalanceUpdated(
+                member,
+                "Subscription ended",
+                "Your meal subscription at " + space.getName() + " has ended.");
         return buildResponse(spaceId, memberId, month, balance);
     }
 

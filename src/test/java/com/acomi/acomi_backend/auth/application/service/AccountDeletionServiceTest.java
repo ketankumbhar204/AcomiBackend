@@ -21,6 +21,7 @@ import com.acomi.acomi_backend.member.infrastructure.persistence.repository.Memb
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
 import com.acomi.acomi_backend.notification.infrastructure.persistence.repository.SpaceNotificationRepository;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
 import com.acomi.acomi_backend.user.domain.model.KycStatus;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
@@ -63,6 +64,9 @@ class AccountDeletionServiceTest {
 
     @Mock
     private SpaceNotificationRepository spaceNotificationRepository;
+
+    @Mock
+    private StoredFileService storedFileService;
 
     @Mock
     private org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;

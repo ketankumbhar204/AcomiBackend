@@ -162,10 +162,10 @@ public class SpaceBillingService {
         }
 
         if (occupancy != null && accommodationApplicable) {
-            BigDecimal occupancyExpected =
-                    OccupancyBillingCalculator.computeMonthlyExpected(occupancy, month);
-            if (occupancyExpected != null) {
-                expectedCharges = expectedCharges.add(occupancyExpected);
+            var occupancyBilling =
+                    OccupancyBillingCalculator.computeBilling(occupancy, month, space);
+            if (occupancyBilling != null && occupancyBilling.getTotalAmount() != null) {
+                expectedCharges = expectedCharges.add(occupancyBilling.getTotalAmount());
                 hasExpected = true;
             }
         }

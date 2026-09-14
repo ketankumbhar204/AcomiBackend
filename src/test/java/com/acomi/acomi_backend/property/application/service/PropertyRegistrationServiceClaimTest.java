@@ -17,11 +17,14 @@ import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationStatus;
 import com.acomi.acomi_backend.property.infrastructure.persistence.entity.PropertyRegistrationEntity;
 import com.acomi.acomi_backend.property.infrastructure.persistence.repository.PropertyRegistrationRepository;
 import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
+import com.acomi.acomi_backend.space.application.service.SpaceService;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
+import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,11 +42,18 @@ class PropertyRegistrationServiceClaimTest {
     @Mock
     private OtpService otpService;
 
+    @Mock
+    private UserRepository userRepository;
+
+    @Mock
+    private SpaceService spaceService;
+
     private PropertyRegistrationService service;
 
     @BeforeEach
     void setUp() {
-        service = new PropertyRegistrationService(propertyRegistrationRepository, otpService);
+        service = new PropertyRegistrationService(
+                propertyRegistrationRepository, otpService, userRepository, spaceService);
     }
 
     @Test
@@ -55,6 +65,7 @@ class PropertyRegistrationServiceClaimTest {
                 .thenReturn(List.of(adminLead));
         when(propertyRegistrationRepository.existsLikelyDuplicate("9876543210", "411001", "Sunrise PG"))
                 .thenReturn(false);
+        when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210")).thenReturn(Optional.empty());
         when(propertyRegistrationRepository.save(any(PropertyRegistrationEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 

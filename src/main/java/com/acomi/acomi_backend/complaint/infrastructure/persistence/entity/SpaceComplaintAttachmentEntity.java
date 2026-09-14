@@ -30,6 +30,9 @@ public class SpaceComplaintAttachmentEntity extends BaseEntity {
     @Column(name = "storage_url", nullable = false, columnDefinition = "TEXT")
     private String storageUrl;
 
+    @Column(name = "file_id")
+    private UUID fileId;
+
     @Column(name = "content_type", length = 100)
     private String contentType;
 

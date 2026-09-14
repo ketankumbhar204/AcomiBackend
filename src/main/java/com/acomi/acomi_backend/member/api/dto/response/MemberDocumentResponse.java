@@ -18,6 +18,7 @@ public class MemberDocumentResponse {
     private MemberDocumentType documentType;
     private String documentNumber;
     private String fileUrl;
+    private UUID fileId;
 
     @Schema(description = "Document verification status")
     private DocumentVerificationStatus verificationStatus;
@@ -25,11 +26,16 @@ public class MemberDocumentResponse {
     private LocalDateTime uploadedAt;
 
     public static MemberDocumentResponse from(MemberDocumentEntity document) {
+        return from(document, document.getFileUrl());
+    }
+
+    public static MemberDocumentResponse from(MemberDocumentEntity document, String fileUrl) {
         return MemberDocumentResponse.builder()
                 .documentId(document.getId())
                 .documentType(document.getDocumentType())
                 .documentNumber(document.getDocumentNumber())
-                .fileUrl(document.getFileUrl())
+                .fileUrl(fileUrl)
+                .fileId(document.getFileId())
                 .verificationStatus(document.getVerificationStatus())
                 .uploadedAt(document.getUploadedAt())
                 .build();

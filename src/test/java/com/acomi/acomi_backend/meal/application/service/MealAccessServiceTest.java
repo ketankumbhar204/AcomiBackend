@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.meal.application.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
@@ -88,6 +89,23 @@ class MealAccessServiceTest {
         assertThatThrownBy(() -> accessService.requireViewParticipation(spaceId, memberId, callerId, otherMember))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("You can only view your own meal participation");
+    }
+
+    @Test
+    void isMealsApplicableForSpace_skipsRental() {
+        SpaceEntity rental = SpaceEntity.builder()
+                .name("Rental")
+                .type(SpaceType.RENTAL)
+                .isActive(true)
+                .build();
+        SpaceEntity pg = SpaceEntity.builder()
+                .name("PG")
+                .type(SpaceType.PG)
+                .isActive(true)
+                .build();
+        assertThat(accessService.isMealsApplicableForSpace(rental)).isFalse();
+        assertThat(accessService.isMealsApplicableForSpace(pg)).isTrue();
+        assertThat(accessService.isMealsApplicableForSpace(null)).isTrue();
     }
 
     @Test

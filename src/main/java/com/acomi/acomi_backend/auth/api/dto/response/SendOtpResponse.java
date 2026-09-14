@@ -13,4 +13,11 @@ public class SendOtpResponse {
     private int expiresIn;
     private int resendAfter;
     private String message;
+    /** True only when local registration OTP skip issued a verification token. */
+    private boolean otpSkipped;
+    /**
+     * Present only when {@link #otpSkipped} is true. Clients must treat absence as requiring
+     * the normal verify-otp step.
+     */
+    private String verificationToken;
 }

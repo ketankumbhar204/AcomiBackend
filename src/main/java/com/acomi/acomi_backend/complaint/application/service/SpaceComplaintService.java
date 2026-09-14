@@ -31,6 +31,10 @@ import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
+import com.acomi.acomi_backend.storage.application.support.FileLegacySupport;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
+import com.acomi.acomi_backend.storage.infrastructure.persistence.entity.StoredFileEntity;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
@@ -58,6 +62,7 @@ public class SpaceComplaintService {
     private final SpaceRepository spaceRepository;
     private final SpaceMembershipRepository membershipRepository;
     private final ComplaintNotificationSyncService notificationSyncService;
+    private final StoredFileService storedFileService;
 
     @Transactional
     public ComplaintResponse create(UUID spaceId, UUID callerId, CreateComplaintRequest request) {
@@ -92,12 +97,20 @@ public class SpaceComplaintService {
                 callerId,
                 "Complaint created (" + request.getCategory() + ", " + request.getPriority() + ")");
 
+        if (request.getAttachmentFileIds() != null) {
+            for (UUID fileId : request.getAttachmentFileIds()) {
+                if (fileId == null) {
+                    continue;
+                }
+                addAttachmentInternal(complaint, callerId, fileId, null, null, null, now);
+            }
+        }
         if (request.getAttachmentImagesBase64() != null) {
             for (String image : request.getAttachmentImagesBase64()) {
                 if (!StringUtils.hasText(image)) {
                     continue;
                 }
-                addAttachmentInternal(complaint, callerId, image.trim(), null, null, now);
+                addAttachmentInternal(complaint, callerId, null, image.trim(), null, null, now);
             }
         }
 
@@ -229,6 +242,7 @@ public class SpaceComplaintService {
         addAttachmentInternal(
                 complaint,
                 callerId,
+                request.getFileId(),
                 request.getImageBase64(),
                 request.getFileName(),
                 request.getContentType(),
@@ -384,6 +398,7 @@ public class SpaceComplaintService {
     private void addAttachmentInternal(
             SpaceComplaintEntity complaint,
             UUID callerId,
+            UUID fileId,
             String imageBase64,
             String fileName,
             String contentType,
@@ -394,12 +409,24 @@ public class SpaceComplaintService {
                     "Maximum " + MAX_ATTACHMENTS_PER_COMPLAINT + " attachments allowed",
                     HttpStatus.BAD_REQUEST);
         }
-        String normalized = normalizeImage(imageBase64);
+        UUID storedFileId = storedFileService.resolveIncomingFile(
+                callerId,
+                FilePurpose.COMPLAINT_ATTACHMENT,
+                complaint.getSpace().getId(),
+                fileId,
+                imageBase64,
+                fileName);
+        if (storedFileId == null) {
+            throw new BusinessException("Image is required", HttpStatus.BAD_REQUEST);
+        }
+        storedFileService.markAssociated(storedFileId);
+        StoredFileEntity stored = storedFileService.getRequired(storedFileId);
         SpaceComplaintAttachmentEntity attachment = SpaceComplaintAttachmentEntity.builder()
                 .complaint(complaint)
-                .storageUrl(normalized)
-                .contentType(contentType)
-                .fileName(fileName)
+                .fileId(storedFileId)
+                .storageUrl(FileLegacySupport.marker(storedFileId))
+                .contentType(contentType != null ? contentType : stored.getContentType())
+                .fileName(fileName != null ? fileName : stored.getOriginalFilename())
                 .createdByUserId(callerId)
                 .build();
         attachmentRepository.save(attachment);
@@ -431,7 +458,10 @@ public class SpaceComplaintService {
         List<ComplaintAttachmentResponse> attachments = attachmentRepository
                 .findByComplaint_IdOrderByCreatedAtAsc(complaint.getId())
                 .stream()
-                .map(ComplaintAttachmentResponse::from)
+                .map(attachment -> ComplaintAttachmentResponse.from(
+                        attachment,
+                        storedFileService.resolveDisplayUrl(
+                                callerId, attachment.getFileId(), attachment.getStorageUrl())))
                 .toList();
         List<ComplaintTimelineEventResponse> timeline = timelineRepository
                 .findByComplaint_IdOrderByPerformedAtAsc(complaint.getId())
@@ -494,17 +524,6 @@ public class SpaceComplaintService {
                         HttpStatus.BAD_REQUEST);
             }
         }
-    }
-
-    private static String normalizeImage(String imageBase64) {
-        if (imageBase64 == null || imageBase64.isBlank()) {
-            throw new BusinessException("Image is required", HttpStatus.BAD_REQUEST);
-        }
-        String normalized = imageBase64.trim();
-        if (!(normalized.startsWith("data:image/") || normalized.matches("^[A-Za-z0-9+/=\\r\\n]+$"))) {
-            throw new BusinessException("Invalid image payload", HttpStatus.BAD_REQUEST);
-        }
-        return normalized;
     }
 
     private static String truncate(String value, int max) {

@@ -1,6 +1,5 @@
 package com.acomi.acomi_backend.complaint.api.dto.request;
 
-import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -8,8 +7,9 @@ import lombok.Setter;
 @Setter
 public class AddComplaintAttachmentRequest {
 
-    @NotBlank
     private String imageBase64;
+
+    private java.util.UUID fileId;
 
     private String fileName;
 

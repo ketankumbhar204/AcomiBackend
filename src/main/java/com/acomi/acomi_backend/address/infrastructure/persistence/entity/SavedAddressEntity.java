@@ -53,6 +53,14 @@ public class SavedAddressEntity extends BaseEntity {
     @Column(name = "usage_count", nullable = false)
     private int usageCount = 0;
 
+    @Builder.Default
+    @Column(name = "property_usage_count", nullable = false)
+    private int propertyUsageCount = 0;
+
+    @Builder.Default
+    @Column(name = "mess_usage_count", nullable = false)
+    private int messUsageCount = 0;
+
     @Column(name = "last_used_at")
     private LocalDateTime lastUsedAt;
 

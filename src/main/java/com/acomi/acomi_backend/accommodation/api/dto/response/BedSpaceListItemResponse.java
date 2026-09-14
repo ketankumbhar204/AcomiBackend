@@ -1,7 +1,9 @@
 package com.acomi.acomi_backend.accommodation.api.dto.response;
 
 import com.acomi.acomi_backend.accommodation.domain.model.AccommodationStatus;
+import com.acomi.acomi_backend.accommodation.domain.model.RoomType;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.math.BigDecimal;
 import java.util.UUID;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -24,4 +26,7 @@ public class BedSpaceListItemResponse {
     private String unitName;
     private UUID roomId;
     private String roomName;
+    private RoomType roomType;
+    private BigDecimal defaultRent;
+    private BigDecimal defaultDeposit;
 }

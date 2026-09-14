@@ -7,6 +7,8 @@ import com.acomi.acomi_backend.dashboard.application.service.DashboardAccessServ
 import com.acomi.acomi_backend.dashboard.application.service.SpaceBillingService;
 import com.acomi.acomi_backend.payment.api.dto.request.ReviewSpacePaymentRequest;
 import com.acomi.acomi_backend.payment.api.dto.request.SubmitSpacePaymentProofRequest;
+import com.acomi.acomi_backend.payment.api.dto.response.OverduePaymentResponse;
+import com.acomi.acomi_backend.payment.api.dto.response.OverduePaymentsPageResponse;
 import com.acomi.acomi_backend.payment.api.dto.response.OwnerPaymentsMonthResponse;
 import com.acomi.acomi_backend.payment.api.dto.response.PaymentTimelineResponse;
 import com.acomi.acomi_backend.payment.api.dto.response.PaymentsCardsPageResponse;
@@ -14,7 +16,12 @@ import com.acomi.acomi_backend.payment.api.dto.response.PaymentsMembersPageRespo
 import com.acomi.acomi_backend.payment.api.dto.response.PaymentsSummaryResponse;
 import com.acomi.acomi_backend.payment.api.dto.response.SpacePaymentListResponse;
 import com.acomi.acomi_backend.payment.api.dto.response.SpacePaymentResponse;
+import com.acomi.acomi_backend.payment.api.dto.response.PaymentReminderDeliveryResponse;
+import com.acomi.acomi_backend.payment.api.dto.response.PaymentReminderProcessResultResponse;
+import com.acomi.acomi_backend.payment.application.service.OverduePaymentService;
 import com.acomi.acomi_backend.payment.application.service.OwnerPaymentsMonthService;
+import com.acomi.acomi_backend.payment.application.service.PaymentReminderEligibilityService;
+import com.acomi.acomi_backend.payment.application.service.PaymentReminderService;
 import com.acomi.acomi_backend.payment.application.service.PaymentsQueryService;
 import com.acomi.acomi_backend.payment.application.service.SpacePaymentService;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory;
@@ -48,6 +55,9 @@ public class PaymentController {
     private final SpacePaymentService spacePaymentService;
     private final OwnerPaymentsMonthService ownerPaymentsMonthService;
     private final PaymentsQueryService paymentsQueryService;
+    private final OverduePaymentService overduePaymentService;
+    private final PaymentReminderEligibilityService paymentReminderEligibilityService;
+    private final PaymentReminderService paymentReminderService;
 
     @GetMapping
     @Operation(
@@ -169,6 +179,63 @@ public class PaymentController {
         OwnerPaymentsMonthResponse response =
                 ownerPaymentsMonthService.buildOwnerMonth(spaceId, callerId, month);
         return ResponseEntity.ok(ApiResponse.success("Owner payments month fetched successfully", response));
+    }
+
+    @GetMapping("/overdue")
+    @Operation(
+            summary = "List overdue payments",
+            description = "Payments with dueDate before space business date and outstanding amount > 0. "
+                    + "OWNER/MANAGER only. Optional reminderEligibleOnly filters to statuses suitable "
+                    + "for future reminder delivery (no messages are sent).")
+    public ResponseEntity<ApiResponse<OverduePaymentsPageResponse>> listOverdue(
+            @PathVariable UUID spaceId,
+            @RequestParam(required = false) SpacePaymentType paymentType,
+            @RequestParam(required = false, defaultValue = "false") boolean reminderEligibleOnly,
+            @RequestParam(required = false, defaultValue = "0") int page,
+            @RequestParam(required = false, defaultValue = "20") int size) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Overdue payments fetched successfully",
+                overduePaymentService.listOverdue(
+                        spaceId, callerId, paymentType, reminderEligibleOnly, page, size)));
+    }
+
+    @GetMapping("/reminder-eligible")
+    @Operation(
+            summary = "List reminder-eligible overdue payments",
+            description = "Data-only boundary for reminder processing. Does not send notifications.")
+    public ResponseEntity<ApiResponse<java.util.List<OverduePaymentResponse>>>
+            listReminderEligible(@PathVariable UUID spaceId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Reminder-eligible payments fetched successfully",
+                paymentReminderEligibilityService.findObligationsNeedingReminder(spaceId, callerId)));
+    }
+
+    @PostMapping("/reminders/process")
+    @Operation(
+            summary = "Process payment reminders for a space",
+            description = "OWNER/MANAGER only. Uses PaymentReminderEligibilityService, then attempts "
+                    + "channel delivery (WhatsApp adapter). Idempotent per payment/business-date/channel. "
+                    + "Does not mutate payment amounts or statuses.")
+    public ResponseEntity<ApiResponse<PaymentReminderProcessResultResponse>> processReminders(
+            @PathVariable UUID spaceId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Payment reminders processed",
+                paymentReminderService.processSpace(spaceId, callerId)));
+    }
+
+    @PostMapping("/{paymentId}/reminders")
+    @Operation(
+            summary = "Send reminder for one payment",
+            description = "OWNER/MANAGER only. Same eligibility rules as batch processing.")
+    public ResponseEntity<ApiResponse<PaymentReminderDeliveryResponse>> processPaymentReminder(
+            @PathVariable UUID spaceId, @PathVariable UUID paymentId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Payment reminder processed",
+                paymentReminderService.processPayment(spaceId, paymentId, callerId)));
     }
 
     @GetMapping("/{paymentId}")

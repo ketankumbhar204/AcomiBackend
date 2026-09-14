@@ -13,6 +13,8 @@ import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRe
 import com.acomi.acomi_backend.registration.application.AdminLeadDefaults;
 import com.acomi.acomi_backend.registration.application.RegistrationMobiles;
 import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
+import com.acomi.acomi_backend.space.application.service.SpaceService;
+import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
@@ -33,6 +35,8 @@ public class MessRegistrationService {
 
     private final MessRegistrationRepository messRegistrationRepository;
     private final OtpService otpService;
+    private final UserRepository userRepository;
+    private final SpaceService spaceService;
 
     @Transactional
     public MessRegistrationResponse registerPublic(CreateMessRegistrationRequest request, String requestIp) {
@@ -87,6 +91,17 @@ public class MessRegistrationService {
         if (likelyDuplicate && existing.getStatus() != MessRegistrationStatus.CONVERTED) {
             existing.setStatus(MessRegistrationStatus.DUPLICATE);
         }
+        userRepository
+                .findByMobileNumberAndIsActiveTrue(payload.getMobileNumber())
+                .ifPresent(user -> {
+                    if (!user.isLinkableOwner()) {
+                        return;
+                    }
+                    existing.setLinkedOwnerUserId(user.getId());
+                    if (existing.getConvertedSpaceId() != null) {
+                        spaceService.transferOwnership(existing.getConvertedSpaceId(), user.getId());
+                    }
+                });
         return messRegistrationRepository.save(existing);
     }
 
@@ -101,6 +116,8 @@ public class MessRegistrationService {
                 messRegistrationRepository.existsLikelyDuplicate(payload.getMobileNumber(), pincode, messName);
         String alternateMobileNumber =
                 RegistrationMobiles.resolveAlternate(payload.getMobileNumber(), payload.getAlternateMobileNumber());
+        String additionalMobileNumber = RegistrationMobiles.resolveAdditional(
+                payload.getMobileNumber(), alternateMobileNumber, payload.getAdditionalMobileNumber());
 
         MessRegistrationEntity entity = MessRegistrationEntity.builder()
                 .reference(nextReference())
@@ -108,12 +125,15 @@ public class MessRegistrationService {
                 .ownerName(payload.getOwnerName().trim())
                 .mobileNumber(payload.getMobileNumber())
                 .alternateMobileNumber(alternateMobileNumber)
+                .additionalMobileNumber(additionalMobileNumber)
                 .mobileVerifiedAt(mobileVerifiedAt)
                 .description(trimToNull(payload.getDescription()))
                 .addressLine(payload.getAddressLine().trim())
                 .city(payload.getCity().trim())
                 .state(payload.getState().trim())
                 .pincode(pincode)
+                .latitude(payload.getLatitude())
+                .longitude(payload.getLongitude())
                 .mapUrl(normalizeMapUrl(payload.getMapUrl()))
                 .monthlyPrice(normalizePrice(payload.getMonthlyPrice()))
                 .mealPrice(normalizePrice(payload.getMealPrice()))
@@ -123,6 +143,10 @@ public class MessRegistrationService {
                 .source(source)
                 .requestIp(requestIp)
                 .testLead(Boolean.TRUE.equals(payload.getTestLead()))
+                .sharingNotes(trimToNull(payload.getSharingNotes()))
+                .foodIncludedListing(payload.getFoodIncludedListing())
+                .genderPolicy(payload.getGenderPolicy())
+                .unmappedAmenities(trimToNull(payload.getUnmappedAmenities()))
                 .build();
 
         return messRegistrationRepository.save(entity);
@@ -134,15 +158,25 @@ public class MessRegistrationService {
         entity.setMobileNumber(payload.getMobileNumber());
         entity.setAlternateMobileNumber(
                 RegistrationMobiles.resolveAlternate(payload.getMobileNumber(), payload.getAlternateMobileNumber()));
+        entity.setAdditionalMobileNumber(RegistrationMobiles.resolveAdditional(
+                payload.getMobileNumber(),
+                entity.getAlternateMobileNumber(),
+                payload.getAdditionalMobileNumber()));
         entity.setDescription(trimToNull(payload.getDescription()));
         entity.setAddressLine(payload.getAddressLine().trim());
         entity.setCity(payload.getCity().trim());
         entity.setState(payload.getState().trim());
         entity.setPincode(payload.getPincode().trim());
+        entity.setLatitude(payload.getLatitude());
+        entity.setLongitude(payload.getLongitude());
         entity.setMapUrl(normalizeMapUrl(payload.getMapUrl()));
         entity.setMonthlyPrice(normalizePrice(payload.getMonthlyPrice()));
         entity.setMealPrice(normalizePrice(payload.getMealPrice()));
         entity.setCapacityEstimate(payload.getCapacityEstimate());
+        entity.setSharingNotes(trimToNull(payload.getSharingNotes()));
+        entity.setFoodIncludedListing(payload.getFoodIncludedListing());
+        entity.setGenderPolicy(payload.getGenderPolicy());
+        entity.setUnmappedAmenities(trimToNull(payload.getUnmappedAmenities()));
     }
 
     private String nextReference() {

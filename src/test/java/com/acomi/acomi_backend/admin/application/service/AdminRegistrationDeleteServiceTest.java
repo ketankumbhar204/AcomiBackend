@@ -55,10 +55,22 @@ class AdminRegistrationDeleteServiceTest {
     void setUp() {
         adminPropertyRegistrationService =
                 new AdminPropertyRegistrationService(
-                        propertyRegistrationRepository, propertyRegistrationService, savedAddressService);
+                        propertyRegistrationRepository,
+                        propertyRegistrationService,
+                        savedAddressService,
+                        org.mockito.Mockito.mock(AdminRegistrationConversionService.class),
+                        org.mockito.Mockito.mock(
+                                com.acomi.acomi_backend.space.infrastructure.persistence.repository
+                                        .SpaceRepository.class));
         adminMessRegistrationService =
                 new AdminMessRegistrationService(
-                        messRegistrationRepository, messRegistrationService, savedAddressService);
+                        messRegistrationRepository,
+                        messRegistrationService,
+                        savedAddressService,
+                        org.mockito.Mockito.mock(AdminRegistrationConversionService.class),
+                        org.mockito.Mockito.mock(
+                                com.acomi.acomi_backend.space.infrastructure.persistence.repository
+                                        .SpaceRepository.class));
     }
 
     @Test

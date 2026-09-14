@@ -56,7 +56,29 @@ class JwtAuthenticationFilterAccountDeletionTest {
     }
 
     @Test
-    void missingBearerTokenLeavesRequestUnauthenticated() throws Exception {
+    void httpOnlyCookieTokenAuthenticatesWhenBearerHeaderIsMissing() throws Exception {
+        UUID userId = UUID.randomUUID();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setCookies(new jakarta.servlet.http.Cookie("acomi_at", "cookie-token"));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        org.springframework.security.core.userdetails.UserDetails user =
+                org.springframework.security.core.userdetails.User.withUsername(userId.toString())
+                        .password("n")
+                        .authorities("ROLE_USER")
+                        .build();
+
+        when(jwtService.isTokenValid("cookie-token")).thenReturn(true);
+        when(jwtService.extractUserId("cookie-token")).thenReturn(userId);
+        when(userDetailsService.loadUserById(userId)).thenReturn(user);
+
+        filter.doFilterInternal(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    void missingTokenLeavesRequestUnauthenticated() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest();
         MockHttpServletResponse response = new MockHttpServletResponse();
 

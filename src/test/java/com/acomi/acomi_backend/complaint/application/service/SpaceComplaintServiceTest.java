@@ -25,6 +25,7 @@ import com.acomi.acomi_backend.member.infrastructure.persistence.repository.Spac
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import java.time.LocalDateTime;
 import java.util.Collections;
@@ -63,6 +64,9 @@ class SpaceComplaintServiceTest {
 
     @Mock
     private ComplaintNotificationSyncService notificationSyncService;
+
+    @Mock
+    private StoredFileService storedFileService;
 
     @InjectMocks
     private SpaceComplaintService complaintService;

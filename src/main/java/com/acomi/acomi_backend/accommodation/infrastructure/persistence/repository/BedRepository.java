@@ -120,4 +120,20 @@ public interface BedRepository extends JpaRepository<BedEntity, UUID> {
               )
             """)
     List<BedEntity> findActiveFetchedByBuildingId(@Param("buildingId") UUID buildingId);
+
+    @Query("""
+            SELECT COUNT(b) FROM BedEntity b
+            JOIN b.room r
+            LEFT JOIN r.floor f
+            LEFT JOIN f.building bf
+            LEFT JOIN r.unit ru
+            LEFT JOIN ru.building bu
+            WHERE b.isActive = true
+              AND r.isActive = true
+              AND (
+                  (f IS NOT NULL AND f.isActive = true AND bf.isActive = true AND bf.space.id = :spaceId)
+                  OR (ru IS NOT NULL AND ru.isActive = true AND bu.isActive = true AND bu.space.id = :spaceId)
+              )
+            """)
+    long countActiveBySpaceId(@Param("spaceId") UUID spaceId);
 }

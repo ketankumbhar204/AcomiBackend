@@ -200,6 +200,7 @@ class OccupancyServiceTest {
         assertThat(member.getOccupancyStatus()).isEqualTo(MemberOccupancyStatus.ALLOCATED);
         verify(occupancyHistoryRepository).save(any());
         verify(genderPolicyValidator).validate(space, member);
+        verify(occupancyNotificationSyncService).onAllocationCreated(any());
     }
 
     @Test
@@ -311,6 +312,7 @@ class OccupancyServiceTest {
         assertThat(occupancy.getStatus()).isEqualTo(OccupancyStatus.VACATED);
         assertThat(member.getOccupancyStatus()).isEqualTo(MemberOccupancyStatus.VACATED);
         verify(accommodationStatusSyncService).releaseTarget(AllocationTargetType.BED, bedId, occupancy.getRoom().getId(), null);
+        verify(occupancyNotificationSyncService).onReservationCancelled(occupancy);
     }
 
     @Test
@@ -372,6 +374,7 @@ class OccupancyServiceTest {
                 .releaseTarget(AllocationTargetType.BED, bedId, room.getId(), null);
         assertThat(member.getOccupancyStatus()).isEqualTo(MemberOccupancyStatus.VACATED);
         assertThat(occupancy.getStatus()).isEqualTo(OccupancyStatus.VACATED);
+        verify(occupancyNotificationSyncService).onMoveOutCompleted(occupancy);
     }
 
     private AllocateOccupancyRequest allocateRequest() {

@@ -16,6 +16,8 @@ import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.DailyMenuE
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.DailyMenuEntryRepository;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.DailyMenuRepository;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.SubscriptionActivationRequestRepository;
+import com.acomi.acomi_backend.space.domain.model.SpaceType;
+import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -40,6 +42,7 @@ public class DashboardAttentionService {
     private final MealPollService mealPollService;
     private final MealAccessService mealAccessService;
     private final SubscriptionActivationRequestRepository subscriptionActivationRequestRepository;
+    private final SpaceRepository spaceRepository;
 
     @Transactional(readOnly = true)
     public List<DashboardAttentionItemResponse> resolveAttention(
@@ -96,6 +99,9 @@ public class DashboardAttentionService {
 
     private Optional<DashboardAttentionItemResponse> resolveSubscriptionActivationAttention(
             UUID spaceId, UUID callerId) {
+        if (!isMealCapableSpace(spaceId)) {
+            return Optional.empty();
+        }
         SpaceMembershipEntity membership = mealAccessService.requireViewMeals(spaceId, callerId);
         if (!mealAccessService.canManageMeals(membership)) {
             return Optional.empty();
@@ -121,6 +127,9 @@ public class DashboardAttentionService {
             LocalDate tomorrow,
             MealEligibilitySummaryResponse sharedEligibility,
             List<MealPollResponse> sharedPolls) {
+        if (!isMealCapableSpace(spaceId)) {
+            return Optional.empty();
+        }
         SpaceMembershipEntity membership = mealAccessService.requireViewMeals(spaceId, callerId);
         if (!mealAccessService.canManageMeals(membership)) {
             return Optional.empty();
@@ -194,5 +203,13 @@ public class DashboardAttentionService {
     private boolean isMealPublished(MealEligibilitySummaryResponse eligibility, MealType mealType) {
         return eligibility.getSlots().stream()
                 .anyMatch(slot -> slot.getMealType() == mealType && slot.isPublished());
+    }
+
+    /** Rental (and unknown) spaces do not participate in meal operations. */
+    private boolean isMealCapableSpace(UUID spaceId) {
+        return spaceRepository
+                .findByIdAndIsActiveTrue(spaceId)
+                .map(space -> space.getType() != SpaceType.RENTAL)
+                .orElse(false);
     }
 }

@@ -4,6 +4,7 @@ import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import com.acomi.acomi_backend.space.domain.model.MealBillingType;
 import com.acomi.acomi_backend.space.domain.model.PrepaidBalanceUnit;
+import com.acomi.acomi_backend.space.domain.model.PriceTaxMode;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.meal.domain.model.PollCloseDayOffset;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
@@ -23,6 +24,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(
@@ -55,6 +58,16 @@ public class SpaceEntity extends BaseEntity {
     @Builder.Default
     @Column(name = "is_active", nullable = false)
     private boolean isActive = true;
+
+    @Builder.Default
+    @Column(name = "discoverable", nullable = false)
+    private boolean discoverable = true;
+
+    @Column(name = "latitude", precision = 10, scale = 7)
+    private BigDecimal latitude;
+
+    @Column(name = "longitude", precision = 10, scale = 7)
+    private BigDecimal longitude;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "gender_policy", length = 20)
@@ -110,4 +123,23 @@ public class SpaceEntity extends BaseEntity {
     @Builder.Default
     @Column(name = "poll_close_dinner_time", nullable = false)
     private LocalTime pollCloseDinnerTime = LocalTime.of(13, 0);
+
+    @Builder.Default
+    @Column(name = "tax_enabled", nullable = false)
+    private boolean taxEnabled = false;
+
+    @Column(name = "tax_rate_percent", precision = 5, scale = 2)
+    private BigDecimal taxRatePercent;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "price_tax_mode", length = 20)
+    private PriceTaxMode priceTaxMode;
+
+    @Column(name = "gstin", length = 20)
+    private String gstin;
+
+    @Builder.Default
+    @JdbcTypeCode(SqlTypes.SMALLINT)
+    @Column(name = "billing_due_day", nullable = false)
+    private int billingDueDay = 1;
 }

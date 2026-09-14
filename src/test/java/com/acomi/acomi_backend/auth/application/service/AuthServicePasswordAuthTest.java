@@ -16,8 +16,10 @@ import com.acomi.acomi_backend.auth.api.dto.request.SendOtpRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.VerifyOtpRequest;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.config.security.JwtService;
+import com.acomi.acomi_backend.config.security.OtpProperties;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberDocumentRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.util.Optional;
@@ -39,6 +41,9 @@ class AuthServicePasswordAuthTest {
     private OtpService otpService;
 
     @Mock
+    private OtpProperties otpProperties;
+
+    @Mock
     private JwtService jwtService;
 
     @Mock
@@ -53,6 +58,9 @@ class AuthServicePasswordAuthTest {
     @Mock
     private AccountDeletionService accountDeletionService;
 
+    @Mock
+    private StoredFileService storedFileService;
+
     private final PasswordEncoder passwordEncoder =
             PasswordEncoderFactories.createDelegatingPasswordEncoder();
 
@@ -62,12 +70,14 @@ class AuthServicePasswordAuthTest {
     void setUp() {
         authService = new AuthService(
                 otpService,
+                otpProperties,
                 jwtService,
                 userRepository,
                 memberRepository,
                 memberDocumentRepository,
                 accountDeletionService,
-                passwordEncoder);
+                passwordEncoder,
+                storedFileService);
     }
 
     @Test
@@ -307,12 +317,38 @@ class AuthServicePasswordAuthTest {
                 .isEqualTo(com.acomi.acomi_backend.auth.domain.model.OtpPurpose.REGISTER);
         assertThat(response.getExpiresIn()).isEqualTo(300);
         assertThat(response.getResendAfter()).isEqualTo(60);
+        assertThat(response.isOtpSkipped()).isFalse();
+        assertThat(response.getVerificationToken()).isNull();
         verify(otpService)
                 .sendOtp(
                         "9876543210",
                         com.acomi.acomi_backend.auth.domain.model.OtpPurpose.REGISTER,
                         "127.0.0.1",
                         true);
+    }
+
+    @Test
+    void sendOtp_register_localSkip_returnsVerificationTokenWithoutSms() {
+        when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210"))
+                .thenReturn(Optional.empty());
+        when(otpProperties.isSkipRegistrationOtp()).thenReturn(true);
+        when(otpProperties.getResendCooldownSeconds()).thenReturn(60);
+        when(otpService.issueRegistrationBypassToken("9876543210", "127.0.0.1"))
+                .thenReturn(new com.acomi.acomi_backend.auth.application.otp.RegistrationVerification(
+                        "local-verify-token", 600));
+
+        SendOtpRequest request = new SendOtpRequest();
+        request.setMobileNumber("9876543210");
+        request.setPurpose(com.acomi.acomi_backend.auth.domain.model.OtpPurpose.REGISTER);
+
+        var response = authService.sendOtp(request, "127.0.0.1");
+
+        assertThat(response.isOtpSkipped()).isTrue();
+        assertThat(response.getVerificationToken()).isEqualTo("local-verify-token");
+        assertThat(response.getExpiresIn()).isEqualTo(600);
+        assertThat(response.getResendAfter()).isEqualTo(60);
+        verify(otpService).issueRegistrationBypassToken("9876543210", "127.0.0.1");
+        verify(otpService, never()).sendOtp(any(), any(), any(), anyBoolean());
     }
 
     @Test

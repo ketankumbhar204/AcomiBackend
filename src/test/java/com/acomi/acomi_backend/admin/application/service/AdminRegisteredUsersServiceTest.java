@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUserResponse;
+import com.acomi.acomi_backend.auth.application.service.AccountDeletionService;
 import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
@@ -39,11 +40,15 @@ class AdminRegisteredUsersServiceTest {
     @Mock
     private SpaceMembershipRepository spaceMembershipRepository;
 
+    @Mock
+    private AccountDeletionService accountDeletionService;
+
     private AdminRegisteredUsersService service;
 
     @BeforeEach
     void setUp() {
-        service = new AdminRegisteredUsersService(userRepository, spaceMembershipRepository);
+        service = new AdminRegisteredUsersService(
+                userRepository, spaceMembershipRepository, accountDeletionService);
     }
 
     @Test
@@ -146,6 +151,28 @@ class AdminRegisteredUsersServiceTest {
         assertThat(content).hasSize(1);
         assertThat(content.get(0).getSpaces()).hasSize(3);
         assertThat(content.get(0).getSelectedRole()).isEqualTo(AdminRegisteredUsersService.ROLE_OWNER);
+    }
+
+    @Test
+    void search_includesEmailOnRegisteredUser() {
+        UserEntity user = verifiedUser("Email Owner", "9000000009");
+        user.setEmail("rahul@example.com");
+        when(userRepository.searchVerifiedUsersFiltered(
+                        eq(SystemRole.USER),
+                        eq("rahul@example.com"),
+                        eq(null),
+                        eq(null),
+                        eq(null),
+                        eq(null),
+                        any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(user), PageRequest.of(0, 10), 1));
+        when(spaceMembershipRepository.findActiveByUserIdsWithSpace(List.of(user.getId()))).thenReturn(List.of());
+
+        AdminRegisteredUserResponse item =
+                service.search("rahul@example.com", PageRequest.of(0, 10)).getContent().get(0);
+
+        assertThat(item.getEmail()).isEqualTo("rahul@example.com");
+        assertThat(item.getFullName()).isEqualTo("Email Owner");
     }
 
     @Test

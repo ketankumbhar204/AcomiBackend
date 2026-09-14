@@ -10,6 +10,7 @@ import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
+import com.acomi.acomi_backend.notification.application.service.MembershipNotificationSyncService;
 import com.acomi.acomi_backend.space.api.dto.request.CreateSpaceRequest;
 import com.acomi.acomi_backend.space.api.dto.request.UpdateSpaceRequest;
 import com.acomi.acomi_backend.space.api.dto.response.DefaultSpaceResponse;
@@ -46,6 +47,7 @@ public class SpaceService {
     private final MealPlanService mealPlanService;
     private final InventorySeedService inventorySeedService;
     private final SpaceAmenityService spaceAmenityService;
+    private final MembershipNotificationSyncService membershipNotificationSyncService;
 
     @Transactional
     public SpaceResponse createSpace(CreateSpaceRequest request) {
@@ -55,12 +57,28 @@ public class SpaceService {
         UserEntity owner = userRepository.findByIdAndIsActiveTrue(request.getOwnerId())
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.getOwnerId()));
 
+        String spaceName = request.getName() == null ? "" : request.getName().trim();
+        if (spaceName.isEmpty()) {
+            throw new BusinessException("Space name is required", HttpStatus.BAD_REQUEST);
+        }
+        if (spaceRepository.existsByOwnerIdAndIsActiveTrueAndNameIgnoreCase(owner.getId(), spaceName)) {
+            throw new BusinessException(
+                    "SPACE_NAME_TAKEN",
+                    "You already have a space with this name.",
+                    HttpStatus.CONFLICT);
+        }
+
         SpaceEntity space = SpaceEntity.builder()
                 .owner(owner)
-                .name(request.getName())
+                .name(spaceName)
                 .type(request.getType())
                 .address(request.getAddress())
                 .contactNumber(request.getContactNumber())
+                .discoverable(request.getDiscoverable() == null || Boolean.TRUE.equals(request.getDiscoverable()))
+                .genderPolicy(request.getGenderPolicy())
+                .foodIncludedInRent(Boolean.TRUE.equals(request.getFoodIncludedInRent()))
+                .latitude(request.getLatitude())
+                .longitude(request.getLongitude())
                 .build();
 
         space = spaceRepository.save(space);
@@ -87,11 +105,17 @@ public class SpaceService {
     }
 
     @Transactional(readOnly = true)
-    public SpaceDetailsResponse getSpaceById(UUID spaceId) {
-        log.info("Fetching space: spaceId={}", spaceId);
+    public SpaceDetailsResponse getSpaceById(UUID spaceId, UUID callerId) {
+        log.info("Fetching space: spaceId={}, callerId={}", spaceId, callerId);
 
         SpaceEntity entity = spaceRepository.findByIdAndIsActiveTrue(spaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("Space", "id", spaceId));
+
+        boolean member = spaceMembershipRepository.existsByUserIdAndSpaceIdAndStatus(
+                callerId, spaceId, MembershipStatus.ACTIVE);
+        if (!member) {
+            throw new ResourceNotFoundException("Space", "id", spaceId);
+        }
 
         return SpaceMapper.toDetailsResponse(
                 SpaceMapper.toDomain(entity), spaceAmenityService.getForSpace(spaceId));
@@ -107,6 +131,18 @@ public class SpaceService {
         assertCanManageSpace(entity, callerId);
 
         Space updated = SpaceMapper.applyUpdate(SpaceMapper.toDomain(entity), request);
+        if (request.getName() != null) {
+            String nextName = request.getName().trim();
+            if (!nextName.isEmpty()
+                    && !nextName.equalsIgnoreCase(entity.getName())
+                    && spaceRepository.existsByOwnerIdAndIsActiveTrueAndNameIgnoreCaseAndIdNot(
+                            entity.getOwner().getId(), nextName, spaceId)) {
+                throw new BusinessException(
+                        "SPACE_NAME_TAKEN",
+                        "You already have a space with this name.",
+                        HttpStatus.CONFLICT);
+            }
+        }
         SpaceMapper.applyToEntity(entity, updated);
 
         SpaceEntity saved = spaceRepository.save(entity);
@@ -192,6 +228,76 @@ public class SpaceService {
 
         entity.setActive(false);
         spaceRepository.save(entity);
+        membershipNotificationSyncService.onSpaceDeactivated(entity, callerId);
+    }
+
+    /**
+     * Moves Space ownership to another active user. Used when a real owner claims/replaces an
+     * admin-published listing that was held under a provisional admin owner.
+     */
+    @Transactional
+    public void transferOwnership(UUID spaceId, UUID newOwnerUserId) {
+        SpaceEntity space = spaceRepository
+                .lockById(spaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Space", "id", spaceId));
+        if (!space.isActive()) {
+            throw new ResourceNotFoundException("Space", "id", spaceId);
+        }
+        UserEntity newOwner = userRepository
+                .findByIdAndIsActiveTrue(newOwnerUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", newOwnerUserId));
+
+        UUID previousOwnerId = space.getOwner().getId();
+        if (previousOwnerId.equals(newOwnerUserId)) {
+            return;
+        }
+
+        space.setOwner(newOwner);
+        spaceRepository.save(space);
+
+        for (SpaceMembershipEntity ownerMembership :
+                spaceMembershipRepository.findBySpaceIdAndRole(spaceId, MembershipRole.OWNER)) {
+            if (ownerMembership.getUser().getId().equals(previousOwnerId)
+                    && ownerMembership.getStatus() == MembershipStatus.ACTIVE) {
+                ownerMembership.setStatus(MembershipStatus.REMOVED);
+                ownerMembership.setExitedAt(LocalDateTime.now());
+                ownerMembership.setDefault(false);
+                spaceMembershipRepository.save(ownerMembership);
+            }
+        }
+
+        SpaceMembershipEntity existing =
+                spaceMembershipRepository.findByUserIdAndSpaceId(newOwnerUserId, spaceId).orElse(null);
+        if (existing != null) {
+            existing.setRole(MembershipRole.OWNER);
+            existing.setStatus(MembershipStatus.ACTIVE);
+            existing.setExitedAt(null);
+            if (existing.getJoinedAt() == null) {
+                existing.setJoinedAt(LocalDateTime.now());
+            }
+            spaceMembershipRepository.save(existing);
+            memberMasterService.linkMemberToMembership(
+                    existing, newOwner.getFullName(), newOwner.getMobileNumber());
+        } else {
+            SpaceMembershipEntity ownerMembership = SpaceMembershipEntity.builder()
+                    .user(newOwner)
+                    .space(space)
+                    .role(MembershipRole.OWNER)
+                    .status(MembershipStatus.ACTIVE)
+                    .joinedAt(LocalDateTime.now())
+                    .build();
+            spaceMembershipRepository.save(ownerMembership);
+            memberMasterService.linkMemberToMembership(
+                    ownerMembership, newOwner.getFullName(), newOwner.getMobileNumber());
+        }
+
+        membershipNotificationSyncService.onOwnershipTransferred(space, previousOwnerId, newOwnerUserId);
+
+        log.info(
+                "Transferred space {} ownership from {} to {}",
+                spaceId,
+                previousOwnerId,
+                newOwnerUserId);
     }
 
     private void assertOwner(SpaceEntity space, UUID callerId) {

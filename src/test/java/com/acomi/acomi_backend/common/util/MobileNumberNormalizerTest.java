@@ -13,6 +13,13 @@ class MobileNumberNormalizerTest {
         assertThat(MobileNumberNormalizer.normalize("9876543210")).isEqualTo("9876543210");
         assertThat(MobileNumberNormalizer.normalize("+91 98765 43210")).isEqualTo("9876543210");
         assertThat(MobileNumberNormalizer.normalize("919876543210")).isEqualTo("9876543210");
+        assertThat(MobileNumberNormalizer.normalize("09876543210")).isEqualTo("9876543210");
+    }
+
+    @Test
+    void formatWithCountryCode_prefixesPlus91() {
+        assertThat(MobileNumberNormalizer.formatWithCountryCode("9876543210")).isEqualTo("+919876543210");
+        assertThat(MobileNumberNormalizer.formatWithCountryCode("+91 98765 43210")).isEqualTo("+919876543210");
     }
 
     @Test

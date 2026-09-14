@@ -115,6 +115,7 @@ class SavedAddressServiceTest {
                 "Hinjewadi Phase 1", "Pune", "Maharashtra", "411057", "https://maps.google.com/hinjewadi");
 
         assertThat(existing.getUsageCount()).isEqualTo(previousUsage + 1);
+        assertThat(existing.getPropertyUsageCount()).isEqualTo(1);
         assertThat(existing.getLastUsedAt()).isAfter(LocalDateTime.now().minusMinutes(1));
     }
 

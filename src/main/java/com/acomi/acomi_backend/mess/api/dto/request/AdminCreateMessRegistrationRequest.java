@@ -44,6 +44,19 @@ public class AdminCreateMessRegistrationRequest {
                         : alternateMobileNumber.trim();
     }
 
+    @Pattern(
+            regexp = "^[6-9]\\d{9}$",
+            message = "Additional mobile number must be a valid 10-digit Indian number")
+    @Schema(description = "Optional third owner contact number (Contact 3)")
+    private String additionalMobileNumber;
+
+    public void setAdditionalMobileNumber(String additionalMobileNumber) {
+        this.additionalMobileNumber =
+                additionalMobileNumber == null || additionalMobileNumber.isBlank()
+                        ? null
+                        : additionalMobileNumber.trim();
+    }
+
     @Size(max = 255, message = "Address must be at most 255 characters")
     private String addressLine;
 
@@ -59,6 +72,14 @@ public class AdminCreateMessRegistrationRequest {
     @Size(max = 512, message = "Map link must be at most 512 characters")
     private String mapUrl;
 
+    @DecimalMin(value = "-90.0", message = "Latitude is out of range")
+    @DecimalMax(value = "90.0", message = "Latitude is out of range")
+    private BigDecimal latitude;
+
+    @DecimalMin(value = "-180.0", message = "Longitude is out of range")
+    @DecimalMax(value = "180.0", message = "Longitude is out of range")
+    private BigDecimal longitude;
+
     @DecimalMin(value = "0", message = "Monthly price cannot be negative")
     @DecimalMax(value = "9999999999", message = "Monthly price is too large")
     private BigDecimal monthlyPrice;
@@ -73,4 +94,14 @@ public class AdminCreateMessRegistrationRequest {
 
     @Schema(description = "When true, marks this admin lead as created for testing")
     private Boolean testLead;
+
+    @Size(max = 4000, message = "Sharing notes must be at most 4000 characters")
+    private String sharingNotes;
+
+    private Boolean foodIncludedListing;
+
+    private com.acomi.acomi_backend.space.domain.model.GenderPolicy genderPolicy;
+
+    @Size(max = 4000, message = "Unmapped amenities must be at most 4000 characters")
+    private String unmappedAmenities;
 }

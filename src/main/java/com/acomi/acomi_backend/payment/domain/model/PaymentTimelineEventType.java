@@ -9,5 +9,7 @@ public enum PaymentTimelineEventType {
     RESUBMITTED,
     PAID,
     REFUNDED,
-    UPDATE_REQUESTED
+    UPDATE_REQUESTED,
+    REMINDER_SENT,
+    REMINDER_FAILED
 }

@@ -93,6 +93,48 @@ public interface SpaceNotificationRepository extends JpaRepository<SpaceNotifica
             @Param("spaceIds") Collection<UUID> spaceIds,
             @Param("status") NotificationStatus status);
 
+    List<SpaceNotificationEntity> findByUserIdAndStatusInOrderByCreatedAtDesc(
+            UUID userId, Collection<NotificationStatus> statuses);
+
+    long countByUserIdAndStatus(UUID userId, NotificationStatus status);
+
+    List<SpaceNotificationEntity> findByUserIdAndNotificationTypeAndStatusInOrderByCreatedAtDesc(
+            UUID userId, NotificationType notificationType, Collection<NotificationStatus> statuses);
+
+    long countByUserIdAndNotificationTypeAndStatus(
+            UUID userId, NotificationType notificationType, NotificationStatus status);
+
+    @Query("""
+            SELECT n FROM SpaceNotificationEntity n
+            WHERE n.userId = :userId
+              AND n.notificationType IN :types
+              AND n.status IN :statuses
+            ORDER BY n.createdAt DESC
+            """)
+    org.springframework.data.domain.Page<SpaceNotificationEntity> findByUserIdAndNotificationTypeInAndStatusIn(
+            @Param("userId") UUID userId,
+            @Param("types") Collection<NotificationType> types,
+            @Param("statuses") Collection<NotificationStatus> statuses,
+            org.springframework.data.domain.Pageable pageable);
+
+    long countByUserIdAndNotificationTypeInAndStatus(
+            UUID userId, Collection<NotificationType> types, NotificationStatus status);
+
+    @Query("""
+            SELECT COUNT(n) FROM SpaceNotificationEntity n
+            WHERE n.userId = :userId
+              AND n.spaceId IN :spaceIds
+              AND n.status = :status
+              AND n.notificationType NOT IN :excludedTypes
+            """)
+    long countByUserAndSpacesAndStatusExcludingTypes(
+            @Param("userId") UUID userId,
+            @Param("spaceIds") Collection<UUID> spaceIds,
+            @Param("status") NotificationStatus status,
+            @Param("excludedTypes") Collection<NotificationType> excludedTypes);
+
+    Optional<SpaceNotificationEntity> findByIdAndUserId(UUID id, UUID userId);
+
     @Modifying
     @Query("DELETE FROM SpaceNotificationEntity n WHERE n.userId = :userId")
     int deleteByUserId(@Param("userId") UUID userId);

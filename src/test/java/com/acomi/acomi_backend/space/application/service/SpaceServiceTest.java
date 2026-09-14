@@ -18,6 +18,7 @@ import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
+import com.acomi.acomi_backend.notification.application.service.MembershipNotificationSyncService;
 import com.acomi.acomi_backend.space.api.dto.request.CreateSpaceRequest;
 import com.acomi.acomi_backend.space.api.dto.request.UpdateSpaceRequest;
 import com.acomi.acomi_backend.space.api.dto.response.DefaultSpaceResponse;
@@ -69,6 +70,9 @@ class SpaceServiceTest {
 
     @Mock
     private SpaceAmenityService spaceAmenityService;
+
+    @Mock
+    private MembershipNotificationSyncService membershipNotificationSyncService;
 
     @InjectMocks
     private SpaceService spaceService;
@@ -137,8 +141,11 @@ class SpaceServiceTest {
     @Test
     void getSpaceById_whenSpaceExists_returnsDetails() {
         when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndStatus(
+                        ownerId, spaceId, MembershipStatus.ACTIVE))
+                .thenReturn(true);
 
-        SpaceDetailsResponse response = spaceService.getSpaceById(spaceId);
+        SpaceDetailsResponse response = spaceService.getSpaceById(spaceId, ownerId);
 
         assertThat(response.getId()).isEqualTo(spaceId);
         assertThat(response.getName()).isEqualTo("Sunrise PG");
@@ -152,9 +159,20 @@ class SpaceServiceTest {
     void getSpaceById_whenSpaceNotFound_throwsResourceNotFoundException() {
         when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> spaceService.getSpaceById(spaceId))
+        assertThatThrownBy(() -> spaceService.getSpaceById(spaceId, ownerId))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Space not found");
+    }
+
+    @Test
+    void getSpaceById_whenCallerIsNotAMember_throwsNotFound() {
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndStatus(
+                        otherUserId, spaceId, MembershipStatus.ACTIVE))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> spaceService.getSpaceById(spaceId, otherUserId))
+                .isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
@@ -217,6 +235,7 @@ class SpaceServiceTest {
         ArgumentCaptor<SpaceEntity> captor = ArgumentCaptor.forClass(SpaceEntity.class);
         verify(spaceRepository).save(captor.capture());
         assertThat(captor.getValue().isActive()).isFalse();
+        verify(membershipNotificationSyncService).onSpaceDeactivated(space, ownerId);
     }
 
     @Test
@@ -387,5 +406,101 @@ class SpaceServiceTest {
 
         assertThatThrownBy(() -> spaceService.getDefaultSpace(ownerId))
                 .isInstanceOf(ResourceNotFoundException.class);
+    }
+
+    @Test
+    void transferOwnership_replacesProvisionalOwnerAndUpgradesExistingMembership() {
+        UserEntity newOwner = UserEntity.builder()
+                .mobileNumber("9000000011")
+                .fullName("Rahul")
+                .isActive(true)
+                .build();
+        UUID newOwnerId = UUID.randomUUID();
+        newOwner.setId(newOwnerId);
+
+        SpaceMembershipEntity previousOwnerMembership = SpaceMembershipEntity.builder()
+                .user(owner)
+                .space(space)
+                .role(MembershipRole.OWNER)
+                .status(MembershipStatus.ACTIVE)
+                .joinedAt(LocalDateTime.now())
+                .build();
+        SpaceMembershipEntity existingMember = SpaceMembershipEntity.builder()
+                .user(newOwner)
+                .space(space)
+                .role(MembershipRole.TENANT)
+                .status(MembershipStatus.ACTIVE)
+                .joinedAt(LocalDateTime.now())
+                .build();
+
+        space.setDiscoverable(true);
+
+        when(spaceRepository.lockById(spaceId)).thenReturn(Optional.of(space));
+        when(userRepository.findByIdAndIsActiveTrue(newOwnerId)).thenReturn(Optional.of(newOwner));
+        when(spaceMembershipRepository.findBySpaceIdAndRole(spaceId, MembershipRole.OWNER))
+                .thenReturn(List.of(previousOwnerMembership));
+        when(spaceMembershipRepository.findByUserIdAndSpaceId(newOwnerId, spaceId))
+                .thenReturn(Optional.of(existingMember));
+        when(spaceRepository.save(any(SpaceEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(spaceMembershipRepository.save(any(SpaceMembershipEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        spaceService.transferOwnership(spaceId, newOwnerId);
+
+        assertThat(space.getOwner().getId()).isEqualTo(newOwnerId);
+        assertThat(space.isDiscoverable()).isTrue();
+        assertThat(previousOwnerMembership.getStatus()).isEqualTo(MembershipStatus.REMOVED);
+        assertThat(existingMember.getRole()).isEqualTo(MembershipRole.OWNER);
+        assertThat(existingMember.getStatus()).isEqualTo(MembershipStatus.ACTIVE);
+        verify(memberMasterService).linkMemberToMembership(existingMember, "Rahul", "9000000011");
+        verify(membershipNotificationSyncService).onOwnershipTransferred(space, ownerId, newOwnerId);
+    }
+
+    @Test
+    void transferOwnership_sameOwnerIsNoOp() {
+        when(spaceRepository.lockById(spaceId)).thenReturn(Optional.of(space));
+        when(userRepository.findByIdAndIsActiveTrue(ownerId)).thenReturn(Optional.of(owner));
+
+        spaceService.transferOwnership(spaceId, ownerId);
+
+        verify(spaceRepository, never()).save(any());
+        verify(spaceMembershipRepository, never()).findBySpaceIdAndRole(any(), any());
+    }
+
+    @Test
+    void transferOwnership_createsOwnerMembershipWhenUserHasNoneOnSpace() {
+        UserEntity newOwner = UserEntity.builder()
+                .mobileNumber("9000000013")
+                .fullName("Second Owner")
+                .isActive(true)
+                .build();
+        UUID newOwnerId = UUID.randomUUID();
+        newOwner.setId(newOwnerId);
+        SpaceMembershipEntity previousOwnerMembership = SpaceMembershipEntity.builder()
+                .user(owner)
+                .space(space)
+                .role(MembershipRole.OWNER)
+                .status(MembershipStatus.ACTIVE)
+                .joinedAt(LocalDateTime.now())
+                .build();
+
+        when(spaceRepository.lockById(spaceId)).thenReturn(Optional.of(space));
+        when(userRepository.findByIdAndIsActiveTrue(newOwnerId)).thenReturn(Optional.of(newOwner));
+        when(spaceMembershipRepository.findBySpaceIdAndRole(spaceId, MembershipRole.OWNER))
+                .thenReturn(List.of(previousOwnerMembership));
+        when(spaceMembershipRepository.findByUserIdAndSpaceId(newOwnerId, spaceId)).thenReturn(Optional.empty());
+        when(spaceRepository.save(any(SpaceEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(spaceMembershipRepository.save(any(SpaceMembershipEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        spaceService.transferOwnership(spaceId, newOwnerId);
+
+        ArgumentCaptor<SpaceMembershipEntity> captor = ArgumentCaptor.forClass(SpaceMembershipEntity.class);
+        verify(spaceMembershipRepository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
+        assertThat(captor.getAllValues())
+                .anyMatch(membership ->
+                        membership.getRole() == MembershipRole.OWNER
+                                && membership.getUser().getId().equals(newOwnerId)
+                                && membership.getStatus() == MembershipStatus.ACTIVE);
     }
 }

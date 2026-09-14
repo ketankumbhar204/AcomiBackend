@@ -14,6 +14,7 @@ public class MealHeadcountMemberResponse {
     private int quantity;
     private MealPollPaymentStatus paymentStatus;
     private String paymentProofImageUrl;
+    private UUID paymentProofFileId;
     private UUID deliveryLocationId;
     private String deliveryLocationName;
 }

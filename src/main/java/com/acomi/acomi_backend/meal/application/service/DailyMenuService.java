@@ -20,7 +20,16 @@ import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.DailyM
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.DailyMenuPackageItemRepository;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.DailyMenuRepository;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealPollOptionRepository;
+import com.acomi.acomi_backend.member.domain.model.MembershipRole;
+import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
+import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
+import com.acomi.acomi_backend.notification.application.port.in.PublishNotificationCommand;
+import com.acomi.acomi_backend.notification.application.service.NotificationService;
+import com.acomi.acomi_backend.notification.domain.model.NotificationCategory;
+import com.acomi.acomi_backend.notification.domain.model.NotificationEntityType;
+import com.acomi.acomi_backend.notification.domain.model.NotificationPriority;
+import com.acomi.acomi_backend.notification.domain.model.NotificationType;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
@@ -63,6 +72,8 @@ public class DailyMenuService {
     private final MealAccessService mealAccessService;
     private final ObjectMapper objectMapper;
     private final MenuPlanningHistoryService menuPlanningHistoryService;
+    private final NotificationService notificationService;
+    private final SpaceMembershipRepository spaceMembershipRepository;
 
     @Transactional(readOnly = true)
     public List<DailyMenuResponse> listMenus(UUID spaceId, UUID callerId, LocalDate from, LocalDate to) {
@@ -159,12 +170,18 @@ public class DailyMenuService {
             throw new BusinessException(
                     "At least one available option is required to publish", HttpStatus.BAD_REQUEST);
         }
-        if (menu.getStatus() == DailyMenuStatus.PUBLISHED) {
-            // Refresh snapshot / timestamp so Share Again stays intentional after drifts.
+        DailyMenuStatus previousStatus = menu.getStatus();
+        if (previousStatus == DailyMenuStatus.PUBLISHED) {
+            String previousSnapshot = menu.getPublishedSnapshot();
             capturePublishedSnapshot(menu);
+            boolean changed = previousSnapshot == null
+                    || !previousSnapshot.equals(menu.getPublishedSnapshot());
             menu.setPublishedAt(LocalDateTime.now());
             DailyMenuEntity saved = dailyMenuRepository.save(menu);
             menuPlanningHistoryService.recordFromMenu(saved);
+            if (changed) {
+                publishMenuPublishedNotifications(spaceId, saved, callerId, "Menu updated");
+            }
             return toResponse(saved, false);
         }
         menu.setStatus(DailyMenuStatus.PUBLISHED);
@@ -172,7 +189,49 @@ public class DailyMenuService {
         capturePublishedSnapshot(menu);
         DailyMenuEntity saved = dailyMenuRepository.save(menu);
         menuPlanningHistoryService.recordFromMenu(saved);
+        String title = previousStatus == DailyMenuStatus.MODIFIED
+                ? "Menu updated"
+                : "Today's menu is ready";
+        publishMenuPublishedNotifications(spaceId, saved, callerId, title);
         return toResponse(saved, false);
+    }
+
+    private void publishMenuPublishedNotifications(
+            UUID spaceId, DailyMenuEntity menu, UUID actorId, String title) {
+        SpaceEntity space = menu.getSpace() != null ? menu.getSpace() : loadSpace(spaceId);
+        if (!mealAccessService.isMealsApplicableForSpace(space)) {
+            return;
+        }
+        String spaceName = space.getName() != null ? space.getName() : "your Space";
+        List<SpaceMembershipEntity> participants =
+                spaceMembershipRepository.findBySpaceIdAndStatus(spaceId, MembershipStatus.ACTIVE).stream()
+                        .filter(m -> m.getRole() == MembershipRole.TENANT
+                                || m.getRole() == MembershipRole.CUSTOMER)
+                        .filter(m -> m.getUser() != null)
+                        .toList();
+        for (SpaceMembershipEntity membership : participants) {
+            UUID userId = membership.getUser().getId();
+            notificationService.publish(PublishNotificationCommand.builder()
+                    .spaceId(spaceId)
+                    .userId(userId)
+                    .actorId(actorId)
+                    .entityType(NotificationEntityType.DAILY_MENU)
+                    .entityId(menu.getId())
+                    .notificationType(NotificationType.MENU_PUBLISHED)
+                    .category(NotificationCategory.INFORMATION)
+                    .priority(NotificationPriority.MEDIUM)
+                    .title(title)
+                    .message("Check today's menu for " + spaceName + ".")
+                    .actionLabel("View Menu")
+                    .actionRoute("DailyMenuToday")
+                    .dedupeKey("INFO:MENU_PUBLISHED:"
+                            + menu.getId()
+                            + ":"
+                            + userId
+                            + ":"
+                            + menu.getPublishedAt())
+                    .build());
+        }
     }
 
     @Transactional

@@ -147,6 +147,15 @@ public class PendingActionService {
         syncAll(spaceId, userId, resolvedMonth);
     }
 
+    /**
+     * Time-based / operational meal Action Center rows for every OWNER/MANAGER in the space.
+     * Does not require a calling user, so it is safe for the daily scheduler.
+     */
+    @Transactional
+    public void syncMealOperations(UUID spaceId) {
+        syncOperationalAttentionForManagers(spaceId);
+    }
+
     private void syncAll(UUID spaceId, UUID userId, String resolvedMonth) {
         paymentNotificationSyncService.syncSpaceMonth(spaceId, resolvedMonth);
         complaintNotificationSyncService.syncSpace(spaceId);

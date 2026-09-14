@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
+import com.acomi.acomi_backend.payment.application.support.BillingAmountCalculator.BillingAmountResult;
+import com.acomi.acomi_backend.space.domain.model.PriceTaxMode;
+import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -95,14 +98,23 @@ class OccupancyBillingCalculatorTest {
     }
 
     @Test
-    void isBillableInMonth_returnsTrueForMoveInMonthAndLater() {
+    void midMonthJoin_isProrated() {
+        OccupancyEntity occupancy = activeOccupancy(
+                LocalDate.of(2026, 9, 15), null, new BigDecimal("10000"));
+
+        assertThat(OccupancyBillingCalculator.isBillableInMonth(occupancy, YearMonth.of(2026, 9)))
+                .isTrue();
+        assertThat(OccupancyBillingCalculator.computeMonthlyExpected(occupancy, YearMonth.of(2026, 9)))
+                .isEqualByComparingTo(new BigDecimal("5333.33"));
+    }
+
+    @Test
+    void joinOnFirst_fullMonth() {
         OccupancyEntity occupancy = activeOccupancy(
                 LocalDate.of(2026, 7, 1), null, new BigDecimal("10000"));
 
-        assertThat(OccupancyBillingCalculator.isBillableInMonth(occupancy, YearMonth.of(2026, 7)))
-                .isTrue();
         assertThat(OccupancyBillingCalculator.computeMonthlyExpected(occupancy, YearMonth.of(2026, 7)))
-                .isEqualByComparingTo(new BigDecimal("10000"));
+                .isEqualByComparingTo(new BigDecimal("10000.00"));
     }
 
     @Test
@@ -119,7 +131,7 @@ class OccupancyBillingCalculatorTest {
     }
 
     @Test
-    void isBillableInMonth_returnsTrueDuringVacatedMonth() {
+    void vacatedMidMonth_proratesFinalMonth() {
         OccupancyEntity occupancy = OccupancyEntity.builder()
                 .status(OccupancyStatus.VACATED)
                 .moveInDate(LocalDate.of(2026, 3, 1))
@@ -129,6 +141,9 @@ class OccupancyBillingCalculatorTest {
 
         assertThat(OccupancyBillingCalculator.isBillableInMonth(occupancy, YearMonth.of(2026, 5)))
                 .isTrue();
+        // May has 31 days; 1–15 inclusive = 15 days → 9000 * 15 / 31
+        assertThat(OccupancyBillingCalculator.computeMonthlyExpected(occupancy, YearMonth.of(2026, 5)))
+                .isEqualByComparingTo(new BigDecimal("4354.84"));
     }
 
     @Test
@@ -144,6 +159,24 @@ class OccupancyBillingCalculatorTest {
                 .isTrue();
         assertThat(OccupancyBillingCalculator.isBillableInMonth(occupancy, YearMonth.of(2026, 6)))
                 .isFalse();
+    }
+
+    @Test
+    void computeBilling_appliesSpaceTaxExclusive() {
+        OccupancyEntity occupancy = activeOccupancy(
+                LocalDate.of(2026, 9, 15), null, new BigDecimal("10000"));
+        SpaceEntity space = SpaceEntity.builder()
+                .taxEnabled(true)
+                .taxRatePercent(new BigDecimal("18"))
+                .priceTaxMode(PriceTaxMode.EXCLUSIVE)
+                .billingDueDay(1)
+                .build();
+
+        BillingAmountResult result =
+                OccupancyBillingCalculator.computeBilling(occupancy, YearMonth.of(2026, 9), space);
+
+        assertThat(result.getTotalAmount()).isEqualByComparingTo("6293.33");
+        assertThat(result.getDueDate()).isEqualTo(LocalDate.of(2026, 9, 15));
     }
 
     private static OccupancyEntity activeOccupancy(

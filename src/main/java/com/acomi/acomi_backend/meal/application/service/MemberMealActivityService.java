@@ -37,6 +37,7 @@ import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealPo
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
 import com.acomi.acomi_backend.space.domain.model.MealBillingType;
 import com.acomi.acomi_backend.space.domain.model.PrepaidBalanceUnit;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
@@ -77,6 +78,7 @@ public class MemberMealActivityService {
     private final MealBillingResolver mealBillingResolver;
     private final MealPollEligibilityPolicy pollEligibilityPolicy;
     private final MealOccupancyPolicy occupancyPolicy;
+    private final StoredFileService storedFileService;
 
     @Transactional(readOnly = true)
     public MemberMealActivityMonthResponse getMonthlyActivity(
@@ -323,7 +325,7 @@ public class MemberMealActivityService {
 
         MemberMealActivityDayPaymentResponse payment = dayPaymentRepository
                 .findBySpaceIdAndMemberIdAndPollDate(spaceId, memberId, date)
-                .map(this::toPaymentResponse)
+                .map(row -> toPaymentResponse(callerId, row))
                 .orElse(null);
 
         LocalDateTime responseSubmittedAt = slots.stream()
@@ -397,7 +399,8 @@ public class MemberMealActivityService {
         return String.join("\n", parts);
     }
 
-    private MemberMealActivityDayPaymentResponse toPaymentResponse(MealPollDayPaymentEntity payment) {
+    private MemberMealActivityDayPaymentResponse toPaymentResponse(
+            UUID callerId, MealPollDayPaymentEntity payment) {
         return MemberMealActivityDayPaymentResponse.builder()
                 .id(payment.getId())
                 .pollDate(payment.getPollDate())
@@ -406,7 +409,9 @@ public class MemberMealActivityService {
                 .chargedAmount(payment.getChargedAmount())
                 .paymentBatchId(payment.getPaymentBatchId())
                 .paymentReference(payment.getPaymentReference())
-                .proofImageUrl(payment.getProofImageUrl())
+                .proofImageUrl(storedFileService.resolveDisplayUrl(
+                        callerId, payment.getProofFileId(), payment.getProofImageUrl()))
+                .proofFileId(payment.getProofFileId())
                 .referenceNumber(payment.getReferenceNumber())
                 .remarks(payment.getRemarks())
                 .paymentMethod(payment.getPaymentMethod())

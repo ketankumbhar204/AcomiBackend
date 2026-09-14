@@ -16,6 +16,8 @@ import com.acomi.acomi_backend.meal.api.dto.response.MealPollOptionResponse;
 
 import com.acomi.acomi_backend.meal.api.dto.response.MealHeadcountSlotResponse;
 
+import com.acomi.acomi_backend.common.security.SecurityUtils;
+import com.acomi.acomi_backend.storage.application.service.StoredFileService;
 import com.acomi.acomi_backend.meal.domain.model.MealPollOptionType;
 
 import com.acomi.acomi_backend.meal.domain.model.MealPollPaymentStatus;
@@ -108,6 +110,7 @@ public class MealHeadcountService {
     private final MealPollEligibilityPolicy pollEligibilityPolicy;
 
     private final MealOccupancyPolicy occupancyPolicy;
+    private final StoredFileService storedFileService;
 
 
 
@@ -361,8 +364,14 @@ public class MealHeadcountService {
             Map<UUID, MealPollMemberDeliveryEntity> deliveriesByMember) {
         MealPollDayPaymentEntity payment = paymentsByMember.get(response.getMember().getId());
         String proofImageUrl = null;
+        UUID proofFileId = null;
         if (payment != null && payment.getPaymentStatus() == MealPollPaymentStatus.PENDING_APPROVAL) {
-            proofImageUrl = payment.getProofImageUrl();
+            proofFileId = payment.getProofFileId();
+            UUID callerId = SecurityUtils.getCurrentUserIdOrNull();
+            proofImageUrl = callerId == null
+                    ? payment.getProofImageUrl()
+                    : storedFileService.resolveDisplayUrl(
+                            callerId, payment.getProofFileId(), payment.getProofImageUrl());
         }
 
         MealPollMemberDeliveryEntity delivery = deliveriesByMember.get(response.getMember().getId());
@@ -373,6 +382,7 @@ public class MealHeadcountService {
                 .quantity(quantityMode ? response.getQuantity() : 1)
                 .paymentStatus(payment != null ? payment.getPaymentStatus() : null)
                 .paymentProofImageUrl(proofImageUrl)
+                .paymentProofFileId(proofFileId)
                 .deliveryLocationId(
                         delivery != null ? delivery.getDeliveryLocation().getId() : null)
                 .deliveryLocationName(

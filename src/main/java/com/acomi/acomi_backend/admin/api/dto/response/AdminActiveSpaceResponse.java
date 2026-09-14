@@ -19,4 +19,8 @@ public class AdminActiveSpaceResponse {
     private String ownerName;
     private String ownerMobile;
     private LocalDateTime createdAt;
+    /** ADMIN / PUBLIC_WEBSITE when linked to a registration; null for app-created spaces. */
+    private String source;
+    private boolean testLead;
+    private UUID registrationId;
 }
