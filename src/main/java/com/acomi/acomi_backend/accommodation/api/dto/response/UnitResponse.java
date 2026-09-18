@@ -29,6 +29,7 @@ public class UnitResponse {
     private AccommodationActionMetadata actions;
     private BigDecimal defaultRent;
     private BigDecimal defaultDeposit;
+    private UUID photoFileId;
 
     public static UnitResponse from(UnitEntity unit) {
         return from(unit, null);
@@ -50,6 +51,7 @@ public class UnitResponse {
                 .actions(actions)
                 .defaultRent(unit.getDefaultRent())
                 .defaultDeposit(unit.getDefaultDeposit())
+                .photoFileId(unit.getPhotoFileId())
                 .build();
     }
 }

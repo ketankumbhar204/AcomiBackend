@@ -131,6 +131,9 @@ public class StoredFileService {
             throw new BusinessException(
                     FileErrorCodes.FILE_TOO_LARGE, "Uploaded size does not match the session", HttpStatus.BAD_REQUEST);
         }
+        if (contentLength > 0) {
+            fileValidationService.validateSize(file.getPurpose(), contentLength);
+        }
         storageProvider.putStream(
                 file.getBucket(), file.getObjectKey(), body, contentLength > 0 ? contentLength : file.getByteSize(), file.getContentType());
     }
@@ -162,6 +165,7 @@ public class StoredFileService {
             throw new BusinessException(
                     FileErrorCodes.FILE_TOO_LARGE, "Uploaded size does not match the session", HttpStatus.BAD_REQUEST);
         }
+        fileValidationService.validateSize(file.getPurpose(), metadata.byteSize());
         byte[] prefix = storageProvider.getRange(file.getBucket(), file.getObjectKey(), 0, 15);
         fileValidationService.validateMagicBytes(file.getContentType(), prefix);
         String checksum = sha256(file);
@@ -213,6 +217,9 @@ public class StoredFileService {
                 .fileId(file.getId())
                 .contentUrl(url)
                 .contentType(file.getContentType())
+                .originalFilename(file.getOriginalFilename())
+                .downloadFilename(fileValidationService.downloadFilename(
+                        file.getPurpose(), file.getOriginalFilename(), file.getContentType()))
                 .expiresAt(LocalDateTime.now().plus(ttl))
                 .build();
     }
@@ -486,6 +493,11 @@ public class StoredFileService {
         } catch (NoSuchAlgorithmException ex) {
             throw new IllegalStateException("SHA-256 is required", ex);
         }
+    }
+
+    public String downloadFilename(StoredFileResponse metadata) {
+        return fileValidationService.downloadFilename(
+                metadata.getPurpose(), metadata.getOriginalFilename(), metadata.getContentType());
     }
 
     private static String normalizeChecksum(String checksum) {

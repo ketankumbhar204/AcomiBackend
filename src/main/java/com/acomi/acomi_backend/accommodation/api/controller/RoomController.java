@@ -17,6 +17,7 @@ import com.acomi.acomi_backend.accommodation.application.service.RoomService;
 import com.acomi.acomi_backend.common.security.SecurityUtils;
 import com.acomi.acomi_backend.common.web.ApiResponse;
 import com.acomi.acomi_backend.common.web.PagedResponse;
+import com.acomi.acomi_backend.storage.api.dto.request.AssociateEntityPhotoRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -28,6 +29,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -206,5 +208,26 @@ public class RoomController {
         UUID callerId = SecurityUtils.getCurrentUserId();
         deletionService.deleteRoom(spaceId, roomId, callerId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/rooms/{roomId}/photo")
+    @Operation(summary = "Set room photo", description = "Associates one uploaded photo. Account holder (OWNER) only.")
+    public ResponseEntity<ApiResponse<RoomResponse>> replacePhoto(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID roomId,
+            @RequestBody @Valid AssociateEntityPhotoRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Room photo updated",
+                roomService.replacePhoto(spaceId, roomId, callerId, request.getFileId())));
+    }
+
+    @DeleteMapping("/rooms/{roomId}/photo")
+    @Operation(summary = "Remove room photo", description = "Unlinks the room photo. Account holder (OWNER) only.")
+    public ResponseEntity<ApiResponse<RoomResponse>> removePhoto(
+            @PathVariable UUID spaceId, @PathVariable UUID roomId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Room photo removed", roomService.removePhoto(spaceId, roomId, callerId)));
     }
 }

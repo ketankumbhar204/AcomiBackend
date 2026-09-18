@@ -33,17 +33,28 @@ public class FoodItemResponse {
     @JsonProperty("isExtra")
     private boolean extra;
 
+    private UUID photoFileId;
+
     public static FoodItemResponse from(FoodItemEntity entity) {
-        return from(entity, null, null, false);
+        return from(entity, null, null, false, null);
     }
 
     public static FoodItemResponse from(
             FoodItemEntity entity, BigDecimal defaultPrice, String currencyCode) {
-        return from(entity, defaultPrice, currencyCode, false);
+        return from(entity, defaultPrice, currencyCode, false, null);
     }
 
     public static FoodItemResponse from(
             FoodItemEntity entity, BigDecimal defaultPrice, String currencyCode, boolean isExtra) {
+        return from(entity, defaultPrice, currencyCode, isExtra, null);
+    }
+
+    public static FoodItemResponse from(
+            FoodItemEntity entity,
+            BigDecimal defaultPrice,
+            String currencyCode,
+            boolean isExtra,
+            UUID photoFileId) {
         return FoodItemResponse.builder()
                 .itemId(entity.getId())
                 .categoryId(entity.getCategory().getId())
@@ -56,6 +67,7 @@ public class FoodItemResponse {
                 .defaultPrice(defaultPrice)
                 .currencyCode(currencyCode)
                 .extra(isExtra)
+                .photoFileId(photoFileId)
                 .build();
     }
 }

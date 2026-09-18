@@ -18,6 +18,7 @@ import com.acomi.acomi_backend.enquiry.domain.model.EnquiryRequesterType;
 import com.acomi.acomi_backend.enquiry.domain.model.SpaceEnquiryStatus;
 import com.acomi.acomi_backend.enquiry.domain.policy.EnquiryAutoSharePolicy;
 import com.acomi.acomi_backend.enquiry.infrastructure.persistence.entity.SpaceEnquiryEntity;
+import com.acomi.acomi_backend.enquiry.infrastructure.persistence.repository.SpaceEnquiryDeliveryRepository;
 import com.acomi.acomi_backend.enquiry.infrastructure.persistence.repository.SpaceEnquiryRepository;
 import com.acomi.acomi_backend.mail.application.dto.SendEmailCommand;
 import com.acomi.acomi_backend.mail.application.service.EmailService;
@@ -63,6 +64,9 @@ class ConvertedListingEnquiryFlowTest {
     private SpaceEnquiryRepository enquiryRepository;
 
     @Mock
+    private SpaceEnquiryDeliveryRepository deliveryRepository;
+
+    @Mock
     private SpaceRepository spaceRepository;
 
     @Mock
@@ -82,6 +86,9 @@ class ConvertedListingEnquiryFlowTest {
 
     @Mock
     private SpaceAmenityService spaceAmenityService;
+
+    @Mock
+    private com.acomi.acomi_backend.inquirycredit.application.service.InquiryAccessService inquiryAccessService;
 
     private SpaceEnquiryService service;
     private EnquiryAutoSharePolicy policy;
@@ -112,6 +119,7 @@ class ConvertedListingEnquiryFlowTest {
         mailProperties.setSupportAddress("support@acomi.in");
         service = new SpaceEnquiryService(
                 enquiryRepository,
+                deliveryRepository,
                 spaceRepository,
                 userRepository,
                 propertyRegistrationRepository,
@@ -123,7 +131,25 @@ class ConvertedListingEnquiryFlowTest {
                 notificationService,
                 mailProperties,
                 clock,
-                30);
+                30,
+                inquiryAccessService);
+        lenient().when(inquiryAccessService.authorizeNewEnquiry(any(), any()))
+                .thenReturn(com.acomi.acomi_backend.inquirycredit.domain.model.InquiryAccessGrant.FREE_WEB);
+        lenient().when(deliveryRepository.findActiveAppDelivery(any(), any(), any()))
+                .thenReturn(Optional.empty());
+        lenient().when(deliveryRepository.findActiveEmailDelivery(any(), any(), any(), any()))
+                .thenReturn(Optional.empty());
+        lenient().when(deliveryRepository.findAppDeliveryForUpdate(any(), any(), any()))
+                .thenReturn(Optional.empty());
+        lenient().when(deliveryRepository.findEmailDeliveryForUpdate(any(), any(), any(), any()))
+                .thenReturn(Optional.empty());
+        lenient().when(deliveryRepository.existsBySpaceIdAndRequesterUserIdAndDeliveryChannel(any(), any(), any()))
+                .thenReturn(false);
+        lenient().when(deliveryRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+            var entity = invocation.getArgument(0);
+            return entity;
+        });
+        lenient().when(deliveryRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         requesterId = UUID.randomUUID();
         ownerId = UUID.randomUUID();
         adminId = UUID.randomUUID();
@@ -158,13 +184,10 @@ class ConvertedListingEnquiryFlowTest {
         assertThat(policy.evaluate(space, "ketan@example.com").isAllowed()).isTrue();
 
         ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
-        verify(emailService, times(2)).send(mailCaptor.capture());
-        SendEmailCommand shared = mailOf(mailCaptor, EmailEventType.ENQUIRY_SHARED);
-        assertThat(shared.getPlainBody()).contains("+919991110001");
-        assertThat(shared.getPlainBody()).doesNotContain("admin@acomi.in");
-        assertThat(shared.getPlainBody()).doesNotContain("9000000001");
-        assertThat(mailOf(mailCaptor, EmailEventType.ENQUIRY_SUBMITTED_SUPPORT).getPlainBody())
-                .contains("shared automatically");
+        // WEB auto-share defers owner-contact ENQUIRY_SHARED until explicit deliverContactByEmail.
+        verify(emailService, times(1)).send(mailCaptor.capture());
+        assertThat(mailCaptor.getValue().getEventType()).isEqualTo(EmailEventType.ENQUIRY_SUBMITTED_SUPPORT);
+        assertThat(mailCaptor.getValue().getPlainBody()).contains("shared automatically");
         verify(userRepository, never()).findBySystemRoleAndIsActiveTrue(SystemRole.ADMIN);
     }
 
@@ -189,16 +212,10 @@ class ConvertedListingEnquiryFlowTest {
         assertThat(saved.getValue().getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
 
         ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
-        verify(emailService, times(2)).send(mailCaptor.capture());
-        SendEmailCommand shared = mailOf(mailCaptor, EmailEventType.ENQUIRY_SHARED);
-        assertThat(shared.getRecipientEmail()).isEqualTo("ketan@example.com");
-        assertThat(shared.getRecipientUserId()).isEqualTo(requesterId);
-        assertThat(shared.getIdempotencyKey()).startsWith("ENQUIRY_SHARED:");
-        assertThat(shared.getPlainBody()).contains("9000000008");
-        assertThat(shared.getPlainBody()).contains("Rahul");
-        assertThat(shared.getPlainBody()).doesNotContain("9991110001");
-        assertThat(shared.getPlainBody()).contains("rahul@example.com");
-        SendEmailCommand support = mailOf(mailCaptor, EmailEventType.ENQUIRY_SUBMITTED_SUPPORT);
+        // WEB: owner-contact email deferred; only support submission mail on create/auto-share.
+        verify(emailService, times(1)).send(mailCaptor.capture());
+        SendEmailCommand support = mailCaptor.getValue();
+        assertThat(support.getEventType()).isEqualTo(EmailEventType.ENQUIRY_SUBMITTED_SUPPORT);
         assertThat(support.getRecipientEmail()).isEqualTo("support@acomi.in");
         assertThat(support.getPlainBody()).contains("shared automatically");
         assertThat(support.getPlainBody()).doesNotContain("9000000008");
@@ -266,10 +283,8 @@ class ConvertedListingEnquiryFlowTest {
         assertThat(policy.evaluate(space, "ketan@example.com").isAllowed()).isTrue();
         assertThat(response.getEnquiryId()).isEqualTo(pending.getId());
         assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
-        ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
-        verify(emailService).send(mailCaptor.capture());
-        assertThat(mailCaptor.getValue().getEventType()).isEqualTo(EmailEventType.ENQUIRY_SHARED);
-        assertThat(mailCaptor.getValue().getPlainBody()).contains("9000000008");
+        // WEB auto-share of an existing PENDING enquiry does not send owner-contact email yet.
+        verify(emailService, never()).send(any());
     }
 
     @Test
@@ -378,10 +393,9 @@ class ConvertedListingEnquiryFlowTest {
 
         assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
         ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
-        verify(emailService, times(2)).send(mailCaptor.capture());
-        assertThat(mailOf(mailCaptor, EmailEventType.ENQUIRY_SHARED).getPlainBody())
-                .contains("9000000008")
-                .doesNotContain("8881110001");
+        verify(emailService, times(1)).send(mailCaptor.capture());
+        assertThat(mailCaptor.getValue().getEventType()).isEqualTo(EmailEventType.ENQUIRY_SUBMITTED_SUPPORT);
+        verifyNoSharedEmail();
     }
 
     @Test
@@ -425,20 +439,10 @@ class ConvertedListingEnquiryFlowTest {
 
         assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
         ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
-        verify(emailService, times(2)).send(mailCaptor.capture());
-        assertThat(mailOf(mailCaptor, EmailEventType.ENQUIRY_SHARED).getPlainBody())
-                .contains("7722085599")
-                .doesNotContain("Not available")
-                .doesNotContain("Location:")
-                .doesNotContain("Name:")
-                .doesNotContain("110001")
-                .doesNotContain("9000000001")
-                .doesNotContain("admin@acomi.in");
-        assertThat(mailOf(mailCaptor, EmailEventType.ENQUIRY_SHARED).getHtmlBody())
-                .contains("7722085599")
-                .contains("<html")
-                .doesNotContain("Not available")
-                .doesNotContain("Coordinates");
+        verify(emailService, times(1)).send(mailCaptor.capture());
+        assertThat(mailCaptor.getValue().getEventType()).isEqualTo(EmailEventType.ENQUIRY_SUBMITTED_SUPPORT);
+        assertThat(mailCaptor.getValue().getPlainBody()).contains("shared automatically");
+        verifyNoSharedEmail();
     }
 
     @Test

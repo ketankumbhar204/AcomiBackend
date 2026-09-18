@@ -28,6 +28,7 @@ public final class SpaceMapper {
                 .prepaidFallbackToPayPerMeal(entity.isPrepaidFallbackToPayPerMeal())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
+                .photoFileId(entity.getPhotoFileId())
                 .build();
     }
 

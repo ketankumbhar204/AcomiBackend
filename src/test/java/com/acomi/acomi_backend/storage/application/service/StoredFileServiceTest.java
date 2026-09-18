@@ -112,6 +112,8 @@ class StoredFileServiceTest {
         assertThat(second.getFileId()).isEqualTo(first.getFileId());
         assertThat(service.createContentUrl(callerId, session.getFileId()).getContentUrl())
                 .isEqualTo("/files/" + session.getFileId() + "/content");
+        assertThat(service.createContentUrl(callerId, session.getFileId()).getDownloadFilename())
+                .isEqualTo("photo.jpg");
     }
 
     @Test

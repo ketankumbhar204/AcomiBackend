@@ -66,4 +66,7 @@ public class UnitEntity extends BaseEntity {
 
     @Column(name = "default_deposit", precision = 12, scale = 2)
     private BigDecimal defaultDeposit;
+
+    @Column(name = "photo_file_id")
+    private java.util.UUID photoFileId;
 }

@@ -979,10 +979,11 @@ public class MealPollService {
         return fileId;
     }
 
-    private static void applyMealProof(MealPollDayPaymentEntity payment, UUID proofFileId) {
+    private void applyMealProof(MealPollDayPaymentEntity payment, UUID proofFileId) {
         if (proofFileId == null) {
             return;
         }
+        storedFileService.replaceAssociation(payment.getProofFileId(), proofFileId);
         payment.setProofFileId(proofFileId);
         payment.setProofImageUrl(FileLegacySupport.marker(proofFileId));
     }

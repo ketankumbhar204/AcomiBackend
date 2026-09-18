@@ -11,6 +11,12 @@ public final class EmailIdempotencyKeys {
         return key(EmailEventType.ENQUIRY_SHARED, enquiryId);
     }
 
+    /** Per-recipient idempotency for explicit WEB email delivery. */
+    public static String enquirySharedTo(UUID enquiryId, String email) {
+        String normalized = email == null ? "" : email.trim().toLowerCase();
+        return EmailEventType.ENQUIRY_SHARED.name() + ":" + enquiryId + ":" + normalized;
+    }
+
     public static String enquirySubmitted(UUID enquiryId) {
         return key(EmailEventType.ENQUIRY_SUBMITTED, enquiryId);
     }

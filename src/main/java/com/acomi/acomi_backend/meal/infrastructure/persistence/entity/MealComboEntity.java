@@ -54,4 +54,7 @@ public class MealComboEntity extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "food_type", nullable = false, length = 20)
     private FoodType foodType = FoodType.VEG;
+
+    @Column(name = "photo_file_id")
+    private java.util.UUID photoFileId;
 }

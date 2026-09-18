@@ -10,6 +10,7 @@ import com.acomi.acomi_backend.meal.api.dto.request.UpdateFoodItemRequest;
 import com.acomi.acomi_backend.meal.api.dto.response.FoodCategoryResponse;
 import com.acomi.acomi_backend.meal.api.dto.response.FoodItemResponse;
 import com.acomi.acomi_backend.meal.application.service.FoodCatalogService;
+import com.acomi.acomi_backend.storage.api.dto.request.AssociateEntityPhotoRequest;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -18,6 +19,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -115,5 +117,25 @@ public class FoodCatalogController {
         return ResponseEntity.ok(ApiResponse.success(
                 "Food item extra flag updated successfully",
                 foodCatalogService.updateItemExtra(spaceId, itemId, callerId, request)));
+    }
+
+    @PutMapping("/food-items/{itemId}/photo")
+    public ResponseEntity<ApiResponse<FoodItemResponse>> replaceItemPhoto(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID itemId,
+            @RequestBody @Valid AssociateEntityPhotoRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Food item photo updated",
+                foodCatalogService.replacePhoto(spaceId, itemId, callerId, request.getFileId())));
+    }
+
+    @DeleteMapping("/food-items/{itemId}/photo")
+    public ResponseEntity<ApiResponse<FoodItemResponse>> removeItemPhoto(
+            @PathVariable UUID spaceId, @PathVariable UUID itemId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Food item photo removed",
+                foodCatalogService.removePhoto(spaceId, itemId, callerId)));
     }
 }

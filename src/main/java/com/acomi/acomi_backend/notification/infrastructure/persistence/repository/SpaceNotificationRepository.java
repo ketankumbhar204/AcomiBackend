@@ -21,6 +21,9 @@ public interface SpaceNotificationRepository extends JpaRepository<SpaceNotifica
     Optional<SpaceNotificationEntity> findBySpaceIdAndDedupeKeyAndStatusIn(
             UUID spaceId, String dedupeKey, Collection<NotificationStatus> statuses);
 
+    Optional<SpaceNotificationEntity> findBySpaceIdIsNullAndDedupeKeyAndStatusIn(
+            String dedupeKey, Collection<NotificationStatus> statuses);
+
     List<SpaceNotificationEntity> findBySpaceIdAndUserIdAndStatusInOrderByCreatedAtDesc(
             UUID spaceId, UUID userId, Collection<NotificationStatus> statuses);
 
@@ -100,6 +103,18 @@ public interface SpaceNotificationRepository extends JpaRepository<SpaceNotifica
 
     List<SpaceNotificationEntity> findByUserIdAndNotificationTypeAndStatusInOrderByCreatedAtDesc(
             UUID userId, NotificationType notificationType, Collection<NotificationStatus> statuses);
+
+    @Query("""
+            SELECT n FROM SpaceNotificationEntity n
+            WHERE n.userId = :userId
+              AND n.notificationType IN :types
+              AND n.status IN :statuses
+            ORDER BY n.createdAt DESC
+            """)
+    List<SpaceNotificationEntity> findByUserIdAndNotificationTypeInAndStatusInOrderByCreatedAtDesc(
+            @Param("userId") UUID userId,
+            @Param("types") Collection<NotificationType> types,
+            @Param("statuses") Collection<NotificationStatus> statuses);
 
     long countByUserIdAndNotificationTypeAndStatus(
             UUID userId, NotificationType notificationType, NotificationStatus status);

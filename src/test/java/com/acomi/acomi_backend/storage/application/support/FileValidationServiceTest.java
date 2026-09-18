@@ -39,6 +39,26 @@ class FileValidationServiceTest {
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(FileErrorCodes.FILE_TOO_LARGE);
         validation.validateSize(FilePurpose.PAYMENT_PROOF, 4 * 1024 * 1024);
+        validation.validateSize(FilePurpose.MEMBER_DOCUMENT, FilePurpose.ABSOLUTE_MAX_BYTES);
+        assertThatThrownBy(() -> validation.validateSize(FilePurpose.MEMBER_DOCUMENT, FilePurpose.ABSOLUTE_MAX_BYTES + 1))
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(FileErrorCodes.FILE_TOO_LARGE);
+        assertThatThrownBy(() -> validation.validateSize(FilePurpose.IDENTITY_DOCUMENT, 8 * 1024 * 1024))
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(FileErrorCodes.FILE_TOO_LARGE);
+        validation.validateSize(FilePurpose.BUILDING_PHOTO, FilePurpose.ABSOLUTE_MAX_BYTES);
+        validation.validateSize(FilePurpose.MENU_ITEM_PHOTO, FilePurpose.ABSOLUTE_MAX_BYTES);
+        assertThatThrownBy(() -> validation.validateSize(FilePurpose.COMBO_PHOTO, FilePurpose.ABSOLUTE_MAX_BYTES + 1))
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(FileErrorCodes.FILE_TOO_LARGE);
+    }
+
+    @Test
+    void downloadFilenamePrefersOriginalThenPurpose() {
+        assertThat(validation.downloadFilename(FilePurpose.PROFILE_PHOTO, "me.PNG", "image/jpeg"))
+                .isEqualTo("me.PNG");
+        assertThat(validation.downloadFilename(FilePurpose.PAYMENT_PROOF, null, "image/jpeg"))
+                .isEqualTo("payment-proof.jpg");
     }
 
     @Test

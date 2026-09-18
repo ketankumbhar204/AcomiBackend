@@ -51,4 +51,7 @@ public class BuildingSummaryResponse {
     @JsonUnwrapped
     @Schema(description = "Availability breakdown by beds, rooms, and units")
     private AvailabilityCountsResponse availability;
+
+    @Schema(description = "Optional uploaded building photo")
+    private UUID photoFileId;
 }

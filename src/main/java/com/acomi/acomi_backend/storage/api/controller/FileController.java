@@ -15,6 +15,7 @@ import jakarta.validation.Valid;
 import java.io.IOException;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -85,7 +86,11 @@ public class FileController {
         StoredFileResponse metadata = storedFileService.getMetadata(callerId, fileId);
         byte[] bytes = storedFileService.readActiveContent(callerId, fileId);
         MediaType mediaType = MediaType.parseMediaType(metadata.getContentType());
-        return ResponseEntity.ok().contentType(mediaType).body(bytes);
+        String filename = storedFileService.downloadFilename(metadata);
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + filename + "\"")
+                .body(bytes);
     }
 
     @DeleteMapping("/{fileId}")

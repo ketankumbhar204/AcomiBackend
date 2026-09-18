@@ -27,6 +27,7 @@ import com.acomi.acomi_backend.member.infrastructure.persistence.repository.Spac
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import com.acomi.acomi_backend.storage.application.service.EntityPhotoService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import java.math.BigDecimal;
 import java.util.List;
@@ -66,6 +67,9 @@ class FoodCatalogServiceTest {
     @Mock
     private MealSpaceSetupService mealSpaceSetupService;
 
+    @Mock
+    private EntityPhotoService entityPhotoService;
+
     private FoodCatalogService foodCatalogService;
 
     private UUID spaceId;
@@ -81,7 +85,8 @@ class FoodCatalogServiceTest {
                 spaceFoodCategorySettingsRepository,
                 spaceRepository,
                 new MealAccessService(new SpaceMembershipResolver(spaceMembershipRepository), memberRepository),
-                mealSpaceSetupService);
+                mealSpaceSetupService,
+                entityPhotoService);
         spaceId = UUID.randomUUID();
         otherSpaceId = UUID.randomUUID();
         callerId = UUID.randomUUID();

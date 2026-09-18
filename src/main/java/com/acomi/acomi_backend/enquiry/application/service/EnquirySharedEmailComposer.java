@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.enquiry.application.service;
 import com.acomi.acomi_backend.enquiry.api.dto.response.OwnerContactResponse;
 import com.acomi.acomi_backend.enquiry.infrastructure.persistence.entity.SpaceEnquiryEntity;
 import com.acomi.acomi_backend.enquiry.infrastructure.persistence.repository.SpaceEnquiryRepository;
+import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
 import com.acomi.acomi_backend.mail.application.dto.OutboundEmail;
 import com.acomi.acomi_backend.mail.application.port.EmailPayloadComposer;
 import com.acomi.acomi_backend.mail.config.MailProperties;
@@ -45,6 +46,12 @@ public class EnquirySharedEmailComposer implements EmailPayloadComposer {
         SpaceEnquiryEntity enquiry = enquiryRepository.findById(sendLog.getRelatedEntityId()).orElse(null);
         if (enquiry == null) {
             log.warn("Enquiry share email retry skipped enquiry missing enquiryId={}", sendLog.getRelatedEntityId());
+            return Optional.empty();
+        }
+        if (enquiry.getClientChannel() == InquiryClientChannel.ANDROID) {
+            log.info(
+                    "Enquiry share email retry skipped ANDROID in-app delivery enquiryId={}",
+                    enquiry.getId());
             return Optional.empty();
         }
         UserEntity requester = userRepository.findByIdAndIsActiveTrue(enquiry.getRequesterUserId()).orElse(null);

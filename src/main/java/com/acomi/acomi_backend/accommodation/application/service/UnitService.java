@@ -14,6 +14,8 @@ import com.acomi.acomi_backend.accommodation.infrastructure.persistence.reposito
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.repository.UnitRepository;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
+import com.acomi.acomi_backend.storage.application.service.EntityPhotoService;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +36,7 @@ public class UnitService {
     private final AccommodationProfileService profileService;
     private final AccommodationActionService actionService;
     private final AccommodationLayoutService layoutService;
+    private final EntityPhotoService entityPhotoService;
 
     @Transactional
     public UnitResponse createUnit(
@@ -230,5 +233,28 @@ public class UnitService {
     private void assertBuildingInSpace(UUID spaceId, UUID buildingId) {
         buildingRepository.findActiveByIdAndSpaceId(buildingId, spaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("Building", "id", buildingId));
+    }
+
+    @Transactional
+    public UnitResponse replacePhoto(UUID spaceId, UUID unitId, UUID callerId, UUID fileId) {
+        accessService.assertCanViewStructure(spaceId, callerId);
+        UnitEntity unit = unitRepository.findByIdAndSpaceId(unitId, spaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Unit", "id", unitId));
+        layoutService.assertUnitVisible(unit);
+        UUID next = entityPhotoService.replacePhoto(
+                callerId, spaceId, FilePurpose.UNIT_PHOTO, unit.getPhotoFileId(), fileId);
+        unit.setPhotoFileId(next);
+        return UnitResponse.from(unitRepository.save(unit), actionService.forUnit(spaceId, unit, callerId));
+    }
+
+    @Transactional
+    public UnitResponse removePhoto(UUID spaceId, UUID unitId, UUID callerId) {
+        accessService.assertCanViewStructure(spaceId, callerId);
+        UnitEntity unit = unitRepository.findByIdAndSpaceId(unitId, spaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Unit", "id", unitId));
+        layoutService.assertUnitVisible(unit);
+        entityPhotoService.removePhoto(callerId, spaceId, unit.getPhotoFileId());
+        unit.setPhotoFileId(null);
+        return UnitResponse.from(unitRepository.save(unit), actionService.forUnit(spaceId, unit, callerId));
     }
 }

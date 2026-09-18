@@ -29,4 +29,7 @@ public class FloorListItemResponse {
 
     @Schema(description = "Occupied beds", example = "0")
     private long occupied;
+
+    @Schema(description = "Optional uploaded floor photo")
+    private UUID photoFileId;
 }

@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.enquiry.infrastructure.persistence.entity;
 import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.enquiry.domain.model.EnquiryRequesterType;
 import com.acomi.acomi_backend.enquiry.domain.model.SpaceEnquiryStatus;
+import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -50,6 +51,15 @@ public class SpaceEnquiryEntity extends BaseEntity {
     @Column(name = "requester_type", nullable = false, length = 20)
     private EnquiryRequesterType requesterType;
 
+    /**
+     * Client channel at create time. Immutable for delivery routing.
+     * WEB → owner contact emailed; ANDROID → in-app My Enquiries.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "client_channel", nullable = false, length = 20)
+    @Builder.Default
+    private InquiryClientChannel clientChannel = InquiryClientChannel.WEB;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
     private SpaceEnquiryStatus status;
@@ -65,6 +75,10 @@ public class SpaceEnquiryEntity extends BaseEntity {
 
     @Column(name = "shared_at")
     private LocalDateTime sharedAt;
+
+    /** When ENQUIRY_SHARED owner-contact email was enqueued; null for ANDROID in-app delivery. */
+    @Column(name = "contact_email_sent_at")
+    private LocalDateTime contactEmailSentAt;
 
     @Column(name = "shared_by_admin_id")
     private UUID sharedByAdminId;

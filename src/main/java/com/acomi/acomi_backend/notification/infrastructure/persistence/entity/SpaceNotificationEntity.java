@@ -34,7 +34,7 @@ import lombok.Setter;
 @Builder
 public class SpaceNotificationEntity extends BaseEntity {
 
-    @Column(name = "space_id", nullable = false)
+    @Column(name = "space_id")
     private UUID spaceId;
 
     @Column(name = "organization_id")

@@ -50,6 +50,7 @@ public class SpaceDetailsResponse {
 
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private UUID photoFileId;
 
     public static SpaceDetailsResponse from(Space space) {
         return from(space, List.of());
@@ -71,6 +72,7 @@ public class SpaceDetailsResponse {
                 .amenities(amenities)
                 .createdAt(space.getCreatedAt())
                 .updatedAt(space.getUpdatedAt())
+                .photoFileId(space.getPhotoFileId())
                 .build();
     }
 }

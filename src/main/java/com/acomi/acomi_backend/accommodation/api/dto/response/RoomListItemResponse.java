@@ -30,4 +30,7 @@ public class RoomListItemResponse {
 
     @Schema(description = "Occupied beds", example = "0")
     private long occupiedBeds;
+
+    @Schema(description = "Optional uploaded room photo")
+    private UUID photoFileId;
 }

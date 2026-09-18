@@ -11,6 +11,7 @@ import com.acomi.acomi_backend.space.api.dto.response.SpaceDetailsResponse;
 import com.acomi.acomi_backend.space.api.dto.response.SpaceResponse;
 import com.acomi.acomi_backend.space.api.dto.response.UserSpaceResponse;
 import com.acomi.acomi_backend.space.application.service.SpaceService;
+import com.acomi.acomi_backend.storage.api.dto.request.AssociateEntityPhotoRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -128,5 +129,23 @@ public class SpaceController {
         UUID callerId = SecurityUtils.getCurrentUserId();
         spaceService.deactivateSpace(spaceId, callerId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/{spaceId}/photo")
+    @Operation(summary = "Set space photo", description = "Associates one uploaded cover photo. Account holder (OWNER) only.")
+    public ResponseEntity<ApiResponse<SpaceDetailsResponse>> replacePhoto(
+            @PathVariable UUID spaceId, @RequestBody @Valid AssociateEntityPhotoRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Space photo updated",
+                spaceService.replacePhoto(spaceId, callerId, request.getFileId())));
+    }
+
+    @DeleteMapping("/{spaceId}/photo")
+    @Operation(summary = "Remove space photo", description = "Unlinks the space cover photo. Account holder (OWNER) only.")
+    public ResponseEntity<ApiResponse<SpaceDetailsResponse>> removePhoto(@PathVariable UUID spaceId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Space photo removed", spaceService.removePhoto(spaceId, callerId)));
     }
 }

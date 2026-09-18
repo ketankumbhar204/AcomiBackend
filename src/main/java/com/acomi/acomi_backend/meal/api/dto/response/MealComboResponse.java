@@ -31,6 +31,8 @@ public class MealComboResponse {
 
     private List<MealComboItemLineResponse> items;
 
+    private UUID photoFileId;
+
     public static MealComboResponse from(MealComboEntity entity, List<MealComboItemEntity> comboItems) {
         return MealComboResponse.builder()
                 .comboId(entity.getId())
@@ -42,6 +44,7 @@ public class MealComboResponse {
                 .currencyCode(entity.getCurrencyCode())
                 .foodType(entity.getFoodType())
                 .items(comboItems.stream().map(MealComboItemLineResponse::from).toList())
+                .photoFileId(entity.getPhotoFileId())
                 .build();
     }
 }

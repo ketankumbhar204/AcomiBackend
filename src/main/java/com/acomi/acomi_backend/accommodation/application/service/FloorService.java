@@ -11,6 +11,8 @@ import com.acomi.acomi_backend.accommodation.infrastructure.persistence.reposito
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.repository.UnitRepository;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
+import com.acomi.acomi_backend.storage.application.service.EntityPhotoService;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +32,7 @@ public class FloorService {
     private final AccommodationAccessService accessService;
     private final AccommodationProfileService profileService;
     private final AccommodationActionService actionService;
+    private final EntityPhotoService entityPhotoService;
 
     @Transactional
     public FloorResponse createFloor(
@@ -159,5 +162,26 @@ public class FloorService {
     private void assertBuildingInSpace(UUID spaceId, UUID buildingId) {
         buildingRepository.findActiveByIdAndSpaceId(buildingId, spaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("Building", "id", buildingId));
+    }
+
+    @Transactional
+    public FloorResponse replacePhoto(UUID spaceId, UUID floorId, UUID callerId, UUID fileId) {
+        accessService.assertCanViewStructure(spaceId, callerId);
+        FloorEntity floor = floorRepository.findByIdAndSpaceId(floorId, spaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Floor", "id", floorId));
+        UUID next = entityPhotoService.replacePhoto(
+                callerId, spaceId, FilePurpose.FLOOR_PHOTO, floor.getPhotoFileId(), fileId);
+        floor.setPhotoFileId(next);
+        return FloorResponse.from(floorRepository.save(floor), actionService.forFloor(spaceId, floor, callerId));
+    }
+
+    @Transactional
+    public FloorResponse removePhoto(UUID spaceId, UUID floorId, UUID callerId) {
+        accessService.assertCanViewStructure(spaceId, callerId);
+        FloorEntity floor = floorRepository.findByIdAndSpaceId(floorId, spaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Floor", "id", floorId));
+        entityPhotoService.removePhoto(callerId, spaceId, floor.getPhotoFileId());
+        floor.setPhotoFileId(null);
+        return FloorResponse.from(floorRepository.save(floor), actionService.forFloor(spaceId, floor, callerId));
     }
 }

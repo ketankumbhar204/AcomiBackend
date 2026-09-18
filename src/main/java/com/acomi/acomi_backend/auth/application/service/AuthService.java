@@ -375,6 +375,9 @@ public class AuthService {
 
             if (matched.isPresent()) {
                 MemberDocumentEntity document = matched.get();
+                if (upload.fileId() != null && !upload.fileId().equals(document.getFileId())) {
+                    storedFileService.replaceAssociation(document.getFileId(), upload.fileId());
+                }
                 document.setDocumentNumber(upload.number());
                 document.setFileUrl(upload.fileUrl());
                 document.setFileId(upload.fileId());

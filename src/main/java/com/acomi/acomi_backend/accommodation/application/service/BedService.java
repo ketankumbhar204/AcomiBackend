@@ -13,6 +13,8 @@ import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.occupancy.application.service.OccupancyService;
 import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
+import com.acomi.acomi_backend.storage.application.service.EntityPhotoService;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +35,7 @@ public class BedService {
     private final OccupancyService occupancyService;
     private final OccupancyRepository occupancyRepository;
     private final BedPricingPropagationService pricingPropagationService;
+    private final EntityPhotoService entityPhotoService;
 
     @Transactional
     public BedResponse createBed(
@@ -177,5 +180,32 @@ public class BedService {
                 || occupancyRepository.existsByBedIdAndStatus(bedId, OccupancyStatus.RESERVED)) {
             throw new BusinessException("Cannot change bed status while an active or reserved occupancy exists");
         }
+    }
+
+    @Transactional
+    public BedResponse replacePhoto(UUID spaceId, UUID bedId, UUID callerId, UUID fileId) {
+        accessService.assertCanViewStructure(spaceId, callerId);
+        BedEntity bed = bedRepository.findByIdAndSpaceId(bedId, spaceId)
+                .orElseThrow(() -> ResourceNotFoundException.notInSpace("Bed", bedId));
+        UUID next = entityPhotoService.replacePhoto(
+                callerId, spaceId, FilePurpose.BED_PHOTO, bed.getPhotoFileId(), fileId);
+        bed.setPhotoFileId(next);
+        return BedResponse.from(
+                bedRepository.save(bed),
+                actionService.forBed(spaceId, bed, callerId),
+                occupancyService.findBedOccupant(bedId).orElse(null));
+    }
+
+    @Transactional
+    public BedResponse removePhoto(UUID spaceId, UUID bedId, UUID callerId) {
+        accessService.assertCanViewStructure(spaceId, callerId);
+        BedEntity bed = bedRepository.findByIdAndSpaceId(bedId, spaceId)
+                .orElseThrow(() -> ResourceNotFoundException.notInSpace("Bed", bedId));
+        entityPhotoService.removePhoto(callerId, spaceId, bed.getPhotoFileId());
+        bed.setPhotoFileId(null);
+        return BedResponse.from(
+                bedRepository.save(bed),
+                actionService.forBed(spaceId, bed, callerId),
+                occupancyService.findBedOccupant(bedId).orElse(null));
     }
 }

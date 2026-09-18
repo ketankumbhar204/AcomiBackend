@@ -27,6 +27,7 @@ public class BedResponse {
     private BedOccupantSummaryResponse occupant;
     private BigDecimal defaultRent;
     private BigDecimal defaultDeposit;
+    private UUID photoFileId;
 
     public static BedResponse from(BedEntity bed) {
         return from(bed, null, null);
@@ -50,6 +51,7 @@ public class BedResponse {
                 .occupant(occupant)
                 .defaultRent(bed.getDefaultRent())
                 .defaultDeposit(bed.getDefaultDeposit())
+                .photoFileId(bed.getPhotoFileId())
                 .build();
     }
 }

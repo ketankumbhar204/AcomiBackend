@@ -142,4 +142,7 @@ public class SpaceEntity extends BaseEntity {
     @JdbcTypeCode(SqlTypes.SMALLINT)
     @Column(name = "billing_due_day", nullable = false)
     private int billingDueDay = 1;
+
+    @Column(name = "photo_file_id")
+    private java.util.UUID photoFileId;
 }

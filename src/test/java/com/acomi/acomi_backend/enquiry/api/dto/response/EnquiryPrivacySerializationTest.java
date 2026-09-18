@@ -87,6 +87,35 @@ class EnquiryPrivacySerializationTest {
     }
 
     @Test
+    void androidSharedMemberEnquiry_mayIncludeOwnerContactWhenAuthorized() throws Exception {
+        SpaceEnquiryResponse response = SpaceEnquiryResponse.builder()
+                .enquiryId(UUID.randomUUID())
+                .spaceId(UUID.randomUUID())
+                .spaceName("Sunrise PG")
+                .requesterType(EnquiryRequesterType.MEMBER)
+                .status(SpaceEnquiryStatus.SHARED)
+                .requestedAt(LocalDateTime.now())
+                .expiresAt(LocalDateTime.now().plusDays(30))
+                .detailsShared(true)
+                .clientChannel(com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel.ANDROID)
+                .contactDelivery("IN_APP")
+                .contactEmailSent(false)
+                .requesterEmail("ketan@example.com")
+                .ownerContact(OwnerContactResponse.builder()
+                        .ownerName("Rahul")
+                        .mobileNumber("9991110001")
+                        .available(true)
+                        .build())
+                .build();
+
+        String json = mapper.writeValueAsString(response);
+        assertThat(json).contains("ownerContact");
+        assertThat(json).contains("9991110001");
+        assertThat(json).contains("IN_APP");
+        assertThat(json).doesNotContain("Check your email");
+    }
+
+    @Test
     void requesterNotification_doesNotLeakOwnerContact() throws Exception {
         UserNotificationResponse response = UserNotificationResponse.builder()
                 .notificationId(UUID.randomUUID())

@@ -37,6 +37,7 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                       AND (b.room.floor.id = f.id
                            OR (b.room.unit.floor.id = f.id AND b.room.unit.isActive = true))
                       AND b.status = :occupiedStatus)
+                , f.photoFileId
             )
             FROM FloorEntity f
             WHERE f.building.id = :buildingId AND f.isActive = true
@@ -70,6 +71,7 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                       AND (b.room.floor.id = f.id
                            OR (b.room.unit.floor.id = f.id AND b.room.unit.isActive = true))
                       AND b.status = :occupiedStatus)
+                , f.photoFileId
             )
             FROM FloorEntity f
             WHERE f.building.space.id = :spaceId AND f.isActive = true AND f.building.isActive = true
@@ -98,6 +100,7 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                 u.status,
                 u.synthetic,
                 u.unitKind
+                , u.photoFileId
             )
             FROM UnitEntity u
             WHERE u.building.id = :buildingId AND u.isActive = true
@@ -128,6 +131,7 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                 u.status,
                 u.synthetic,
                 u.unitKind
+                , u.photoFileId
             )
             FROM UnitEntity u
             WHERE u.building.space.id = :spaceId AND u.isActive = true AND u.building.isActive = true
@@ -158,6 +162,7 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                 u.status,
                 u.synthetic,
                 u.unitKind
+                , u.photoFileId
             )
             FROM UnitEntity u
             WHERE u.floor.id = :floorId AND u.isActive = true
@@ -182,6 +187,7 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                     WHERE b.room.id = r.id AND b.isActive = true AND b.status = :availableStatus),
                 (SELECT COUNT(b) FROM BedEntity b
                     WHERE b.room.id = r.id AND b.isActive = true AND b.status = :occupiedStatus)
+                , r.photoFileId
             )
             FROM RoomEntity r
             WHERE r.isActive = true
@@ -208,6 +214,7 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                     WHERE b.room.id = r.id AND b.isActive = true AND b.status = :availableStatus),
                 (SELECT COUNT(b) FROM BedEntity b
                     WHERE b.room.id = r.id AND b.isActive = true AND b.status = :occupiedStatus)
+                , r.photoFileId
             )
             FROM RoomEntity r
             WHERE r.unit.id = :unitId AND r.isActive = true
@@ -230,6 +237,7 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                     WHERE b.room.id = r.id AND b.isActive = true AND b.status = :availableStatus),
                 (SELECT COUNT(b) FROM BedEntity b
                     WHERE b.room.id = r.id AND b.isActive = true AND b.status = :occupiedStatus)
+                , r.photoFileId
             )
             FROM RoomEntity r
             WHERE r.isActive = true
@@ -255,6 +263,7 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                 b.status,
                 b.defaultRent,
                 b.defaultDeposit
+                , b.photoFileId
             )
             FROM BedEntity b
             WHERE b.room.id = :roomId AND b.isActive = true
@@ -276,8 +285,8 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                 COALESCE(bu.name, bf.name),
                 COALESCE(uf.id, f.id),
                 COALESCE(uf.name, f.name),
-                ru.id,
-                ru.name,
+                CASE WHEN ru IS NOT NULL AND ru.synthetic = false THEN ru.id ELSE NULL END,
+                CASE WHEN ru IS NOT NULL AND ru.synthetic = false THEN ru.name ELSE NULL END,
                 r.id,
                 r.name,
                 r.roomType,

@@ -52,6 +52,17 @@ public class NotificationService {
             NotificationType.CONTACT_ENQUIRY_REJECTED,
             NotificationType.CONTACT_ENQUIRY_EXPIRED);
 
+    /** Inquiry credit notification types visible to the user (seeker). */
+    public static final Set<NotificationType> INQUIRY_CREDIT_USER_TYPES = EnumSet.of(
+            NotificationType.INQUIRY_CREDIT_PAYMENT_APPROVED,
+            NotificationType.INQUIRY_CREDIT_PAYMENT_REJECTED);
+
+    /** All inquiry credit notification types (including admin-only). */
+    public static final Set<NotificationType> ALL_INQUIRY_CREDIT_TYPES = EnumSet.of(
+            NotificationType.INQUIRY_CREDIT_PAYMENT_PENDING,
+            NotificationType.INQUIRY_CREDIT_PAYMENT_APPROVED,
+            NotificationType.INQUIRY_CREDIT_PAYMENT_REJECTED);
+
     private final SpaceNotificationRepository notificationRepository;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -61,8 +72,14 @@ public class NotificationService {
                 ? command.getDedupeKey()
                 : defaultDedupeKey(command);
 
-        Optional<SpaceNotificationEntity> existing = notificationRepository
-                .findBySpaceIdAndDedupeKeyAndStatusIn(command.getSpaceId(), dedupeKey, OPEN_STATUSES);
+        Optional<SpaceNotificationEntity> existing;
+        if (command.getSpaceId() == null) {
+            existing = notificationRepository.findBySpaceIdIsNullAndDedupeKeyAndStatusIn(
+                    dedupeKey, OPEN_STATUSES);
+        } else {
+            existing = notificationRepository.findBySpaceIdAndDedupeKeyAndStatusIn(
+                    command.getSpaceId(), dedupeKey, OPEN_STATUSES);
+        }
 
         if (existing.isPresent()) {
             SpaceNotificationEntity open = existing.get();
@@ -251,13 +268,15 @@ public class NotificationService {
 
     @Transactional(readOnly = true)
     public NotificationListResponse listForAdminUser(UUID userId) {
+        Set<NotificationType> adminTypes = EnumSet.of(
+                NotificationType.CONTACT_ENQUIRY, NotificationType.INQUIRY_CREDIT_PAYMENT_PENDING);
         List<SpaceNotificationEntity> entities =
-                notificationRepository.findByUserIdAndNotificationTypeAndStatusInOrderByCreatedAtDesc(
+                notificationRepository.findByUserIdAndNotificationTypeInAndStatusInOrderByCreatedAtDesc(
                         userId,
-                        NotificationType.CONTACT_ENQUIRY,
+                        adminTypes,
                         EnumSet.of(NotificationStatus.UNREAD, NotificationStatus.READ));
-        long unread = notificationRepository.countByUserIdAndNotificationTypeAndStatus(
-                userId, NotificationType.CONTACT_ENQUIRY, NotificationStatus.UNREAD);
+        long unread = notificationRepository.countByUserIdAndNotificationTypeInAndStatus(
+                userId, adminTypes, NotificationStatus.UNREAD);
         return NotificationListResponse.builder()
                 .notifications(entities.stream().map(NotificationResponse::from).toList())
                 .unreadCount(unread)
@@ -267,14 +286,16 @@ public class NotificationService {
     @Transactional(readOnly = true)
     public UserNotificationListResponse listForCurrentUser(UUID userId, Pageable pageable) {
         Pageable safe = safePage(pageable);
+        Set<NotificationType> userTypes = EnumSet.copyOf(REQUESTER_ENQUIRY_TYPES);
+        userTypes.addAll(INQUIRY_CREDIT_USER_TYPES);
         Page<SpaceNotificationEntity> page =
                 notificationRepository.findByUserIdAndNotificationTypeInAndStatusIn(
                         userId,
-                        REQUESTER_ENQUIRY_TYPES,
+                        userTypes,
                         EnumSet.of(NotificationStatus.UNREAD, NotificationStatus.READ),
                         safe);
         long unread = notificationRepository.countByUserIdAndNotificationTypeInAndStatus(
-                userId, REQUESTER_ENQUIRY_TYPES, NotificationStatus.UNREAD);
+                userId, userTypes, NotificationStatus.UNREAD);
         return UserNotificationListResponse.builder()
                 .notifications(page.getContent().stream().map(UserNotificationResponse::from).toList())
                 .unreadCount(unread)
@@ -290,7 +311,8 @@ public class NotificationService {
         SpaceNotificationEntity entity = notificationRepository
                 .findByIdAndUserId(notificationId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Notification", "id", notificationId));
-        if (entity.getNotificationType() != NotificationType.CONTACT_ENQUIRY) {
+        if (entity.getNotificationType() != NotificationType.CONTACT_ENQUIRY
+                && entity.getNotificationType() != NotificationType.INQUIRY_CREDIT_PAYMENT_PENDING) {
             throw new ResourceNotFoundException("Notification", "id", notificationId);
         }
         if (entity.getStatus() == NotificationStatus.UNREAD) {
@@ -306,7 +328,8 @@ public class NotificationService {
         SpaceNotificationEntity entity = notificationRepository
                 .findByIdAndUserId(notificationId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Notification", "id", notificationId));
-        if (!REQUESTER_ENQUIRY_TYPES.contains(entity.getNotificationType())) {
+        if (!REQUESTER_ENQUIRY_TYPES.contains(entity.getNotificationType())
+                && !INQUIRY_CREDIT_USER_TYPES.contains(entity.getNotificationType())) {
             throw new ResourceNotFoundException("Notification", "id", notificationId);
         }
         if (entity.getStatus() == NotificationStatus.UNREAD) {

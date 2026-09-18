@@ -28,4 +28,7 @@ public class BedListItemResponse {
 
     @Schema(description = "Optional default deposit")
     private BigDecimal defaultDeposit;
+
+    @Schema(description = "Optional uploaded bed photo")
+    private UUID photoFileId;
 }

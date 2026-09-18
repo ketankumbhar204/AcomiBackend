@@ -10,5 +10,7 @@ public enum NotificationEntityType {
     COMPLAINT,
     SUBSCRIPTION,
     SPACE,
-    SPACE_ENQUIRY
+    SPACE_ENQUIRY,
+    /** User/admin inquiry-credit purchase — not scoped to a Space. */
+    INQUIRY_CREDIT_PURCHASE
 }

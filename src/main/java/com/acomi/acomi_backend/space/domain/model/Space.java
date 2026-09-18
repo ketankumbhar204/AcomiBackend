@@ -24,4 +24,5 @@ public class Space {
     private boolean prepaidFallbackToPayPerMeal;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private UUID photoFileId;
 }

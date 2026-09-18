@@ -81,6 +81,15 @@ public class FileAuthorizationService {
                     authorizeSubmitSubscriptionProof(request.getSpaceId(), request.getMemberId(), callerId);
             case COMPLAINT_ATTACHMENT ->
                     authorizeComplaintUpload(request.getSpaceId(), request.getComplaintId(), callerId);
+            case BUILDING_PHOTO,
+                    FLOOR_PHOTO,
+                    UNIT_PHOTO,
+                    ROOM_PHOTO,
+                    BED_PHOTO,
+                    MENU_ITEM_PHOTO,
+                    COMBO_PHOTO,
+                    SPACE_PHOTO -> authorizeEntityPhotoUpload(request.getSpaceId(), callerId);
+            case INQUIRY_PAYMENT_QR -> authorizeInquiryQrUpload(callerId);
         }
     }
 
@@ -100,6 +109,17 @@ public class FileAuthorizationService {
             case MEAL_PAYMENT_PROOF -> authorizeMealProofRead(callerId, file);
             case SUBSCRIPTION_PAYMENT_PROOF -> authorizeSubscriptionProofRead(callerId, file);
             case COMPLAINT_ATTACHMENT -> authorizeComplaintRead(callerId, file);
+            case BUILDING_PHOTO,
+                    FLOOR_PHOTO,
+                    UNIT_PHOTO,
+                    ROOM_PHOTO,
+                    BED_PHOTO,
+                    MENU_ITEM_PHOTO,
+                    COMBO_PHOTO,
+                    SPACE_PHOTO -> authorizeEntityPhotoRead(callerId, file);
+            case INQUIRY_PAYMENT_QR -> {
+                // Any authenticated user can view the payment QR (needed to make a payment)
+            }
         }
     }
 
@@ -150,6 +170,21 @@ public class FileAuthorizationService {
                             FileErrorCodes.FILE_ACCESS_DENIED,
                             "Payment proofs cannot be deleted",
                             HttpStatus.FORBIDDEN);
+            case BUILDING_PHOTO,
+                    FLOOR_PHOTO,
+                    UNIT_PHOTO,
+                    ROOM_PHOTO,
+                    BED_PHOTO,
+                    MENU_ITEM_PHOTO,
+                    COMBO_PHOTO,
+                    SPACE_PHOTO -> {
+                if (file.getSpaceId() == null) {
+                    requireUploader(file, callerId);
+                    return;
+                }
+                membershipResolver.requireAccountHolder(file.getSpaceId(), callerId);
+            }
+            case INQUIRY_PAYMENT_QR -> requireAdmin(callerId);
         }
     }
 
@@ -269,6 +304,22 @@ public class FileAuthorizationService {
         throw accessDenied();
     }
 
+    private void authorizeEntityPhotoUpload(UUID spaceId, UUID callerId) {
+        if (spaceId == null) {
+            throw new BusinessException(
+                    FileErrorCodes.FILE_ACCESS_DENIED, "spaceId is required for this file type", HttpStatus.BAD_REQUEST);
+        }
+        membershipResolver.requireAccountHolder(spaceId, callerId);
+    }
+
+    private void authorizeEntityPhotoRead(UUID callerId, StoredFileEntity file) {
+        if (file.getSpaceId() == null) {
+            requireUploader(file, callerId);
+            return;
+        }
+        membershipResolver.requireActive(file.getSpaceId(), callerId);
+    }
+
     private void authorizeComplaintRead(UUID callerId, StoredFileEntity file) {
         List<SpaceComplaintAttachmentEntity> attachments =
                 spaceComplaintAttachmentRepository.findByFileId(file.getId());
@@ -366,6 +417,19 @@ public class FileAuthorizationService {
         spaceComplaintAccessService.requireViewComplaint(membership, complaint, callerId);
         if (!(spaceComplaintAccessService.canManageComplaints(membership)
                 || callerId.equals(complaint.getCreatedByUserId()))) {
+            throw accessDenied();
+        }
+    }
+
+    private void authorizeInquiryQrUpload(UUID callerId) {
+        requireAdmin(callerId);
+    }
+
+    private void requireAdmin(UUID callerId) {
+        boolean isAdmin = userRepository.findByIdAndIsActiveTrue(callerId)
+                .map(user -> com.acomi.acomi_backend.user.domain.model.SystemRole.ADMIN.equals(user.getSystemRole()))
+                .orElse(false);
+        if (!isAdmin) {
             throw accessDenied();
         }
     }

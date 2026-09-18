@@ -7,12 +7,14 @@ import com.acomi.acomi_backend.accommodation.application.service.AccommodationRe
 import com.acomi.acomi_backend.accommodation.application.service.UnitService;
 import com.acomi.acomi_backend.common.security.SecurityUtils;
 import com.acomi.acomi_backend.common.web.ApiResponse;
+import com.acomi.acomi_backend.storage.api.dto.request.AssociateEntityPhotoRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import jakarta.validation.Valid;
@@ -77,5 +79,26 @@ public class AccommodationUnitController {
         UUID callerId = SecurityUtils.getCurrentUserId();
         deletionService.deleteUnit(spaceId, unitId, callerId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/{unitId}/photo")
+    @Operation(summary = "Set unit photo", description = "Associates one uploaded photo. Account holder (OWNER) only.")
+    public ResponseEntity<ApiResponse<UnitResponse>> replacePhoto(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID unitId,
+            @RequestBody @Valid AssociateEntityPhotoRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Unit photo updated",
+                unitService.replacePhoto(spaceId, unitId, callerId, request.getFileId())));
+    }
+
+    @DeleteMapping("/{unitId}/photo")
+    @Operation(summary = "Remove unit photo", description = "Unlinks the unit photo. Account holder (OWNER) only.")
+    public ResponseEntity<ApiResponse<UnitResponse>> removePhoto(
+            @PathVariable UUID spaceId, @PathVariable UUID unitId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Unit photo removed", unitService.removePhoto(spaceId, unitId, callerId)));
     }
 }

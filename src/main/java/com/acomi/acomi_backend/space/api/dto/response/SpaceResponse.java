@@ -27,6 +27,7 @@ public class SpaceResponse {
     private UUID ownerId;
     private String ownerName;
     private LocalDateTime createdAt;
+    private UUID photoFileId;
 
     public static SpaceResponse from(SpaceEntity space) {
         return SpaceResponse.builder()
@@ -40,6 +41,7 @@ public class SpaceResponse {
                 .ownerId(space.getOwner().getId())
                 .ownerName(space.getOwner().getFullName())
                 .createdAt(space.getCreatedAt())
+                .photoFileId(space.getPhotoFileId())
                 .build();
     }
 }

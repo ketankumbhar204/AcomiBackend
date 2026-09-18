@@ -27,6 +27,7 @@ import com.acomi.acomi_backend.member.infrastructure.persistence.repository.Spac
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import com.acomi.acomi_backend.storage.application.service.EntityPhotoService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import java.util.List;
 import java.util.Optional;
@@ -61,6 +62,9 @@ class MealComboServiceTest {
     @Mock
     private MemberRepository memberRepository;
 
+    @Mock
+    private EntityPhotoService entityPhotoService;
+
     private MealComboService mealComboService;
 
     private UUID spaceId;
@@ -74,7 +78,8 @@ class MealComboServiceTest {
                 foodCatalogService,
                 mealSpaceSetupService,
                 spaceRepository,
-                new MealAccessService(new SpaceMembershipResolver(spaceMembershipRepository), memberRepository));
+                new MealAccessService(new SpaceMembershipResolver(spaceMembershipRepository), memberRepository),
+                entityPhotoService);
         spaceId = UUID.randomUUID();
         callerId = UUID.randomUUID();
     }
@@ -122,6 +127,7 @@ class MealComboServiceTest {
     void updateCombo_replacesItemsAfterDelete() {
         stubOwnerMembership();
         SpaceEntity space = space();
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
         UUID comboId = UUID.randomUUID();
         UUID rotiId = UUID.fromString("22222222-2222-2222-2222-222222220002");
         UUID dalId = UUID.fromString("22222222-2222-2222-2222-222222220071");

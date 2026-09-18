@@ -13,6 +13,7 @@ import com.acomi.acomi_backend.accommodation.application.service.AccommodationSu
 import com.acomi.acomi_backend.accommodation.application.service.BuildingService;
 import com.acomi.acomi_backend.common.security.SecurityUtils;
 import com.acomi.acomi_backend.common.web.ApiResponse;
+import com.acomi.acomi_backend.storage.api.dto.request.AssociateEntityPhotoRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -22,6 +23,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -140,5 +142,25 @@ public class BuildingController {
         UUID callerId = SecurityUtils.getCurrentUserId();
         deletionService.deleteBuilding(spaceId, buildingId, callerId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/{buildingId}/photo")
+    @Operation(summary = "Set building photo", description = "Associates one uploaded photo. Account holder (OWNER) only.")
+    public ResponseEntity<ApiResponse<BuildingResponse>> replacePhoto(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID buildingId,
+            @RequestBody @Valid AssociateEntityPhotoRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        BuildingResponse response = buildingService.replacePhoto(spaceId, buildingId, callerId, request.getFileId());
+        return ResponseEntity.ok(ApiResponse.success("Building photo updated", response));
+    }
+
+    @DeleteMapping("/{buildingId}/photo")
+    @Operation(summary = "Remove building photo", description = "Unlinks the building photo. Account holder (OWNER) only.")
+    public ResponseEntity<ApiResponse<BuildingResponse>> removePhoto(
+            @PathVariable UUID spaceId, @PathVariable UUID buildingId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        BuildingResponse response = buildingService.removePhoto(spaceId, buildingId, callerId);
+        return ResponseEntity.ok(ApiResponse.success("Building photo removed", response));
     }
 }

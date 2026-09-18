@@ -12,6 +12,8 @@ import com.acomi.acomi_backend.accommodation.infrastructure.persistence.reposito
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
+import com.acomi.acomi_backend.storage.application.service.EntityPhotoService;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +32,7 @@ public class BuildingService {
     private final AccommodationAccessService accessService;
     private final AccommodationActionService actionService;
     private final PropertyLayoutModeResolver layoutModeResolver;
+    private final EntityPhotoService entityPhotoService;
 
     @Transactional
     public BuildingResponse createBuilding(UUID spaceId, UUID callerId, CreateBuildingRequest request) {
@@ -130,5 +133,28 @@ public class BuildingService {
 
         building.setActive(false);
         buildingRepository.save(building);
+    }
+
+    @Transactional
+    public BuildingResponse replacePhoto(UUID spaceId, UUID buildingId, UUID callerId, UUID fileId) {
+        accessService.assertCanViewStructure(spaceId, callerId);
+        BuildingEntity building = buildingRepository.findActiveByIdAndSpaceId(buildingId, spaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Building", "id", buildingId));
+        UUID next = entityPhotoService.replacePhoto(
+                callerId, spaceId, FilePurpose.BUILDING_PHOTO, building.getPhotoFileId(), fileId);
+        building.setPhotoFileId(next);
+        return BuildingResponse.from(
+                buildingRepository.save(building), actionService.forBuilding(spaceId, building, callerId));
+    }
+
+    @Transactional
+    public BuildingResponse removePhoto(UUID spaceId, UUID buildingId, UUID callerId) {
+        accessService.assertCanViewStructure(spaceId, callerId);
+        BuildingEntity building = buildingRepository.findActiveByIdAndSpaceId(buildingId, spaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Building", "id", buildingId));
+        entityPhotoService.removePhoto(callerId, spaceId, building.getPhotoFileId());
+        building.setPhotoFileId(null);
+        return BuildingResponse.from(
+                buildingRepository.save(building), actionService.forBuilding(spaceId, building, callerId));
     }
 }

@@ -12,5 +12,7 @@ public class ContentUrlResponse {
     private UUID fileId;
     private String contentUrl;
     private String contentType;
+    private String originalFilename;
+    private String downloadFilename;
     private LocalDateTime expiresAt;
 }

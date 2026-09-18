@@ -35,6 +35,8 @@ public class MySpaceResponse {
     @Schema(description = "Computed capabilities for the caller in this space")
     private SpacePermissionsResponse permissions;
 
+    private UUID photoFileId;
+
     public static MySpaceResponse from(SpaceMembershipEntity membership) {
         return MySpaceResponse.builder()
                 .spaceId(membership.getSpace().getId())
@@ -45,6 +47,7 @@ public class MySpaceResponse {
                 .isDefault(membership.isDefault())
                 .joinedAt(membership.getJoinedAt())
                 .permissions(SpacePermissionPolicy.forMembership(membership))
+                .photoFileId(membership.getSpace().getPhotoFileId())
                 .build();
     }
 }

@@ -176,4 +176,92 @@ class FileAuthorizationServiceTest {
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(FileErrorCodes.FILE_ACCESS_DENIED);
     }
+
+    @Test
+    void entityPhotoSessionRequiresAccountHolder() {
+        CreateUploadSessionRequest request = new CreateUploadSessionRequest();
+        request.setPurpose(FilePurpose.BUILDING_PHOTO);
+        request.setSpaceId(spaceId);
+        fileAuthorizationService.authorizeCreateSession(ownerId, request);
+        org.mockito.Mockito.verify(membershipResolver).requireAccountHolder(spaceId, ownerId);
+    }
+
+    @Test
+    void managerCannotCreateEntityPhotoSession() {
+        CreateUploadSessionRequest request = new CreateUploadSessionRequest();
+        request.setPurpose(FilePurpose.MENU_ITEM_PHOTO);
+        request.setSpaceId(spaceId);
+        org.mockito.Mockito.when(membershipResolver.requireAccountHolder(spaceId, tenantId))
+                .thenThrow(new BusinessException(
+                        "ACCOUNT_HOLDER_REQUIRED",
+                        "Only the account holder can edit this photo",
+                        org.springframework.http.HttpStatus.FORBIDDEN));
+        assertThatThrownBy(() -> fileAuthorizationService.authorizeCreateSession(tenantId, request))
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo("ACCOUNT_HOLDER_REQUIRED");
+    }
+
+    @Test
+    void spaceMemberCanReadEntityPhoto() {
+        StoredFileEntity file = StoredFileEntity.builder()
+                .purpose(FilePurpose.FLOOR_PHOTO)
+                .visibility(FileVisibility.PRIVATE)
+                .status(FileStatus.ACTIVE)
+                .contentType("image/jpeg")
+                .storageProvider("memory")
+                .bucket("b")
+                .objectKey("k")
+                .uploadedByUserId(ownerId)
+                .spaceId(spaceId)
+                .build();
+        file.setId(UUID.randomUUID());
+        fileAuthorizationService.authorizeRead(tenantId, file);
+        org.mockito.Mockito.verify(membershipResolver).requireActive(spaceId, tenantId);
+    }
+
+    @Test
+    void strangerCannotReadEntityPhoto() {
+        StoredFileEntity file = StoredFileEntity.builder()
+                .purpose(FilePurpose.SPACE_PHOTO)
+                .visibility(FileVisibility.PRIVATE)
+                .status(FileStatus.ACTIVE)
+                .contentType("image/jpeg")
+                .storageProvider("memory")
+                .bucket("b")
+                .objectKey("k")
+                .uploadedByUserId(ownerId)
+                .spaceId(spaceId)
+                .build();
+        file.setId(UUID.randomUUID());
+        org.mockito.Mockito.when(membershipResolver.requireActive(spaceId, strangerId))
+                .thenThrow(new BusinessException("NOT_A_MEMBER", "You are not a member of this space",
+                        org.springframework.http.HttpStatus.FORBIDDEN));
+        assertThatThrownBy(() -> fileAuthorizationService.authorizeRead(strangerId, file))
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo("NOT_A_MEMBER");
+    }
+
+    @Test
+    void nonOwnerCannotDeleteEntityPhoto() {
+        StoredFileEntity file = StoredFileEntity.builder()
+                .purpose(FilePurpose.COMBO_PHOTO)
+                .visibility(FileVisibility.PRIVATE)
+                .status(FileStatus.ACTIVE)
+                .contentType("image/jpeg")
+                .storageProvider("memory")
+                .bucket("b")
+                .objectKey("k")
+                .uploadedByUserId(ownerId)
+                .spaceId(spaceId)
+                .build();
+        file.setId(UUID.randomUUID());
+        org.mockito.Mockito.when(membershipResolver.requireAccountHolder(spaceId, tenantId))
+                .thenThrow(new BusinessException(
+                        "ACCOUNT_HOLDER_REQUIRED",
+                        "Only the account holder can edit this photo",
+                        org.springframework.http.HttpStatus.FORBIDDEN));
+        assertThatThrownBy(() -> fileAuthorizationService.authorizeDelete(tenantId, file))
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo("ACCOUNT_HOLDER_REQUIRED");
+    }
 }

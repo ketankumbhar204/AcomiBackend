@@ -22,6 +22,8 @@ import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.SpaceF
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import com.acomi.acomi_backend.storage.application.service.EntityPhotoService;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -46,6 +48,7 @@ public class FoodCatalogService {
     private final SpaceRepository spaceRepository;
     private final MealAccessService mealAccessService;
     private final MealSpaceSetupService mealSpaceSetupService;
+    private final EntityPhotoService entityPhotoService;
 
     @Transactional
     public List<FoodCategoryResponse> listCategories(UUID spaceId, UUID callerId) {
@@ -312,7 +315,8 @@ public class FoodCatalogService {
         BigDecimal defaultPrice = settings != null ? settings.getDefaultPrice() : null;
         String currencyCode = settings != null ? settings.getCurrencyCode() : null;
         boolean isExtra = settings != null && settings.isExtra();
-        return FoodItemResponse.from(item, defaultPrice, currencyCode, isExtra);
+        UUID photoFileId = settings != null ? settings.getPhotoFileId() : null;
+        return FoodItemResponse.from(item, defaultPrice, currencyCode, isExtra, photoFileId);
     }
 
     private SpaceFoodItemSettingsEntity upsertExtraFlag(UUID spaceId, UUID itemId, boolean isExtra) {
@@ -346,5 +350,53 @@ public class FoodCatalogService {
                         throw new BusinessException("Food item is disabled for this space");
                     });
         }
+    }
+
+    @Transactional
+    public FoodItemResponse replacePhoto(UUID spaceId, UUID itemId, UUID callerId, UUID fileId) {
+        mealAccessService.requireViewMeals(spaceId, callerId);
+        FoodItemEntity item = foodItemRepository
+                .findByIdWithCategory(itemId)
+                .orElseThrow(() -> new ResourceNotFoundException("FoodItem", "id", itemId));
+        ensureItemVisibleForSpace(spaceId, item);
+        SpaceFoodItemSettingsEntity settings = upsertSettingsRow(spaceId, itemId);
+        UUID next = entityPhotoService.replacePhoto(
+                callerId, spaceId, FilePurpose.MENU_ITEM_PHOTO, settings.getPhotoFileId(), fileId);
+        settings.setPhotoFileId(next);
+        settings.setUpdatedAt(LocalDateTime.now());
+        spaceFoodItemSettingsRepository.save(settings);
+        return toItemResponse(item, settings);
+    }
+
+    @Transactional
+    public FoodItemResponse removePhoto(UUID spaceId, UUID itemId, UUID callerId) {
+        mealAccessService.requireViewMeals(spaceId, callerId);
+        FoodItemEntity item = foodItemRepository
+                .findByIdWithCategory(itemId)
+                .orElseThrow(() -> new ResourceNotFoundException("FoodItem", "id", itemId));
+        ensureItemVisibleForSpace(spaceId, item);
+        SpaceFoodItemSettingsEntity settings = spaceFoodItemSettingsRepository
+                .findBySpaceIdAndItemId(spaceId, itemId)
+                .orElse(null);
+        UUID previous = settings != null ? settings.getPhotoFileId() : null;
+        entityPhotoService.removePhoto(callerId, spaceId, previous);
+        if (settings != null) {
+            settings.setPhotoFileId(null);
+            settings.setUpdatedAt(LocalDateTime.now());
+            spaceFoodItemSettingsRepository.save(settings);
+        }
+        return toItemResponse(item, settings);
+    }
+
+    private SpaceFoodItemSettingsEntity upsertSettingsRow(UUID spaceId, UUID itemId) {
+        LocalDateTime now = LocalDateTime.now();
+        return spaceFoodItemSettingsRepository
+                .findBySpaceIdAndItemId(spaceId, itemId)
+                .orElseGet(() -> SpaceFoodItemSettingsEntity.builder()
+                        .spaceId(spaceId)
+                        .itemId(itemId)
+                        .isEnabled(true)
+                        .updatedAt(now)
+                        .build());
     }
 }

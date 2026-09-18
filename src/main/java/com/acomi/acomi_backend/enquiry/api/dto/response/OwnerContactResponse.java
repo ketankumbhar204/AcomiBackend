@@ -3,7 +3,7 @@ package com.acomi.acomi_backend.enquiry.api.dto.response;
 import lombok.Builder;
 import lombok.Getter;
 
-/** Admin-only owner contact. Never returned from member enquiry or discovery APIs. */
+/** Owner contact. Admin always; members only for ANDROID SHARED enquiries via SpaceEnquiryResponse. */
 @Getter
 @Builder
 public class OwnerContactResponse {

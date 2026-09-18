@@ -25,6 +25,8 @@ import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEnti
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
+import com.acomi.acomi_backend.storage.application.service.EntityPhotoService;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -48,6 +50,7 @@ public class SpaceService {
     private final InventorySeedService inventorySeedService;
     private final SpaceAmenityService spaceAmenityService;
     private final MembershipNotificationSyncService membershipNotificationSyncService;
+    private final EntityPhotoService entityPhotoService;
 
     @Transactional
     public SpaceResponse createSpace(CreateSpaceRequest request) {
@@ -317,5 +320,38 @@ public class SpaceService {
         }
         throw new BusinessException(
                 "Only OWNER or MANAGER can perform this action", HttpStatus.FORBIDDEN);
+    }
+
+    @Transactional
+    public SpaceDetailsResponse replacePhoto(UUID spaceId, UUID callerId, UUID fileId) {
+        SpaceEntity entity = spaceRepository.findByIdAndIsActiveTrue(spaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Space", "id", spaceId));
+        boolean member = spaceMembershipRepository.existsByUserIdAndSpaceIdAndStatus(
+                callerId, spaceId, MembershipStatus.ACTIVE);
+        if (!member) {
+            throw new ResourceNotFoundException("Space", "id", spaceId);
+        }
+        UUID next = entityPhotoService.replacePhoto(
+                callerId, spaceId, FilePurpose.SPACE_PHOTO, entity.getPhotoFileId(), fileId);
+        entity.setPhotoFileId(next);
+        SpaceEntity saved = spaceRepository.save(entity);
+        return SpaceMapper.toDetailsResponse(
+                SpaceMapper.toDomain(saved), spaceAmenityService.getForSpace(spaceId));
+    }
+
+    @Transactional
+    public SpaceDetailsResponse removePhoto(UUID spaceId, UUID callerId) {
+        SpaceEntity entity = spaceRepository.findByIdAndIsActiveTrue(spaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Space", "id", spaceId));
+        boolean member = spaceMembershipRepository.existsByUserIdAndSpaceIdAndStatus(
+                callerId, spaceId, MembershipStatus.ACTIVE);
+        if (!member) {
+            throw new ResourceNotFoundException("Space", "id", spaceId);
+        }
+        entityPhotoService.removePhoto(callerId, spaceId, entity.getPhotoFileId());
+        entity.setPhotoFileId(null);
+        SpaceEntity saved = spaceRepository.save(entity);
+        return SpaceMapper.toDetailsResponse(
+                SpaceMapper.toDomain(saved), spaceAmenityService.getForSpace(spaceId));
     }
 }

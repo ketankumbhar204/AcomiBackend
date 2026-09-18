@@ -21,6 +21,7 @@ public class FloorResponse {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private AccommodationActionMetadata actions;
+    private UUID photoFileId;
 
     public static FloorResponse from(FloorEntity floor) {
         return from(floor, null);
@@ -37,6 +38,7 @@ public class FloorResponse {
                 .createdAt(floor.getCreatedAt())
                 .updatedAt(floor.getUpdatedAt())
                 .actions(actions)
+                .photoFileId(floor.getPhotoFileId())
                 .build();
     }
 }

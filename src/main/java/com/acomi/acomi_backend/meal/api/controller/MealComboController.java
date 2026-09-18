@@ -7,6 +7,7 @@ import com.acomi.acomi_backend.meal.api.dto.request.UpdateMealComboPriceRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.UpdateMealComboRequest;
 import com.acomi.acomi_backend.meal.api.dto.response.MealComboResponse;
 import com.acomi.acomi_backend.meal.application.service.MealComboService;
+import com.acomi.acomi_backend.storage.api.dto.request.AssociateEntityPhotoRequest;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -15,6 +16,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -75,5 +77,25 @@ public class MealComboController {
         UUID callerId = SecurityUtils.getCurrentUserId();
         mealComboService.deactivateCombo(spaceId, comboId, callerId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/{comboId}/photo")
+    public ResponseEntity<ApiResponse<MealComboResponse>> replacePhoto(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID comboId,
+            @RequestBody @Valid AssociateEntityPhotoRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Meal combo photo updated",
+                mealComboService.replacePhoto(spaceId, comboId, callerId, request.getFileId())));
+    }
+
+    @DeleteMapping("/{comboId}/photo")
+    public ResponseEntity<ApiResponse<MealComboResponse>> removePhoto(
+            @PathVariable UUID spaceId, @PathVariable UUID comboId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Meal combo photo removed",
+                mealComboService.removePhoto(spaceId, comboId, callerId)));
     }
 }

@@ -97,7 +97,7 @@ class AccommodationLazyListServiceTest {
         building.setId(buildingId);
 
         UUID floorId = UUID.randomUUID();
-        FloorListItemResponse item = new FloorListItemResponse(floorId, "Floor 1", 20, 60, 60, 0);
+        FloorListItemResponse item = new FloorListItemResponse(floorId, "Floor 1", 20, 60, 60, 0, null);
         Pageable pageable = PageRequest.of(0, 20);
 
         when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));

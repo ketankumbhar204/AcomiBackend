@@ -41,12 +41,29 @@ public class FileValidationService {
             throw new BusinessException(
                     FileErrorCodes.FILE_TOO_LARGE, "File size is required", HttpStatus.BAD_REQUEST);
         }
-        if (byteSize > purpose.maxBytes()) {
+        long maxBytes = Math.min(purpose.maxBytes(), FilePurpose.ABSOLUTE_MAX_BYTES);
+        if (byteSize > maxBytes) {
+            long maxMb = Math.max(1, maxBytes / (1024 * 1024));
             throw new BusinessException(
                     FileErrorCodes.FILE_TOO_LARGE,
-                    "File exceeds the maximum size of " + purpose.maxBytes() + " bytes",
+                    "File size must be " + maxMb + " MB or less.",
                     HttpStatus.BAD_REQUEST);
         }
+    }
+
+    public String downloadFilename(FilePurpose purpose, String originalFilename, String contentType) {
+        String sanitized = sanitizeFilename(originalFilename);
+        if (sanitized != null && sanitized.contains(".")) {
+            return sanitized;
+        }
+        String ext =
+                switch (contentType == null ? "" : contentType.toLowerCase(Locale.ROOT)) {
+                    case "image/png" -> "png";
+                    case "image/webp" -> "webp";
+                    default -> "jpg";
+                };
+        String base = purpose == null ? "file" : purpose.objectKeySegment();
+        return base + "." + ext;
     }
 
     public String sanitizeFilename(String originalFilename) {

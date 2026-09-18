@@ -51,6 +51,8 @@ public interface SpaceEnquiryRepository
 
     long countByRequestedAtGreaterThanEqualAndRequestedAtLessThan(LocalDateTime from, LocalDateTime to);
 
+    long countByRequesterUserIdAndRequestedAtGreaterThanEqual(UUID requesterUserId, LocalDateTime from);
+
     @Query(
             value =
                     """

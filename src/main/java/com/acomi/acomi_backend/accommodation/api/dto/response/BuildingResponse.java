@@ -22,6 +22,7 @@ public class BuildingResponse {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private AccommodationActionMetadata actions;
+    private UUID photoFileId;
 
     public static BuildingResponse from(BuildingEntity building) {
         return from(building, null);
@@ -38,6 +39,7 @@ public class BuildingResponse {
                 .createdAt(building.getCreatedAt())
                 .updatedAt(building.getUpdatedAt())
                 .actions(actions)
+                .photoFileId(building.getPhotoFileId())
                 .build();
     }
 }

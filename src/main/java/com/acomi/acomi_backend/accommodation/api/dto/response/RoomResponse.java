@@ -32,6 +32,7 @@ public class RoomResponse {
     private AccommodationActionMetadata actions;
     private BigDecimal defaultRent;
     private BigDecimal defaultDeposit;
+    private UUID photoFileId;
 
     public static RoomResponse from(RoomEntity room) {
         return from(room, null);
@@ -54,6 +55,7 @@ public class RoomResponse {
                 .actions(actions)
                 .defaultRent(room.getDefaultRent())
                 .defaultDeposit(room.getDefaultDeposit())
+                .photoFileId(room.getPhotoFileId())
                 .build();
     }
 

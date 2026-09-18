@@ -1,9 +1,11 @@
 package com.acomi.acomi_backend.common.web;
 
+import com.acomi.acomi_backend.common.exception.AlreadyDeliveredException;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.RateLimitedException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -44,6 +46,27 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
                 .body(ApiResponse.error("Access denied"));
+    }
+
+    @ExceptionHandler(AlreadyDeliveredException.class)
+    public ResponseEntity<ApiResponse<Map<String, Object>>> handleAlreadyDelivered(
+            AlreadyDeliveredException ex) {
+        log.info("Already delivered: channel={} enquiryId={}", ex.getChannel(), ex.getEnquiryId());
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("channel", ex.getChannel().name());
+        data.put("deliveredAt", ex.getDeliveredAt());
+        data.put("enquiryId", ex.getEnquiryId());
+        if (ex.getRecipientEmail() != null) {
+            data.put("recipientEmail", ex.getRecipientEmail());
+        }
+        return ResponseEntity.status(ex.getStatus())
+                .body(ApiResponse.<Map<String, Object>>builder()
+                        .success(false)
+                        .message(ex.getMessage())
+                        .errorCode(ex.getErrorCode())
+                        .data(data)
+                        .timestamp(LocalDateTime.now())
+                        .build());
     }
 
     @ExceptionHandler(RateLimitedException.class)

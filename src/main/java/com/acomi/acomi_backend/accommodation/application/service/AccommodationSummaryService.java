@@ -70,6 +70,7 @@ public class AccommodationSummaryService {
                 .counts(counts)
                 .statusCounts(statusCounts)
                 .availability(availability)
+                .photoFileId(building.getPhotoFileId())
                 .build();
     }
 

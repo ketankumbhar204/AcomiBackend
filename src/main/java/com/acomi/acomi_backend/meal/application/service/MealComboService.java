@@ -17,6 +17,8 @@ import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealCo
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import com.acomi.acomi_backend.storage.application.service.EntityPhotoService;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -38,6 +40,7 @@ public class MealComboService {
     private final MealSpaceSetupService mealSpaceSetupService;
     private final SpaceRepository spaceRepository;
     private final MealAccessService mealAccessService;
+    private final EntityPhotoService entityPhotoService;
 
     @Transactional
     public List<MealComboResponse> listCombos(UUID spaceId, UUID callerId) {
@@ -122,6 +125,27 @@ public class MealComboService {
         return mealComboRepository
                 .findByIdAndSpaceId(comboId, spaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("MealCombo", "id", comboId));
+    }
+
+    @Transactional
+    public MealComboResponse replacePhoto(UUID spaceId, UUID comboId, UUID callerId, UUID fileId) {
+        mealAccessService.requireViewMeals(spaceId, callerId);
+        MealComboEntity combo = loadCombo(spaceId, comboId);
+        UUID next = entityPhotoService.replacePhoto(
+                callerId, spaceId, FilePurpose.COMBO_PHOTO, combo.getPhotoFileId(), fileId);
+        combo.setPhotoFileId(next);
+        mealComboRepository.save(combo);
+        return MealComboResponse.from(combo, mealComboItemRepository.findByComboIdWithItems(combo.getId()));
+    }
+
+    @Transactional
+    public MealComboResponse removePhoto(UUID spaceId, UUID comboId, UUID callerId) {
+        mealAccessService.requireViewMeals(spaceId, callerId);
+        MealComboEntity combo = loadCombo(spaceId, comboId);
+        entityPhotoService.removePhoto(callerId, spaceId, combo.getPhotoFileId());
+        combo.setPhotoFileId(null);
+        mealComboRepository.save(combo);
+        return MealComboResponse.from(combo, mealComboItemRepository.findByComboIdWithItems(combo.getId()));
     }
 
     private void saveComboItems(

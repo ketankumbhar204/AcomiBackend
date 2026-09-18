@@ -51,6 +51,9 @@ public class SpaceFoodItemSettingsEntity {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    @Column(name = "photo_file_id")
+    private UUID photoFileId;
+
     @Getter
     @Setter
     @NoArgsConstructor

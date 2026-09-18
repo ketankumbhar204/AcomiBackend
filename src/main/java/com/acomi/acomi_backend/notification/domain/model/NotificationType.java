@@ -78,5 +78,12 @@ public enum NotificationType {
     CONTACT_ENQUIRY_SUBMITTED,
     CONTACT_ENQUIRY_SHARED,
     CONTACT_ENQUIRY_REJECTED,
-    CONTACT_ENQUIRY_EXPIRED
+    CONTACT_ENQUIRY_EXPIRED,
+
+    // Inquiry credit payments — admin inbox
+    INQUIRY_CREDIT_PAYMENT_PENDING,
+
+    // Inquiry credit payments — user inbox
+    INQUIRY_CREDIT_PAYMENT_APPROVED,
+    INQUIRY_CREDIT_PAYMENT_REJECTED
 }

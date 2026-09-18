@@ -6,15 +6,20 @@ import com.acomi.acomi_backend.accommodation.application.service.AccommodationRe
 import com.acomi.acomi_backend.accommodation.application.service.FloorService;
 import com.acomi.acomi_backend.common.security.SecurityUtils;
 import com.acomi.acomi_backend.common.web.ApiResponse;
+import com.acomi.acomi_backend.storage.api.dto.request.AssociateEntityPhotoRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -62,5 +67,26 @@ public class AccommodationFloorController {
         UUID callerId = SecurityUtils.getCurrentUserId();
         deletionService.deleteFloor(spaceId, floorId, callerId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PutMapping("/{floorId}/photo")
+    @Operation(summary = "Set floor photo", description = "Associates one uploaded photo. Account holder (OWNER) only.")
+    public ResponseEntity<ApiResponse<FloorResponse>> replacePhoto(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID floorId,
+            @RequestBody @Valid AssociateEntityPhotoRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Floor photo updated",
+                floorService.replacePhoto(spaceId, floorId, callerId, request.getFileId())));
+    }
+
+    @DeleteMapping("/{floorId}/photo")
+    @Operation(summary = "Remove floor photo", description = "Unlinks the floor photo. Account holder (OWNER) only.")
+    public ResponseEntity<ApiResponse<FloorResponse>> removePhoto(
+            @PathVariable UUID spaceId, @PathVariable UUID floorId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Floor photo removed", floorService.removePhoto(spaceId, floorId, callerId)));
     }
 }

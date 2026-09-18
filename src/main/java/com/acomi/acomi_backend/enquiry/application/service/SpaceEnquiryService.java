@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.enquiry.application.service;
 
+import com.acomi.acomi_backend.common.exception.AlreadyDeliveredException;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.common.web.PagedResponse;
@@ -7,13 +8,19 @@ import com.acomi.acomi_backend.enquiry.api.dto.request.CreateSpaceEnquiryRequest
 import com.acomi.acomi_backend.enquiry.api.dto.response.AdminEnquirySummaryResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.response.AdminSpaceEnquiryDetailResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.response.AdminSpaceEnquiryListItemResponse;
+import com.acomi.acomi_backend.inquirycredit.application.service.InquiryAccessService;
+import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryAccessGrant;
+import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
 import com.acomi.acomi_backend.enquiry.api.dto.response.OwnerContactResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.response.SpaceEnquiryResponse;
+import com.acomi.acomi_backend.enquiry.domain.model.EnquiryDeliveryChannel;
 import com.acomi.acomi_backend.enquiry.domain.model.EnquiryRequesterType;
 import com.acomi.acomi_backend.enquiry.domain.model.SpaceEnquiryStatus;
 import com.acomi.acomi_backend.enquiry.domain.policy.EnquiryAutoShareDecision;
 import com.acomi.acomi_backend.enquiry.domain.policy.EnquiryAutoSharePolicy;
+import com.acomi.acomi_backend.enquiry.infrastructure.persistence.entity.SpaceEnquiryDeliveryEntity;
 import com.acomi.acomi_backend.enquiry.infrastructure.persistence.entity.SpaceEnquiryEntity;
+import com.acomi.acomi_backend.enquiry.infrastructure.persistence.repository.SpaceEnquiryDeliveryRepository;
 import com.acomi.acomi_backend.enquiry.infrastructure.persistence.repository.SpaceEnquiryRepository;
 import com.acomi.acomi_backend.mail.application.dto.SendEmailCommand;
 import com.acomi.acomi_backend.mail.application.service.EmailService;
@@ -62,6 +69,7 @@ public class SpaceEnquiryService {
     private static final int MAX_PAGE_SIZE = 50;
 
     private final SpaceEnquiryRepository enquiryRepository;
+    private final SpaceEnquiryDeliveryRepository deliveryRepository;
     private final SpaceRepository spaceRepository;
     private final UserRepository userRepository;
     private final PropertyRegistrationRepository propertyRegistrationRepository;
@@ -74,9 +82,11 @@ public class SpaceEnquiryService {
     private final MailProperties mailProperties;
     private final Clock clock;
     private final int retentionDays;
+    private final InquiryAccessService inquiryAccessService;
 
     public SpaceEnquiryService(
             SpaceEnquiryRepository enquiryRepository,
+            SpaceEnquiryDeliveryRepository deliveryRepository,
             SpaceRepository spaceRepository,
             UserRepository userRepository,
             PropertyRegistrationRepository propertyRegistrationRepository,
@@ -88,8 +98,10 @@ public class SpaceEnquiryService {
             NotificationService notificationService,
             MailProperties mailProperties,
             Clock clock,
-            @Value("${acomi.enquiry.retention-days:30}") int retentionDays) {
+            @Value("${acomi.enquiry.retention-days:30}") int retentionDays,
+            InquiryAccessService inquiryAccessService) {
         this.enquiryRepository = enquiryRepository;
+        this.deliveryRepository = deliveryRepository;
         this.spaceRepository = spaceRepository;
         this.userRepository = userRepository;
         this.propertyRegistrationRepository = propertyRegistrationRepository;
@@ -102,10 +114,15 @@ public class SpaceEnquiryService {
         this.mailProperties = mailProperties;
         this.clock = clock;
         this.retentionDays = retentionDays;
+        this.inquiryAccessService = inquiryAccessService;
     }
 
     @Transactional
-    public SpaceEnquiryResponse create(UUID requesterId, UUID spaceId, CreateSpaceEnquiryRequest request) {
+    public SpaceEnquiryResponse create(
+            UUID requesterId,
+            UUID spaceId,
+            CreateSpaceEnquiryRequest request,
+            InquiryClientChannel channel) {
         UserEntity requester = userRepository
                 .findByIdAndIsActiveTrue(requesterId)
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", requesterId));
@@ -121,22 +138,72 @@ public class SpaceEnquiryService {
                     HttpStatus.CONFLICT);
         }
 
-        String email = resolveRequesterEmail(requester, request);
+        CreateSpaceEnquiryRequest payload = request != null ? request : new CreateSpaceEnquiryRequest();
+        EnquiryDeliveryChannel deliveryIntent = resolveDeliveryIntent(payload, channel);
+        String email = resolveRequesterEmail(requester, payload);
         requester.rememberEnquiryEmail(email);
         LocalDateTime now = LocalDateTime.now(clock);
+
+        if (deliveryIntent == EnquiryDeliveryChannel.APP) {
+            throwIfActiveAppDelivery(spaceId, requesterId, now);
+        }
+
+        boolean createdNew = false;
+        SpaceEnquiryResponse response;
 
         SpaceEnquiryEntity pending = enquiryRepository
                 .findBySpaceIdAndRequesterUserIdAndStatus(spaceId, requesterId, SpaceEnquiryStatus.PENDING)
                 .orElse(null);
         expireIfDue(pending, now);
         if (pending != null && pending.getStatus() == SpaceEnquiryStatus.PENDING) {
-            return reuseExistingEnquiry(pending, space);
+            response = reuseExistingEnquiry(pending, space);
+        } else {
+            SpaceEnquiryEntity shared = enquiryRepository
+                    .findBySpaceIdAndRequesterUserIdAndStatus(spaceId, requesterId, SpaceEnquiryStatus.SHARED)
+                    .orElse(null);
+            if (shared != null) {
+                response = reuseExistingEnquiry(shared, space);
+            } else {
+                InquiryAccessGrant grant = inquiryAccessService.authorizeNewEnquiry(requesterId, channel);
+                UUID[] createdEnquiryId = {null};
+                response = createNewEnquiryTracked(requester, space, email, now, createdEnquiryId, channel);
+                if (createdEnquiryId[0] != null) {
+                    createdNew = true;
+                    inquiryAccessService.consumeAfterSuccessfulCreate(
+                            requesterId, channel, grant, createdEnquiryId[0]);
+                }
+            }
         }
 
-        return enquiryRepository
-                .findBySpaceIdAndRequesterUserIdAndStatus(spaceId, requesterId, SpaceEnquiryStatus.SHARED)
-                .map(existing -> reuseExistingEnquiry(existing, space))
-                .orElseGet(() -> createNewEnquiry(requester, space, email, now));
+        if (deliveryIntent == EnquiryDeliveryChannel.APP) {
+            SpaceEnquiryEntity entity = enquiryRepository
+                    .findById(response.getEnquiryId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Enquiry", "id", response.getEnquiryId()));
+            if (entity.getStatus() == SpaceEnquiryStatus.SHARED) {
+                SpaceEnquiryDeliveryEntity delivery =
+                        recordAppDelivery(entity, channel, createdNew, now);
+                return toMemberResponse(
+                                entity, space, listingDetailsResolver.resolve(space))
+                        .toBuilder()
+                        .reusedExisting(response.isReusedExisting())
+                        .alreadyDelivered(false)
+                        .deliveryChannel(EnquiryDeliveryChannel.APP)
+                        .deliveredAt(delivery.getDeliveredAt())
+                        .appDeliveredAt(delivery.getDeliveredAt())
+                        .build();
+            }
+        }
+
+        return enrichDeliveryTimestamps(response, spaceId, requesterId, email, now);
+    }
+
+    /**
+     * Backward-compatible overload defaulting to WEB channel.
+     * @deprecated Use {@link #create(UUID, UUID, CreateSpaceEnquiryRequest, InquiryClientChannel)} instead.
+     */
+    @Transactional
+    public SpaceEnquiryResponse create(UUID requesterId, UUID spaceId, CreateSpaceEnquiryRequest request) {
+        return create(requesterId, spaceId, request, InquiryClientChannel.WEB);
     }
 
     @Transactional
@@ -349,6 +416,7 @@ public class SpaceEnquiryService {
         entity.setExpiresAt(now);
         entity.setReviewedAt(now);
         enquiryRepository.save(entity);
+        expireChannelDeliveriesForListing(entity.getSpaceId(), entity.getRequesterUserId(), now);
         notifyRequester(entity, NotificationType.CONTACT_ENQUIRY_EXPIRED);
         log.info(
                 "Enquiry expired manually enquiryId={} spaceId={} previousStatus={} adminId={}",
@@ -367,15 +435,50 @@ public class SpaceEnquiryService {
 
     private SpaceEnquiryResponse createNewEnquiry(
             UserEntity requester, SpaceEntity space, String email, LocalDateTime now) {
+        return createNewEnquiry(requester, space, email, now, InquiryClientChannel.WEB);
+    }
+
+    private SpaceEnquiryResponse createNewEnquiry(
+            UserEntity requester,
+            SpaceEntity space,
+            String email,
+            LocalDateTime now,
+            InquiryClientChannel channel) {
         try {
-            return persistNewEnquiry(requester, space, email, now);
+            return persistNewEnquiry(requester, space, email, now, channel);
         } catch (DataIntegrityViolationException ex) {
             return recoverDuplicateCreate(space.getId(), requester.getId());
         }
     }
 
+    /**
+     * Like {@link #createNewEnquiry} but populates {@code createdIdOut[0]} with the new enquiry id
+     * only when a fresh row was persisted (null when recovery path was taken).
+     */
+    private SpaceEnquiryResponse createNewEnquiryTracked(
+            UserEntity requester,
+            SpaceEntity space,
+            String email,
+            LocalDateTime now,
+            UUID[] createdIdOut,
+            InquiryClientChannel channel) {
+        try {
+            SpaceEnquiryResponse response = persistNewEnquiry(requester, space, email, now, channel);
+            createdIdOut[0] = response.getEnquiryId();
+            return response;
+        } catch (DataIntegrityViolationException ex) {
+            // Recovery reuses an existing enquiry — credits must NOT be consumed
+            return recoverDuplicateCreate(space.getId(), requester.getId());
+        }
+    }
+
     private SpaceEnquiryResponse persistNewEnquiry(
-            UserEntity requester, SpaceEntity space, String email, LocalDateTime now) {
+            UserEntity requester,
+            SpaceEntity space,
+            String email,
+            LocalDateTime now,
+            InquiryClientChannel channel) {
+        InquiryClientChannel safeChannel = channel != null ? channel : InquiryClientChannel.WEB;
         SpaceEnquiryEntity entity = SpaceEnquiryEntity.builder()
                 .spaceId(space.getId())
                 .spaceNameSnapshot(space.getName())
@@ -383,6 +486,7 @@ public class SpaceEnquiryService {
                 .requesterNameSnapshot(requester.getFullName())
                 .requesterEmail(email)
                 .requesterType(resolveRequesterType(requester.getId()))
+                .clientChannel(safeChannel)
                 .status(SpaceEnquiryStatus.PENDING)
                 .requestedAt(now)
                 .expiresAt(now.plusDays(retentionDays))
@@ -393,9 +497,10 @@ public class SpaceEnquiryService {
         if (decision.isAllowed()) {
             applyAuthorizedShare(entity, space, requester.getFullName(), decision.contact(), null, now);
             log.info(
-                    "Enquiry auto-shared enquiryId={} spaceId={}",
+                    "Enquiry auto-shared enquiryId={} spaceId={} channel={}",
                     entity.getId(),
-                    space.getId());
+                    space.getId(),
+                    safeChannel);
         } else {
             log.info(
                     "Enquiry auto-share skipped enquiryId={} spaceId={} reason={}",
@@ -405,7 +510,7 @@ public class SpaceEnquiryService {
             notifyAdmins(entity, requester, space);
         }
         enqueueSupportSubmittedEmail(entity, requester, space, automaticallyShared(entity));
-        return SpaceEnquiryResponse.from(entity);
+        return toMemberResponse(entity, space, listingDetailsResolver.resolve(space));
     }
 
     private SpaceEnquiryResponse recoverDuplicateCreate(UUID spaceId, UUID requesterId) {
@@ -427,7 +532,7 @@ public class SpaceEnquiryService {
     }
 
     private SpaceEnquiryResponse reuseExistingEnquiry(SpaceEnquiryEntity existing, SpaceEntity space) {
-        boolean sentNewShareEmail = false;
+        boolean performedNewShare = false;
         if (existing.getStatus() == SpaceEnquiryStatus.PENDING) {
             SpaceEntity listing = space != null
                     ? space
@@ -446,19 +551,24 @@ public class SpaceEnquiryService {
                             : existing.getRequesterNameSnapshot();
                     applyAuthorizedShare(
                             existing, listing, name, decision.contact(), null, LocalDateTime.now(clock));
-                    sentNewShareEmail = true;
+                    performedNewShare = true;
                 }
             }
         }
         log.info(
-                "Enquiry create reused enquiryId={} spaceId={} requesterUserId={} status={} sentNewShareEmail={}",
+                "Enquiry create reused enquiryId={} spaceId={} requesterUserId={} status={} channel={} performedNewShare={}",
                 existing.getId(),
                 existing.getSpaceId(),
                 existing.getRequesterUserId(),
                 existing.getStatus(),
-                sentNewShareEmail);
-        SpaceEnquiryResponse response = SpaceEnquiryResponse.from(existing);
-        if (sentNewShareEmail) {
+                existing.getClientChannel(),
+                performedNewShare);
+        SpaceEntity listing = space != null
+                ? space
+                : spaceRepository.findById(existing.getSpaceId()).orElse(null);
+        SpaceEnquiryResponse response = toMemberResponse(
+                existing, listing, listing == null ? null : listingDetailsResolver.resolve(listing));
+        if (performedNewShare) {
             return response;
         }
         return response.toBuilder().reusedExisting(true).build();
@@ -471,25 +581,21 @@ public class SpaceEnquiryService {
             OwnerContactResponse contact,
             UUID adminId,
             LocalDateTime now) {
-        EnquiryMailMessage mailMessage = new EnquiryMailMessage(
-                entity.getRequesterEmail(),
-                requesterDisplayName,
-                space.getName(),
-                space.getType(),
-                space.getAddress(),
-                contact,
-                listingDetailsResolver.resolve(space));
-        emailService.send(SendEmailCommand.builder()
-                .eventType(EmailEventType.ENQUIRY_SHARED)
-                .recipientUserId(entity.getRequesterUserId())
-                .recipientEmail(entity.getRequesterEmail())
-                .subject(EnquiryContactEmailComposer.subject(mailMessage))
-                .plainBody(EnquiryContactEmailComposer.body(mailMessage))
-                .htmlBody(EnquiryContactEmailComposer.htmlBody(mailMessage))
-                .relatedEntityType(EmailService.RELATED_SPACE_ENQUIRY)
-                .relatedEntityId(entity.getId())
-                .idempotencyKey(EmailIdempotencyKeys.enquiryShared(entity.getId()))
-                .build());
+        InquiryClientChannel channel =
+                entity.getClientChannel() != null ? entity.getClientChannel() : InquiryClientChannel.WEB;
+
+        // WEB: mark SHARED only — owner-contact email is sent when the user explicitly requests it.
+        // ANDROID: in-app delivery via My Enquiries (no owner-contact email).
+        if (channel == InquiryClientChannel.ANDROID) {
+            log.info(
+                    "Enquiry shared in-app (no owner-contact email) enquiryId={} channel={}",
+                    entity.getId(),
+                    channel);
+        } else {
+            log.info(
+                    "Enquiry shared for WEB (email deferred until user request) enquiryId={}",
+                    entity.getId());
+        }
 
         entity.setStatus(SpaceEnquiryStatus.SHARED);
         entity.setReviewedAt(now);
@@ -497,6 +603,115 @@ public class SpaceEnquiryService {
         entity.setSharedByAdminId(adminId);
         enquiryRepository.save(entity);
         notifyRequester(entity, NotificationType.CONTACT_ENQUIRY_SHARED);
+    }
+
+    /**
+     * Send owner contact details to an arbitrary email the user chooses.
+     * Allowed for any SHARED enquiry (WEB or ANDROID) — APP and EMAIL deliveries are independent.
+     */
+    @Transactional
+    public SpaceEnquiryResponse deliverContactByEmail(UUID requesterId, UUID enquiryId, String rawEmail) {
+        String email = normalizeEmail(rawEmail);
+        if (email == null) {
+            throw new BusinessException(
+                    "REQUESTER_EMAIL_REQUIRED",
+                    "An email address is required to send contact details.",
+                    HttpStatus.BAD_REQUEST);
+        }
+
+        SpaceEnquiryEntity entity = enquiryRepository
+                .findByIdAndRequesterUserId(enquiryId, requesterId)
+                .orElseThrow(() -> new ResourceNotFoundException("Enquiry", "id", enquiryId));
+        LocalDateTime now = LocalDateTime.now(clock);
+        expireIfDue(entity, now);
+
+        throwIfActiveEmailDelivery(entity.getSpaceId(), requesterId, email, now);
+
+        UserEntity requester = userRepository
+                .findByIdAndIsActiveTrue(requesterId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", requesterId));
+        requester.rememberEnquiryEmail(email);
+        entity.setRequesterEmail(email);
+
+        if (entity.getStatus() == SpaceEnquiryStatus.PENDING) {
+            // Store preferred email for when details become available.
+            enquiryRepository.save(entity);
+            SpaceEntity space = spaceRepository.findById(entity.getSpaceId()).orElse(null);
+            return enrichDeliveryTimestamps(
+                    toMemberResponse(
+                            entity, space, space == null ? null : listingDetailsResolver.resolve(space)),
+                    entity.getSpaceId(),
+                    requesterId,
+                    email,
+                    now);
+        }
+
+        if (entity.getStatus() != SpaceEnquiryStatus.SHARED) {
+            throw new BusinessException(
+                    "ENQUIRY_NOT_SHARED",
+                    "Contact details are not available for this enquiry yet.",
+                    HttpStatus.CONFLICT);
+        }
+
+        SpaceEntity space = spaceRepository
+                .findByIdAndIsActiveTrue(entity.getSpaceId())
+                .orElseThrow(() -> new ResourceNotFoundException("Space", "id", entity.getSpaceId()));
+        OwnerContactResponse contact = ownerContactResolver.resolve(space);
+        if (!ownerContactResolver.hasShareableContact(contact)) {
+            throw new BusinessException(
+                    "OWNER_CONTACT_UNAVAILABLE",
+                    "Owner contact information is not available for this Space.",
+                    HttpStatus.CONFLICT);
+        }
+
+        // Cross-channel / additional EMAIL destination bills WEB access.
+        // First EMAIL after a billed create does not charge again.
+        boolean shouldBillEmailDelivery = deliveryRepository
+                        .findActiveAppDelivery(entity.getSpaceId(), requesterId, now)
+                        .isPresent()
+                || deliveryRepository.existsBySpaceIdAndRequesterUserIdAndDeliveryChannel(
+                        entity.getSpaceId(), requesterId, EnquiryDeliveryChannel.EMAIL);
+
+        InquiryAccessGrant grant = null;
+        if (shouldBillEmailDelivery) {
+            grant = inquiryAccessService.authorizeNewEnquiry(requesterId, InquiryClientChannel.WEB);
+        }
+
+        EnquiryMailMessage mailMessage = new EnquiryMailMessage(
+                email,
+                requester.getFullName(),
+                space.getName(),
+                space.getType(),
+                space.getAddress(),
+                contact,
+                listingDetailsResolver.resolve(space));
+        emailService.send(SendEmailCommand.builder()
+                .eventType(EmailEventType.ENQUIRY_SHARED)
+                .recipientUserId(requesterId)
+                .recipientEmail(email)
+                .subject(EnquiryContactEmailComposer.subject(mailMessage))
+                .plainBody(EnquiryContactEmailComposer.body(mailMessage))
+                .htmlBody(EnquiryContactEmailComposer.htmlBody(mailMessage))
+                .relatedEntityType(EmailService.RELATED_SPACE_ENQUIRY)
+                .relatedEntityId(entity.getId())
+                .idempotencyKey(EmailIdempotencyKeys.enquirySharedTo(entity.getId(), email))
+                .build());
+        entity.setContactEmailSentAt(now);
+        enquiryRepository.save(entity);
+
+        SpaceEnquiryDeliveryEntity delivery = recordEmailDelivery(entity, email, now);
+        if (grant != null) {
+            inquiryAccessService.consumeAfterSuccessfulCreate(
+                    requesterId, InquiryClientChannel.WEB, grant, entity.getId());
+        }
+
+        return toMemberResponse(entity, space, listingDetailsResolver.resolve(space))
+                .toBuilder()
+                .alreadyDelivered(false)
+                .deliveryChannel(EnquiryDeliveryChannel.EMAIL)
+                .deliveredAt(delivery.getDeliveredAt())
+                .emailDeliveredAt(delivery.getDeliveredAt())
+                .build();
     }
 
     private void enqueueSupportSubmittedEmail(
@@ -587,9 +802,18 @@ public class SpaceEnquiryService {
             }
             case CONTACT_ENQUIRY_SHARED -> {
                 title = "Contact details shared";
-                message = "ACOMI has shared the contact details for "
-                        + spaceName
-                        + ". Check your email for the contact information.";
+                InquiryClientChannel channel = enquiry.getClientChannel() != null
+                        ? enquiry.getClientChannel()
+                        : InquiryClientChannel.WEB;
+                if (channel == InquiryClientChannel.ANDROID) {
+                    message = "ACOMI has shared the contact details for "
+                            + spaceName
+                            + ". Open My Enquiries in the ACOMI app to view them.";
+                } else {
+                    message = "Contact details for "
+                            + spaceName
+                            + " are ready. Request email delivery from your enquiry.";
+                }
             }
             case CONTACT_ENQUIRY_REJECTED -> {
                 title = "Unable to fulfil";
@@ -625,6 +849,7 @@ public class SpaceEnquiryService {
         int expired = enquiryRepository.expirePendingDue(now);
         for (SpaceEnquiryEntity enquiry : due) {
             enquiry.setStatus(SpaceEnquiryStatus.EXPIRED);
+            expireChannelDeliveriesForListing(enquiry.getSpaceId(), enquiry.getRequesterUserId(), now);
             notifyRequester(enquiry, NotificationType.CONTACT_ENQUIRY_EXPIRED);
         }
         return expired;
@@ -706,8 +931,31 @@ public class SpaceEnquiryService {
                 && !entity.getExpiresAt().isAfter(now)) {
             entity.setStatus(SpaceEnquiryStatus.EXPIRED);
             enquiryRepository.save(entity);
+            expireChannelDeliveriesForListing(entity.getSpaceId(), entity.getRequesterUserId(), now);
             notifyRequester(entity, NotificationType.CONTACT_ENQUIRY_EXPIRED);
         }
+    }
+
+    /**
+     * When an enquiry is expired (admin or retention), channel deliveries for that
+     * user+listing must stop blocking re-send. Unique delivery rows are renewed later.
+     */
+    private void expireChannelDeliveriesForListing(
+            UUID spaceId, UUID requesterUserId, LocalDateTime now) {
+        List<SpaceEnquiryDeliveryEntity> active =
+                deliveryRepository.findActiveBySpaceAndRequester(spaceId, requesterUserId, now);
+        if (active.isEmpty()) {
+            return;
+        }
+        for (SpaceEnquiryDeliveryEntity delivery : active) {
+            delivery.setExpiresAt(now);
+        }
+        deliveryRepository.saveAll(active);
+        log.info(
+                "Expired {} channel delivery row(s) spaceId={} requesterUserId={}",
+                active.size(),
+                spaceId,
+                requesterUserId);
     }
 
     private Map<UUID, SpaceEntity> loadSpaces(List<SpaceEnquiryEntity> rows) {
@@ -725,13 +973,212 @@ public class SpaceEnquiryService {
     private SpaceEnquiryResponse toMemberResponse(
             SpaceEnquiryEntity entity, SpaceEntity space, EnquiryListingDetails listing) {
         EnquiryListingDetails safe = listing == null ? EnquiryListingDetails.empty() : listing;
-        return SpaceEnquiryResponse.from(
+        OwnerContactResponse memberContact = null;
+        InquiryClientChannel channel =
+                entity.getClientChannel() != null ? entity.getClientChannel() : InquiryClientChannel.WEB;
+        boolean appDeliveryActive = false;
+        if (entity.getStatus() == SpaceEnquiryStatus.SHARED) {
+            appDeliveryActive = deliveryRepository
+                    .findActiveAppDelivery(
+                            entity.getSpaceId(), entity.getRequesterUserId(), LocalDateTime.now(clock))
+                    .isPresent();
+        }
+        if (entity.getStatus() == SpaceEnquiryStatus.SHARED
+                && (channel == InquiryClientChannel.ANDROID || appDeliveryActive)) {
+            memberContact = ownerContactResolver.resolveOrEmpty(space);
+        }
+        SpaceEnquiryResponse base = SpaceEnquiryResponse.from(
                 entity,
                 space != null ? space.getType() : null,
                 locationLabel(space, safe),
                 safe.sharingNotes(),
                 amenityLabels(safe.amenities()),
-                space != null ? space.isFoodIncludedInRent() : null);
+                space != null ? space.isFoodIncludedInRent() : null,
+                memberContact);
+        return enrichDeliveryTimestamps(
+                base,
+                entity.getSpaceId(),
+                entity.getRequesterUserId(),
+                entity.getRequesterEmail(),
+                LocalDateTime.now(clock));
+    }
+
+    private EnquiryDeliveryChannel resolveDeliveryIntent(
+            CreateSpaceEnquiryRequest request, InquiryClientChannel clientChannel) {
+        if (request != null && request.getDeliveryChannel() != null) {
+            return request.getDeliveryChannel();
+        }
+        if (clientChannel == InquiryClientChannel.ANDROID) {
+            return EnquiryDeliveryChannel.APP;
+        }
+        return null;
+    }
+
+    private void throwIfActiveAppDelivery(UUID spaceId, UUID requesterId, LocalDateTime now) {
+        deliveryRepository
+                .findActiveAppDelivery(spaceId, requesterId, now)
+                .ifPresent(d -> {
+                    throw new AlreadyDeliveredException(
+                            EnquiryDeliveryChannel.APP, d.getDeliveredAt(), d.getEnquiryId(), null);
+                });
+    }
+
+    private void throwIfActiveEmailDelivery(
+            UUID spaceId, UUID requesterId, String email, LocalDateTime now) {
+        deliveryRepository
+                .findActiveEmailDelivery(spaceId, requesterId, email, now)
+                .ifPresent(d -> {
+                    throw new AlreadyDeliveredException(
+                            EnquiryDeliveryChannel.EMAIL,
+                            d.getDeliveredAt(),
+                            d.getEnquiryId(),
+                            d.getRecipientEmail());
+                });
+    }
+
+    /**
+     * Persist / renew APP delivery. Bills WEB when this is a new/renewed delivery on a reused enquiry.
+     */
+    private SpaceEnquiryDeliveryEntity recordAppDelivery(
+            SpaceEnquiryEntity enquiry,
+            InquiryClientChannel clientChannel,
+            boolean enquiryWasNewlyCreated,
+            LocalDateTime now) {
+        try {
+            SpaceEnquiryDeliveryEntity existing = deliveryRepository
+                    .findAppDeliveryForUpdate(
+                            enquiry.getSpaceId(), enquiry.getRequesterUserId(), EnquiryDeliveryChannel.APP)
+                    .orElse(null);
+            if (existing != null && existing.getExpiresAt().isAfter(now)) {
+                throw new AlreadyDeliveredException(
+                        EnquiryDeliveryChannel.APP,
+                        existing.getDeliveredAt(),
+                        existing.getEnquiryId(),
+                        null);
+            }
+
+            boolean renewing = existing != null;
+            if (!enquiryWasNewlyCreated) {
+                InquiryAccessGrant grant = inquiryAccessService.authorizeNewEnquiry(
+                        enquiry.getRequesterUserId(), clientChannel);
+                inquiryAccessService.consumeAfterSuccessfulCreate(
+                        enquiry.getRequesterUserId(), clientChannel, grant, enquiry.getId());
+            }
+
+            LocalDateTime expiresAt = enquiry.getExpiresAt() != null
+                    ? enquiry.getExpiresAt()
+                    : now.plusDays(retentionDays);
+            if (renewing) {
+                existing.setEnquiryId(enquiry.getId());
+                existing.setDeliveredAt(now);
+                existing.setExpiresAt(expiresAt);
+                return deliveryRepository.save(existing);
+            }
+            SpaceEnquiryDeliveryEntity created = SpaceEnquiryDeliveryEntity.builder()
+                    .enquiryId(enquiry.getId())
+                    .spaceId(enquiry.getSpaceId())
+                    .requesterUserId(enquiry.getRequesterUserId())
+                    .deliveryChannel(EnquiryDeliveryChannel.APP)
+                    .recipientEmail(null)
+                    .deliveredAt(now)
+                    .expiresAt(expiresAt)
+                    .build();
+            return deliveryRepository.saveAndFlush(created);
+        } catch (DataIntegrityViolationException ex) {
+            SpaceEnquiryDeliveryEntity raced = deliveryRepository
+                    .findBySpaceIdAndRequesterUserIdAndDeliveryChannel(
+                            enquiry.getSpaceId(), enquiry.getRequesterUserId(), EnquiryDeliveryChannel.APP)
+                    .orElseThrow(() -> ex);
+            if (raced.getExpiresAt().isAfter(now)) {
+                throw new AlreadyDeliveredException(
+                        EnquiryDeliveryChannel.APP, raced.getDeliveredAt(), raced.getEnquiryId(), null);
+            }
+            throw ex;
+        }
+    }
+
+    private SpaceEnquiryDeliveryEntity recordEmailDelivery(
+            SpaceEnquiryEntity enquiry, String normalizedEmail, LocalDateTime now) {
+        try {
+            SpaceEnquiryDeliveryEntity existing = deliveryRepository
+                    .findEmailDeliveryForUpdate(
+                            enquiry.getSpaceId(),
+                            enquiry.getRequesterUserId(),
+                            EnquiryDeliveryChannel.EMAIL,
+                            normalizedEmail)
+                    .orElse(null);
+            if (existing != null && existing.getExpiresAt().isAfter(now)) {
+                throw new AlreadyDeliveredException(
+                        EnquiryDeliveryChannel.EMAIL,
+                        existing.getDeliveredAt(),
+                        existing.getEnquiryId(),
+                        existing.getRecipientEmail());
+            }
+
+            LocalDateTime expiresAt = enquiry.getExpiresAt() != null
+                    ? enquiry.getExpiresAt()
+                    : now.plusDays(retentionDays);
+            if (existing != null) {
+                existing.setEnquiryId(enquiry.getId());
+                existing.setDeliveredAt(now);
+                existing.setExpiresAt(expiresAt);
+                return deliveryRepository.save(existing);
+            }
+            SpaceEnquiryDeliveryEntity created = SpaceEnquiryDeliveryEntity.builder()
+                    .enquiryId(enquiry.getId())
+                    .spaceId(enquiry.getSpaceId())
+                    .requesterUserId(enquiry.getRequesterUserId())
+                    .deliveryChannel(EnquiryDeliveryChannel.EMAIL)
+                    .recipientEmail(normalizedEmail)
+                    .deliveredAt(now)
+                    .expiresAt(expiresAt)
+                    .build();
+            return deliveryRepository.saveAndFlush(created);
+        } catch (DataIntegrityViolationException ex) {
+            SpaceEnquiryDeliveryEntity raced = deliveryRepository
+                    .findBySpaceIdAndRequesterUserIdAndDeliveryChannelAndRecipientEmail(
+                            enquiry.getSpaceId(),
+                            enquiry.getRequesterUserId(),
+                            EnquiryDeliveryChannel.EMAIL,
+                            normalizedEmail)
+                    .orElseThrow(() -> ex);
+            if (raced.getExpiresAt().isAfter(now)) {
+                throw new AlreadyDeliveredException(
+                        EnquiryDeliveryChannel.EMAIL,
+                        raced.getDeliveredAt(),
+                        raced.getEnquiryId(),
+                        raced.getRecipientEmail());
+            }
+            throw ex;
+        }
+    }
+
+    private SpaceEnquiryResponse enrichDeliveryTimestamps(
+            SpaceEnquiryResponse response,
+            UUID spaceId,
+            UUID requesterId,
+            String email,
+            LocalDateTime now) {
+        LocalDateTime appAt = deliveryRepository
+                .findActiveAppDelivery(spaceId, requesterId, now)
+                .map(SpaceEnquiryDeliveryEntity::getDeliveredAt)
+                .orElse(null);
+        String normalized = normalizeEmail(email);
+        LocalDateTime emailAt = normalized == null
+                ? null
+                : deliveryRepository
+                        .findActiveEmailDelivery(spaceId, requesterId, normalized, now)
+                        .map(SpaceEnquiryDeliveryEntity::getDeliveredAt)
+                        .orElse(null);
+        return response.toBuilder().appDeliveredAt(appAt).emailDeliveredAt(emailAt).build();
+    }
+
+    private static String normalizeEmail(String value) {
+        String trimmed = blankToNull(value);
+        if (trimmed == null) {
+            return null;
+        }
+        return trimmed.toLowerCase(java.util.Locale.ROOT);
     }
 
     private static String locationLabel(SpaceEntity space, EnquiryListingDetails listing) {

@@ -13,6 +13,8 @@ import com.acomi.acomi_backend.accommodation.infrastructure.persistence.reposito
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.repository.UnitRepository;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
+import com.acomi.acomi_backend.storage.application.service.EntityPhotoService;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +36,7 @@ public class RoomService {
     private final AccommodationActionService actionService;
     private final AccommodationLayoutService layoutService;
     private final SyntheticUnitService syntheticUnitService;
+    private final EntityPhotoService entityPhotoService;
 
     @Transactional
     public RoomResponse createRoomUnderFloor(
@@ -184,4 +187,25 @@ public class RoomService {
 
     private record BuildingContext(
             com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.BuildingEntity entity) {}
+
+    @Transactional
+    public RoomResponse replacePhoto(UUID spaceId, UUID roomId, UUID callerId, UUID fileId) {
+        accessService.assertCanViewStructure(spaceId, callerId);
+        RoomEntity room = roomRepository.findActiveByIdAndSpaceId(roomId, spaceId)
+                .orElseThrow(() -> ResourceNotFoundException.notInSpace("Room", roomId));
+        UUID next = entityPhotoService.replacePhoto(
+                callerId, spaceId, FilePurpose.ROOM_PHOTO, room.getPhotoFileId(), fileId);
+        room.setPhotoFileId(next);
+        return RoomResponse.from(roomRepository.save(room), actionService.forRoom(spaceId, room, callerId));
+    }
+
+    @Transactional
+    public RoomResponse removePhoto(UUID spaceId, UUID roomId, UUID callerId) {
+        accessService.assertCanViewStructure(spaceId, callerId);
+        RoomEntity room = roomRepository.findActiveByIdAndSpaceId(roomId, spaceId)
+                .orElseThrow(() -> ResourceNotFoundException.notInSpace("Room", roomId));
+        entityPhotoService.removePhoto(callerId, spaceId, room.getPhotoFileId());
+        room.setPhotoFileId(null);
+        return RoomResponse.from(roomRepository.save(room), actionService.forRoom(spaceId, room, callerId));
+    }
 }

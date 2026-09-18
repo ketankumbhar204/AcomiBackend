@@ -40,4 +40,7 @@ public class UnitListItemResponse {
 
     @Schema(description = "Optional apartment classification")
     private UnitKind unitKind;
+
+    @Schema(description = "Optional uploaded unit photo")
+    private UUID photoFileId;
 }

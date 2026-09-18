@@ -38,6 +38,7 @@ import com.acomi.acomi_backend.member.infrastructure.persistence.repository.Spac
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import com.acomi.acomi_backend.storage.application.service.EntityPhotoService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import java.util.Optional;
 import java.util.UUID;
@@ -92,6 +93,9 @@ class AccommodationStructureServiceTest {
     @Mock
     private OccupancyRepository occupancyRepository;
 
+    @Mock
+    private EntityPhotoService entityPhotoService;
+
     private SpaceMembershipResolver membershipResolver;
 
     private AccommodationAccessService accessService;
@@ -129,7 +133,8 @@ class AccommodationStructureServiceTest {
                 unitRepository,
                 accessService,
                 actionService,
-                layoutModeResolver);
+                layoutModeResolver,
+                entityPhotoService);
         floorService = new FloorService(
                 floorRepository,
                 buildingRepository,
@@ -137,7 +142,8 @@ class AccommodationStructureServiceTest {
                 unitRepository,
                 accessService,
                 profileService,
-                actionService);
+                actionService,
+                entityPhotoService);
         roomService = new RoomService(
                 roomRepository,
                 floorRepository,
@@ -147,7 +153,8 @@ class AccommodationStructureServiceTest {
                 profileService,
                 actionService,
                 layoutService,
-                syntheticUnitService);
+                syntheticUnitService,
+                entityPhotoService);
         bedService = new BedService(
                 bedRepository,
                 roomRepository,
@@ -156,7 +163,8 @@ class AccommodationStructureServiceTest {
                 actionService,
                 occupancyService,
                 occupancyRepository,
-                new BedPricingPropagationService(bedRepository));
+                new BedPricingPropagationService(bedRepository),
+                entityPhotoService);
 
         spaceId = UUID.randomUUID();
         ownerId = UUID.randomUUID();
@@ -216,7 +224,7 @@ class AccommodationStructureServiceTest {
 
         when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(pgSpace));
         stubOwnerMembership(pgSpace);
-        when(buildingRepository.existsBySpaceIdAndNameAndIsActiveTrue(spaceId, "Building A"))
+        when(buildingRepository.existsBySpaceIdAndNameIgnoreCaseAndIsActiveTrue(spaceId, "Building A"))
                 .thenReturn(false);
         when(buildingRepository.save(any(BuildingEntity.class))).thenAnswer(invocation -> {
             BuildingEntity saved = invocation.getArgument(0);
