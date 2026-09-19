@@ -30,6 +30,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 @ExtendWith(MockitoExtension.class)
 class AdminRegisteredUsersServiceTest {
@@ -43,12 +45,27 @@ class AdminRegisteredUsersServiceTest {
     @Mock
     private AccountDeletionService accountDeletionService;
 
+    private final PasswordEncoder passwordEncoder =
+            PasswordEncoderFactories.createDelegatingPasswordEncoder();
+
     private AdminRegisteredUsersService service;
 
     @BeforeEach
     void setUp() {
         service = new AdminRegisteredUsersService(
-                userRepository, spaceMembershipRepository, accountDeletionService);
+                userRepository,
+                spaceMembershipRepository,
+                accountDeletionService,
+                passwordEncoder,
+                org.mockito.Mockito.mock(
+                        com.acomi.acomi_backend.space.application.service.SpaceService.class),
+                org.mockito.Mockito.mock(
+                        com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository
+                                .class),
+                org.mockito.Mockito.mock(
+                        com.acomi.acomi_backend.member.application.service.InvitationProvisioner.class),
+                org.mockito.Mockito.mock(
+                        com.acomi.acomi_backend.member.application.service.InvitationService.class));
     }
 
     @Test

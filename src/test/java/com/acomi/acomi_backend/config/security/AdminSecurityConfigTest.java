@@ -54,9 +54,13 @@ class AdminSecurityConfigTest {
         Path controller =
                 Path.of("src/main/java/com/acomi/acomi_backend/admin/api/controller/AdminRegisteredUsersController.java");
 
-        assertThat(Files.readString(controller, StandardCharsets.UTF_8))
+        String content = Files.readString(controller, StandardCharsets.UTF_8);
+        assertThat(content)
                 .contains("/api/v1/admin/registered-users")
-                .contains("@GetMapping(\"/{id}\")");
+                .contains("@GetMapping(\"/{id}\")")
+                .contains("@PostMapping")
+                .contains("createTestUser");
+        assertThat(content).doesNotContain("@PermitAll");
     }
 
     @Test

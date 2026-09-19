@@ -1,28 +1,43 @@
 package com.acomi.acomi_backend.admin.application.service;
 
+import com.acomi.acomi_backend.admin.api.dto.request.AdminCreateRegisteredUserRequest;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUserResponse;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUserSpaceResponse;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUsersSummaryResponse;
 import com.acomi.acomi_backend.auth.application.service.AccountDeletionService;
+import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
+import com.acomi.acomi_backend.common.util.MobileNumberNormalizer;
+import com.acomi.acomi_backend.member.application.service.InvitationProvisioner;
+import com.acomi.acomi_backend.member.application.service.InvitationService;
 import com.acomi.acomi_backend.member.domain.model.MembershipRole;
+import com.acomi.acomi_backend.member.infrastructure.persistence.entity.InvitationEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
+import com.acomi.acomi_backend.space.api.dto.request.CreateSpaceRequest;
+import com.acomi.acomi_backend.space.application.service.SpaceService;
+import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
+import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import com.acomi.acomi_backend.user.domain.model.SystemRole;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -38,9 +53,19 @@ public class AdminRegisteredUsersService {
     static final String ONBOARDING_INCOMPLETE = "INCOMPLETE";
     static final String ONBOARDING_COMPLETE = "COMPLETE";
 
+    private static final Set<MembershipRole> ALLOWED_SPACE_ROLES =
+            EnumSet.allOf(MembershipRole.class);
+    private static final List<MembershipRole> OWNER_OR_MANAGER =
+            List.of(MembershipRole.OWNER, MembershipRole.MANAGER);
+
     private final UserRepository userRepository;
     private final SpaceMembershipRepository spaceMembershipRepository;
     private final AccountDeletionService accountDeletionService;
+    private final PasswordEncoder passwordEncoder;
+    private final SpaceService spaceService;
+    private final SpaceRepository spaceRepository;
+    private final InvitationProvisioner invitationProvisioner;
+    private final InvitationService invitationService;
 
     @Transactional(readOnly = true)
     public long countRegisteredUsers() {
@@ -130,6 +155,132 @@ public class AdminRegisteredUsersService {
         List<SpaceMembershipEntity> memberships =
                 spaceMembershipRepository.findActiveByUserIdsWithSpace(List.of(id));
         return toResponse(user, memberships);
+    }
+
+    /**
+     * Creates a real ACOMI USER for QA with {@code testUser=true}. Does not use OTP,
+     * does not issue a JWT, and never elevates {@code systemRole} above USER.
+     */
+    @Transactional
+    public AdminRegisteredUserResponse createTestUser(AdminCreateRegisteredUserRequest request) {
+        if (!request.getPassword().equals(request.getConfirmPassword())) {
+            throw new BusinessException("Passwords do not match");
+        }
+
+        MembershipRole spaceRole = request.getSpaceRole();
+        if (spaceRole == null || !ALLOWED_SPACE_ROLES.contains(spaceRole)) {
+            throw new BusinessException("Space role must be one of OWNER, MANAGER, TENANT, CUSTOMER, STAFF");
+        }
+
+        validateSpaceRoleRequirements(request, spaceRole);
+
+        String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
+        if (userRepository.findByMobileNumberAndIsActiveTrue(mobileNumber).isPresent()) {
+            throw new BusinessException("This mobile number is already registered.", HttpStatus.CONFLICT);
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        UserEntity user;
+        try {
+            user = userRepository.save(UserEntity.builder()
+                    .mobileNumber(mobileNumber)
+                    .fullName(request.getFullName().trim())
+                    .email(blankToNull(request.getEmail()) == null
+                            ? null
+                            : blankToNull(request.getEmail()).toLowerCase())
+                    .passwordHash(passwordEncoder.encode(request.getPassword()))
+                    .mobileVerifiedAt(now)
+                    .systemRole(SystemRole.USER)
+                    .isActive(true)
+                    .testUser(true)
+                    .build());
+            userRepository.flush();
+        } catch (DataIntegrityViolationException ex) {
+            throw new BusinessException("This mobile number is already registered.", HttpStatus.CONFLICT);
+        }
+
+        if (spaceRole == MembershipRole.OWNER) {
+            createOwnerSpaceForTestUser(user, request);
+        } else {
+            attachNonOwnerMembership(user, request.getSpaceId(), spaceRole);
+        }
+
+        List<SpaceMembershipEntity> memberships =
+                spaceMembershipRepository.findActiveByUserIdsWithSpace(List.of(user.getId()));
+        return toResponse(user, memberships);
+    }
+
+    private void validateSpaceRoleRequirements(
+            AdminCreateRegisteredUserRequest request, MembershipRole spaceRole) {
+        if (spaceRole == MembershipRole.OWNER) {
+            if (request.getSpaceType() == null) {
+                throw new BusinessException("Space type is required when creating an OWNER test user");
+            }
+            return;
+        }
+        if (request.getSpaceId() == null) {
+            throw new BusinessException(
+                    "Space is required for " + spaceRole.name() + " test users", HttpStatus.BAD_REQUEST);
+        }
+        spaceRepository
+                .findByIdAndIsActiveTrue(request.getSpaceId())
+                .orElseThrow(() -> new ResourceNotFoundException("Space", "id", request.getSpaceId()));
+    }
+
+    /**
+     * Real OWNER path: {@link SpaceService#createSpace} creates the space, ACTIVE OWNER
+     * membership, and linked member record — same as product onboarding.
+     */
+    private void createOwnerSpaceForTestUser(UserEntity user, AdminCreateRegisteredUserRequest request) {
+        String spaceName = StringUtils.hasText(request.getSpaceName())
+                ? request.getSpaceName().trim()
+                : defaultOwnerSpaceName(user.getFullName());
+        CreateSpaceRequest createSpace = new CreateSpaceRequest();
+        createSpace.setName(spaceName);
+        createSpace.setType(request.getSpaceType());
+        createSpace.setOwnerId(user.getId());
+        createSpace.setDiscoverable(false);
+        createSpace.setContactNumber(user.getMobileNumber());
+        spaceService.createSpace(createSpace);
+    }
+
+    /**
+     * Real non-OWNER path: pending invitation (as space owner would send) then
+     * {@link InvitationService#acceptInvitation} so ACTIVE membership + member link match
+     * normal invite acceptance.
+     */
+    private void attachNonOwnerMembership(UserEntity user, UUID spaceId, MembershipRole spaceRole) {
+        SpaceEntity space = spaceRepository
+                .findByIdAndIsActiveTrue(spaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Space", "id", spaceId));
+
+        UserEntity invitedBy = space.getOwner();
+        if (invitedBy == null || !invitedBy.isActive()) {
+            throw new BusinessException(
+                    "Space has no active owner eligible to invite members", HttpStatus.CONFLICT);
+        }
+
+        boolean canInvite = spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                invitedBy.getId(), space.getId(), OWNER_OR_MANAGER);
+        if (!canInvite) {
+            throw new BusinessException(
+                    "Space owner is not an active OWNER or MANAGER of this space", HttpStatus.CONFLICT);
+        }
+
+        InvitationEntity invitation = invitationProvisioner
+                .ensurePendingInvitation(space, invitedBy, user.getMobileNumber(), spaceRole)
+                .orElseThrow(() -> new BusinessException(
+                        "User already has an active membership in this space", HttpStatus.CONFLICT));
+
+        invitationService.acceptInvitation(invitation.getId(), user.getId());
+    }
+
+    private static String defaultOwnerSpaceName(String fullName) {
+        String trimmed = fullName == null ? "" : fullName.trim();
+        if (trimmed.isEmpty()) {
+            return "QA Test Space";
+        }
+        return "QA - " + trimmed;
     }
 
     @Transactional
