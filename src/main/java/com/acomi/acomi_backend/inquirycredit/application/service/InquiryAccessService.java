@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.inquirycredit.application.service;
 
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.enquiry.infrastructure.persistence.repository.SpaceEnquiryRepository;
+import com.acomi.acomi_backend.inquirycredit.api.dto.response.InquiryQuotaResponse;
 import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryAccessGrant;
 import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.entity.InquiryDailyUsageEntity;
@@ -32,6 +33,26 @@ public class InquiryAccessService {
     private final InquiryCreditWalletService walletService;
     private final SpaceEnquiryRepository spaceEnquiryRepository;
     private final Clock clock;
+
+    /**
+     * Snapshot of today's WEB free-quota for the seeker UI.
+     * Does not create a usage row when none exists yet (remaining = full limit).
+     */
+    @Transactional(readOnly = true)
+    public InquiryQuotaResponse getWebQuota(UUID userId) {
+        LocalDate today = LocalDate.now(clock);
+        int freeUsed = dailyUsageRepository
+                .findOneByUserIdAndUsageDateAndChannel(userId, today, InquiryClientChannel.WEB)
+                .map(InquiryDailyUsageEntity::getFreeUsed)
+                .orElse(0);
+        int freeRemaining = Math.max(0, WEB_FREE_DAILY_LIMIT - freeUsed);
+        return InquiryQuotaResponse.builder()
+                .dailyFreeLimit(WEB_FREE_DAILY_LIMIT)
+                .freeUsedToday(freeUsed)
+                .freeRemainingToday(freeRemaining)
+                .availableCredits(walletService.getBalance(userId))
+                .build();
+    }
 
     /**
      * Authorize a new enquiry creation. Returns the grant type.

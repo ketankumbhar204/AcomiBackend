@@ -171,10 +171,13 @@ class EnquiryAutoSharePolicyTest {
     }
 
     @Test
-    void deniesMissingRequesterEmail() {
+    void allowsMissingRequesterEmail() {
         stubNoRegistrations();
-        assertThat(policy.evaluate(space, "  ").reason())
-                .isEqualTo(EnquiryAutoShareReason.REQUESTER_EMAIL_UNAVAILABLE);
+        when(ownerContactResolver.resolve(space)).thenReturn(shareableContact);
+        when(ownerContactResolver.hasShareableContact(shareableContact)).thenReturn(true);
+
+        assertThat(policy.evaluate(space, null).isAllowed()).isTrue();
+        assertThat(policy.evaluate(space, "  ").isAllowed()).isTrue();
     }
 
     @Test

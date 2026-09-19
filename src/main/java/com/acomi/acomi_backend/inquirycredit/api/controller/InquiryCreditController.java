@@ -5,7 +5,9 @@ import com.acomi.acomi_backend.common.web.ApiResponse;
 import com.acomi.acomi_backend.inquirycredit.api.dto.request.CreateInquiryPurchaseRequest;
 import com.acomi.acomi_backend.inquirycredit.api.dto.response.InquiryCreditPurchaseRequestResponse;
 import com.acomi.acomi_backend.inquirycredit.api.dto.response.InquiryPaymentConfigResponse;
+import com.acomi.acomi_backend.inquirycredit.api.dto.response.InquiryQuotaResponse;
 import com.acomi.acomi_backend.inquirycredit.api.dto.response.InquiryWalletResponse;
+import com.acomi.acomi_backend.inquirycredit.application.service.InquiryAccessService;
 import com.acomi.acomi_backend.inquirycredit.application.service.InquiryCreditPurchaseService;
 import com.acomi.acomi_backend.inquirycredit.application.service.InquiryCreditWalletService;
 import com.acomi.acomi_backend.inquirycredit.application.service.InquiryPaymentConfigService;
@@ -34,6 +36,7 @@ public class InquiryCreditController {
     private final InquiryCreditWalletService walletService;
     private final InquiryPaymentConfigService paymentConfigService;
     private final InquiryCreditPurchaseService purchaseService;
+    private final InquiryAccessService inquiryAccessService;
 
     @GetMapping("/wallet")
     @Operation(summary = "Get my inquiry credit wallet balance")
@@ -41,6 +44,13 @@ public class InquiryCreditController {
         UUID callerId = SecurityUtils.getCurrentUserId();
         InquiryWalletResponse wallet = InquiryWalletResponse.from(walletService.getOrCreateWallet(callerId));
         return ResponseEntity.ok(ApiResponse.success(wallet));
+    }
+
+    @GetMapping("/quota")
+    @Operation(summary = "Get my WEB free enquiry quota remaining for today")
+    public ResponseEntity<ApiResponse<InquiryQuotaResponse>> getQuota() {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(inquiryAccessService.getWebQuota(callerId)));
     }
 
     @GetMapping("/payment-config")

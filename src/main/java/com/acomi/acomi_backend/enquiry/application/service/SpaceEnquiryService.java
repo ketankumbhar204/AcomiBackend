@@ -353,11 +353,6 @@ public class SpaceEnquiryService {
                 .findByIdAndIsActiveTrue(entity.getSpaceId())
                 .orElseThrow(() -> new ResourceNotFoundException("Space", "id", entity.getSpaceId()));
 
-        if (isBlank(entity.getRequesterEmail())) {
-            throw new BusinessException(
-                    "REQUESTER_EMAIL_MISSING", "Requester email is required before sharing.", HttpStatus.CONFLICT);
-        }
-
         OwnerContactResponse contact = ownerContactResolver.resolve(space);
         if (!ownerContactResolver.hasShareableContact(contact)) {
             throw new BusinessException(
@@ -862,17 +857,15 @@ public class SpaceEnquiryService {
         return EnquiryRequesterType.MEMBER;
     }
 
+    /**
+     * Optional on create. Prefer request email, else profile email.
+     * Missing email is allowed — contact is shared in-app (ANDROID) or emailed later on request (WEB).
+     */
     private String resolveRequesterEmail(UserEntity requester, CreateSpaceEnquiryRequest request) {
         String provided = request != null ? blankToNull(request.getEmail()) : null;
         String profile = blankToNull(requester.getEmail());
         String email = provided != null ? provided : profile;
-        if (email == null) {
-            throw new BusinessException(
-                    "REQUESTER_EMAIL_REQUIRED",
-                    "An email address is required so ACOMI can share owner contact details.",
-                    HttpStatus.BAD_REQUEST);
-        }
-        return email.toLowerCase();
+        return email == null ? null : email.toLowerCase();
     }
 
     private SpaceEnquiryEntity load(UUID enquiryId) {

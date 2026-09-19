@@ -346,16 +346,25 @@ class SpaceEnquiryServiceTest {
     }
 
     @Test
-    void createRequiresEmailWhenProfileHasNone() {
+    void createWithoutEmailSucceedsForAndroid() {
         member.setEmail(null);
-        when(userRepository.findByIdAndIsActiveTrue(memberId)).thenReturn(Optional.of(member));
-        when(spaceRepository.findByIdAndIsActiveTrueAndDiscoverableTrue(spaceBId)).thenReturn(Optional.of(spaceB));
-        when(spaceRepository.existsByIdAndOwnerIdAndIsActiveTrue(spaceBId, memberId)).thenReturn(false);
+        stubCreateSuccess(member, spaceB, false);
+        when(userRepository.findBySystemRoleAndIsActiveTrue(SystemRole.ADMIN)).thenReturn(List.of());
+        when(enquiryRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+            SpaceEnquiryEntity entity = invocation.getArgument(0);
+            entity.setId(UUID.randomUUID());
+            when(enquiryRepository.findById(entity.getId())).thenReturn(Optional.of(entity));
+            return entity;
+        });
 
-        assertThatThrownBy(() -> service.create(memberId, spaceBId, new CreateSpaceEnquiryRequest()))
-                .isInstanceOf(BusinessException.class)
-                .extracting("errorCode")
-                .isEqualTo("REQUESTER_EMAIL_REQUIRED");
+        SpaceEnquiryResponse response = service.create(
+                memberId, spaceBId, new CreateSpaceEnquiryRequest(), InquiryClientChannel.ANDROID);
+
+        assertThat(response.getRequesterEmail()).isNull();
+        assertThat(response.getClientChannel()).isEqualTo(InquiryClientChannel.ANDROID);
+        ArgumentCaptor<SpaceEnquiryEntity> saved = ArgumentCaptor.forClass(SpaceEnquiryEntity.class);
+        verify(enquiryRepository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getRequesterEmail()).isNull();
     }
 
     @Test

@@ -357,18 +357,19 @@ class ConvertedListingEnquiryFlowTest {
     }
 
     @Test
-    void requesterEmailMissingIsRejectedBeforePersist() {
+    void requesterEmailMissingIsAllowedAndPersists() {
         requester.setEmail(null);
-        when(userRepository.findByIdAndIsActiveTrue(requesterId)).thenReturn(Optional.of(requester));
-        when(spaceRepository.findByIdAndIsActiveTrueAndDiscoverableTrue(spaceId)).thenReturn(Optional.of(space));
-        when(spaceRepository.existsByIdAndOwnerIdAndIsActiveTrue(spaceId, requesterId)).thenReturn(false);
+        stubCreateLookup(space);
+        stubRegistration(null, null);
+        when(userRepository.findBySystemRoleAndIsActiveTrue(SystemRole.ADMIN)).thenReturn(List.of(admin));
+        stubPersist();
 
-        assertThatThrownBy(() -> service.create(requesterId, spaceId, new CreateSpaceEnquiryRequest()))
-                .isInstanceOf(BusinessException.class)
-                .extracting("errorCode")
-                .isEqualTo("REQUESTER_EMAIL_REQUIRED");
-        verify(enquiryRepository, never()).saveAndFlush(any());
-        verify(emailService, never()).send(any());
+        SpaceEnquiryResponse response = service.create(requesterId, spaceId, new CreateSpaceEnquiryRequest());
+
+        assertThat(response.getRequesterEmail()).isNull();
+        ArgumentCaptor<SpaceEnquiryEntity> saved = ArgumentCaptor.forClass(SpaceEnquiryEntity.class);
+        verify(enquiryRepository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getRequesterEmail()).isNull();
     }
 
     @Test

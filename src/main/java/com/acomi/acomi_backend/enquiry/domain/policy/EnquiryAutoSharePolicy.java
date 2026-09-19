@@ -62,9 +62,7 @@ public class EnquiryAutoSharePolicy {
         if (!canAutoShareOwnership(space, owner, property, mess)) {
             return EnquiryAutoShareDecision.deny(EnquiryAutoShareReason.OWNER_NOT_LINKED);
         }
-        if (requesterEmail == null || requesterEmail.isBlank()) {
-            return EnquiryAutoShareDecision.deny(EnquiryAutoShareReason.REQUESTER_EMAIL_UNAVAILABLE);
-        }
+        // Requester email is optional: ANDROID shares in-app; WEB emails only on explicit request.
 
         OwnerContactResponse contact = ownerContactResolver.resolve(space);
         if (!ownerContactResolver.hasShareableContact(contact)) {
@@ -75,10 +73,10 @@ public class EnquiryAutoSharePolicy {
 
     /**
      * Listing-side eligibility for Admin diagnostics. Does not represent a specific enquiry
-     * requester; a later enquiry still needs a valid requester email.
+     * requester; email is not required for auto-share eligibility.
      */
     public EnquiryAutoShareDecision evaluateListing(SpaceEntity space) {
-        return evaluate(space, "listing-eligibility");
+        return evaluate(space, null);
     }
 
     /**
