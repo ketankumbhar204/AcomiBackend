@@ -36,6 +36,29 @@ public class InquiryPaymentConfigEntity extends BaseEntity {
     @Builder.Default
     private boolean enabled = false;
 
+    /** Free WEB (email) enquiries per calendar day before paid credits apply. */
+    @Column(name = "web_free_daily_limit", nullable = false)
+    @Builder.Default
+    private int webFreeDailyLimit = 5;
+
+    /**
+     * ANDROID billing: {@code FREE} (rate-limit only) or {@code CREDITS}
+     * (daily free then wallet).
+     */
+    @Column(name = "android_billing_mode", nullable = false, length = 20)
+    @Builder.Default
+    private String androidBillingMode = "FREE";
+
+    /** Free ANDROID enquiries per day when billing mode is CREDITS. */
+    @Column(name = "android_free_daily_limit", nullable = false)
+    @Builder.Default
+    private int androidFreeDailyLimit = 5;
+
+    /** Max ANDROID enquiries per rolling hour (abuse protection). */
+    @Column(name = "android_hourly_rate_limit", nullable = false)
+    @Builder.Default
+    private int androidHourlyRateLimit = 20;
+
     @Column(name = "updated_by_user_id")
     private UUID updatedByUserId;
 }

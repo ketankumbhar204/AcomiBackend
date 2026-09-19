@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -13,6 +14,7 @@ import com.acomi.acomi_backend.enquiry.infrastructure.persistence.repository.Spa
 import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryAccessGrant;
 import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.entity.InquiryDailyUsageEntity;
+import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.entity.InquiryPaymentConfigEntity;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.repository.InquiryDailyUsageRepository;
 import java.time.Clock;
 import java.time.Instant;
@@ -39,21 +41,35 @@ class InquiryAccessServiceTest {
     @Mock
     private SpaceEnquiryRepository spaceEnquiryRepository;
 
+    @Mock
+    private InquiryPaymentConfigService paymentConfigService;
+
     private InquiryAccessService accessService;
 
     private final Clock fixedClock = Clock.fixed(
             Instant.parse("2026-09-14T06:30:00Z"), ZoneId.of("Asia/Kolkata"));
 
     private UUID userId;
+    private InquiryPaymentConfigEntity config;
 
     @BeforeEach
     void setUp() {
         accessService = new InquiryAccessService(
-                dailyUsageRepository, walletService, spaceEnquiryRepository, fixedClock);
+                dailyUsageRepository,
+                walletService,
+                spaceEnquiryRepository,
+                paymentConfigService,
+                fixedClock);
         userId = UUID.randomUUID();
+        config = InquiryPaymentConfigEntity.builder()
+                .enabled(true)
+                .webFreeDailyLimit(5)
+                .androidBillingMode("FREE")
+                .androidFreeDailyLimit(5)
+                .androidHourlyRateLimit(20)
+                .build();
+        lenient().when(paymentConfigService.requireConfig()).thenReturn(config);
     }
-
-    // ── WEB channel — free quota ───────────────────────────────────────────────
 
     @Test
     void authorizeNewEnquiry_webWithFreeQuotaAvailable_returnsFreeWeb() {
@@ -110,8 +126,6 @@ class InquiryAccessServiceTest {
         assertThat(grant).isEqualTo(InquiryAccessGrant.FREE_WEB);
     }
 
-    // ── ANDROID channel ────────────────────────────────────────────────────────
-
     @Test
     void authorizeNewEnquiry_androidUnderRateLimit_returnsAndroidFree() {
         when(spaceEnquiryRepository.countByRequesterUserIdAndRequestedAtGreaterThanEqual(eq(userId), any()))
@@ -137,7 +151,22 @@ class InquiryAccessServiceTest {
                 });
     }
 
-    // ── consumeAfterSuccessfulCreate ───────────────────────────────────────────
+    @Test
+    void authorizeNewEnquiry_androidCreditsModeFreeExhausted_returnsPaidCredit() {
+        config.setAndroidBillingMode("CREDITS");
+        LocalDate today = LocalDate.now(fixedClock);
+        InquiryDailyUsageEntity usage = buildUsage(userId, today, InquiryClientChannel.ANDROID, 5);
+        when(spaceEnquiryRepository.countByRequesterUserIdAndRequestedAtGreaterThanEqual(eq(userId), any()))
+                .thenReturn(1L);
+        when(dailyUsageRepository.findByUserIdAndUsageDateAndChannel(
+                        userId, today, InquiryClientChannel.ANDROID))
+                .thenReturn(Optional.of(usage));
+        when(walletService.getBalance(userId)).thenReturn(2);
+
+        InquiryAccessGrant grant = accessService.authorizeNewEnquiry(userId, InquiryClientChannel.ANDROID);
+
+        assertThat(grant).isEqualTo(InquiryAccessGrant.PAID_CREDIT);
+    }
 
     @Test
     void consumeAfterSuccessfulCreate_freeWeb_incrementsUsage() {
@@ -148,7 +177,8 @@ class InquiryAccessServiceTest {
         when(dailyUsageRepository.save(any())).thenReturn(usage);
 
         UUID enquiryId = UUID.randomUUID();
-        accessService.consumeAfterSuccessfulCreate(userId, InquiryClientChannel.WEB, InquiryAccessGrant.FREE_WEB, enquiryId);
+        accessService.consumeAfterSuccessfulCreate(
+                userId, InquiryClientChannel.WEB, InquiryAccessGrant.FREE_WEB, enquiryId);
 
         verify(dailyUsageRepository).save(any());
         verify(walletService, never()).consumeUsage(any(), any());
@@ -164,7 +194,8 @@ class InquiryAccessServiceTest {
         when(walletService.getBalance(userId)).thenReturn(1);
 
         UUID enquiryId = UUID.randomUUID();
-        accessService.consumeAfterSuccessfulCreate(userId, InquiryClientChannel.WEB, InquiryAccessGrant.FREE_WEB, enquiryId);
+        accessService.consumeAfterSuccessfulCreate(
+                userId, InquiryClientChannel.WEB, InquiryAccessGrant.FREE_WEB, enquiryId);
 
         verify(walletService).consumeUsage(userId, enquiryId);
         verify(dailyUsageRepository, never()).save(any());
@@ -192,7 +223,8 @@ class InquiryAccessServiceTest {
     @Test
     void consumeAfterSuccessfulCreate_paidCredit_debitsWallet() {
         UUID enquiryId = UUID.randomUUID();
-        accessService.consumeAfterSuccessfulCreate(userId, InquiryClientChannel.WEB, InquiryAccessGrant.PAID_CREDIT, enquiryId);
+        accessService.consumeAfterSuccessfulCreate(
+                userId, InquiryClientChannel.WEB, InquiryAccessGrant.PAID_CREDIT, enquiryId);
 
         verify(walletService).consumeUsage(userId, enquiryId);
         verify(dailyUsageRepository, never()).save(any());
@@ -202,7 +234,8 @@ class InquiryAccessServiceTest {
     void consumeAfterSuccessfulCreate_androidFree_tracksMetricsOnly() {
         LocalDate today = LocalDate.now(fixedClock);
         InquiryDailyUsageEntity usage = buildUsage(userId, today, InquiryClientChannel.ANDROID, 10);
-        when(dailyUsageRepository.findByUserIdAndUsageDateAndChannel(userId, today, InquiryClientChannel.ANDROID))
+        when(dailyUsageRepository.findByUserIdAndUsageDateAndChannel(
+                        userId, today, InquiryClientChannel.ANDROID))
                 .thenReturn(Optional.of(usage));
         when(dailyUsageRepository.save(any())).thenReturn(usage);
 
@@ -210,12 +243,9 @@ class InquiryAccessServiceTest {
         accessService.consumeAfterSuccessfulCreate(
                 userId, InquiryClientChannel.ANDROID, InquiryAccessGrant.ANDROID_FREE, enquiryId);
 
-        // Metrics incremented but wallet not touched
         verify(dailyUsageRepository).save(any());
         verify(walletService, never()).consumeUsage(any(), any());
     }
-
-    // ── Helpers ────────────────────────────────────────────────────────────────
 
     private InquiryDailyUsageEntity buildUsage(
             UUID userId, LocalDate date, InquiryClientChannel channel, int freeUsed) {

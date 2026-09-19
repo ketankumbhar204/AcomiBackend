@@ -174,12 +174,14 @@ class AdminRegisteredUsersServiceTest {
     void search_includesEmailOnRegisteredUser() {
         UserEntity user = verifiedUser("Email Owner", "9000000009");
         user.setEmail("rahul@example.com");
-        when(userRepository.searchVerifiedUsersFiltered(
+        when(userRepository.searchActiveUsersFiltered(
                         eq(SystemRole.USER),
                         eq("rahul@example.com"),
                         eq(null),
                         eq(null),
                         eq(null),
+                        eq(-1),
+                        eq(-1),
                         eq(null),
                         any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(user), PageRequest.of(0, 10), 1));
@@ -194,8 +196,7 @@ class AdminRegisteredUsersServiceTest {
 
     @Test
     void list_doesNotQueryMembershipsWhenNoVerifiedUsers() {
-        when(userRepository.findByMobileVerifiedAtIsNotNullAndIsActiveTrueAndSystemRole(
-                        eq(SystemRole.USER), any(Pageable.class)))
+        when(userRepository.findByIsActiveTrueAndSystemRole(eq(SystemRole.USER), any(Pageable.class)))
                 .thenReturn(Page.empty());
 
         Page<AdminRegisteredUserResponse> page = service.list(PageRequest.of(0, 20));
@@ -215,8 +216,7 @@ class AdminRegisteredUsersServiceTest {
     }
 
     private void stubList(List<UserEntity> users, List<SpaceMembershipEntity> memberships) {
-        when(userRepository.findByMobileVerifiedAtIsNotNullAndIsActiveTrueAndSystemRole(
-                        eq(SystemRole.USER), any(Pageable.class)))
+        when(userRepository.findByIsActiveTrueAndSystemRole(eq(SystemRole.USER), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(users, PageRequest.of(0, 20), users.size()));
         if (!users.isEmpty()) {
             when(spaceMembershipRepository.findActiveByUserIdsWithSpace(users.stream().map(UserEntity::getId).toList()))

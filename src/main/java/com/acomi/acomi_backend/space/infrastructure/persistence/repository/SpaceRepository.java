@@ -96,4 +96,22 @@ public interface SpaceRepository extends JpaRepository<SpaceEntity, UUID>, JpaSp
             @Param("maxLat") BigDecimal maxLat,
             @Param("minLng") BigDecimal minLng,
             @Param("maxLng") BigDecimal maxLng);
+
+    @Query(
+            value =
+                    """
+                    SELECT CAST(s.created_at AS date) AS day, COUNT(*) AS cnt
+                    FROM spaces s
+                    WHERE s.is_active = true
+                      AND s.type IN (:types)
+                      AND s.created_at >= :fromAt
+                      AND s.created_at < :toAt
+                    GROUP BY CAST(s.created_at AS date)
+                    ORDER BY day ASC
+                    """,
+            nativeQuery = true)
+    List<Object[]> countDailyActiveCreatedByTypesBetween(
+            @Param("types") Collection<String> types,
+            @Param("fromAt") java.time.LocalDateTime fromAt,
+            @Param("toAt") java.time.LocalDateTime toAt);
 }

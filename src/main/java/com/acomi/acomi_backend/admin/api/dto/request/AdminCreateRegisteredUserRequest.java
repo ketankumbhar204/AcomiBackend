@@ -17,7 +17,8 @@ import lombok.Setter;
  * the service always forces {@code USER} and {@code testUser=true}.
  *
  * <p>{@code spaceRole} is a {@link MembershipRole} (space membership), never a platform role.
- * OWNER creates a new space for the user; other roles require an existing {@code spaceId}.
+ * OWNER creates a new space for the user; other roles may optionally join an existing
+ * {@code spaceId}, or omit it to create a user with no space membership.
  */
 @Getter
 @Setter
@@ -46,7 +47,7 @@ public class AdminCreateRegisteredUserRequest {
     @NotNull(message = "Space role is required")
     private MembershipRole spaceRole;
 
-    /** Required when spaceRole is not OWNER — existing active space to join. */
+    /** Optional when spaceRole is not OWNER — existing active space to join. */
     private UUID spaceId;
 
     /** Optional display name for the new space when spaceRole is OWNER. */

@@ -50,11 +50,12 @@ public class AdminRegisteredUsersController {
             @RequestParam(required = false) String role,
             @RequestParam(required = false) String onboarding,
             @RequestParam(required = false) String spaceAssociation,
+            @RequestParam(required = false) Boolean verified,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        return ResponseEntity.ok(ApiResponse.success(PagedResponse.from(
-                adminRegisteredUsersService.list(q, role, onboarding, spaceAssociation, from, to, pageable))));
+        return ResponseEntity.ok(ApiResponse.success(PagedResponse.from(adminRegisteredUsersService.list(
+                q, role, onboarding, spaceAssociation, verified, from, to, pageable))));
     }
 
     @PostMapping

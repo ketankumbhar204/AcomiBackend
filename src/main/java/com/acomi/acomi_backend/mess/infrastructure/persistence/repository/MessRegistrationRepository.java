@@ -156,4 +156,17 @@ public interface MessRegistrationRepository extends JpaRepository<MessRegistrati
             where m.convertedSpaceId in :spaceIds and m.testLead = true
             """)
     List<UUID> findTestLeadConvertedSpaceIds(@Param("spaceIds") Collection<UUID> spaceIds);
+
+    @Query(
+            value =
+                    """
+                    SELECT CAST(r.created_at AS date) AS day, COUNT(*) AS cnt
+                    FROM mess_registrations r
+                    WHERE r.created_at >= :fromAt AND r.created_at < :toAt
+                    GROUP BY CAST(r.created_at AS date)
+                    ORDER BY day ASC
+                    """,
+            nativeQuery = true)
+    List<Object[]> countDailyCreatedBetween(
+            @Param("fromAt") java.time.LocalDateTime fromAt, @Param("toAt") java.time.LocalDateTime toAt);
 }

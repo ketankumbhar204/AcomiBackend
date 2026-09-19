@@ -3,9 +3,11 @@ package com.acomi.acomi_backend.inquirycredit.application.service;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.enquiry.infrastructure.persistence.repository.SpaceEnquiryRepository;
 import com.acomi.acomi_backend.inquirycredit.api.dto.response.InquiryQuotaResponse;
+import com.acomi.acomi_backend.inquirycredit.domain.model.AndroidInquiryBillingMode;
 import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryAccessGrant;
 import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.entity.InquiryDailyUsageEntity;
+import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.entity.InquiryPaymentConfigEntity;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.repository.InquiryDailyUsageRepository;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -23,35 +25,64 @@ import org.springframework.transaction.annotation.Transactional;
 @RequiredArgsConstructor
 public class InquiryAccessService {
 
-    /** Max free enquiries per day per user on WEB channel. */
-    private static final int WEB_FREE_DAILY_LIMIT = 5;
-
-    /** ANDROID hourly rate limit to prevent scraping abuse. */
-    private static final int ANDROID_HOURLY_RATE_LIMIT = 20;
-
     private final InquiryDailyUsageRepository dailyUsageRepository;
     private final InquiryCreditWalletService walletService;
     private final SpaceEnquiryRepository spaceEnquiryRepository;
+    private final InquiryPaymentConfigService paymentConfigService;
     private final Clock clock;
 
     /**
-     * Snapshot of today's WEB free-quota for the seeker UI.
+     * Snapshot of today's free-quota for the seeker UI for the given channel.
      * Does not create a usage row when none exists yet (remaining = full limit).
      */
     @Transactional(readOnly = true)
-    public InquiryQuotaResponse getWebQuota(UUID userId) {
+    public InquiryQuotaResponse getQuota(UUID userId, InquiryClientChannel channel) {
+        InquiryClientChannel safe = channel != null ? channel : InquiryClientChannel.WEB;
+        InquiryPaymentConfigEntity config = paymentConfigService.requireConfig();
         LocalDate today = LocalDate.now(clock);
         int freeUsed = dailyUsageRepository
-                .findOneByUserIdAndUsageDateAndChannel(userId, today, InquiryClientChannel.WEB)
+                .findOneByUserIdAndUsageDateAndChannel(userId, today, safe)
                 .map(InquiryDailyUsageEntity::getFreeUsed)
                 .orElse(0);
-        int freeRemaining = Math.max(0, WEB_FREE_DAILY_LIMIT - freeUsed);
+
+        if (safe == InquiryClientChannel.ANDROID) {
+            AndroidInquiryBillingMode mode =
+                    AndroidInquiryBillingMode.fromDb(config.getAndroidBillingMode());
+            if (mode == AndroidInquiryBillingMode.FREE) {
+                return InquiryQuotaResponse.builder()
+                        .channel(safe.name())
+                        .dailyFreeLimit(0)
+                        .freeUsedToday(freeUsed)
+                        .freeRemainingToday(0)
+                        .availableCredits(walletService.getBalance(userId))
+                        .androidBillingMode(mode.name())
+                        .build();
+            }
+            int limit = Math.max(0, config.getAndroidFreeDailyLimit());
+            return InquiryQuotaResponse.builder()
+                    .channel(safe.name())
+                    .dailyFreeLimit(limit)
+                    .freeUsedToday(freeUsed)
+                    .freeRemainingToday(Math.max(0, limit - freeUsed))
+                    .availableCredits(walletService.getBalance(userId))
+                    .androidBillingMode(mode.name())
+                    .build();
+        }
+
+        int limit = Math.max(0, config.getWebFreeDailyLimit());
         return InquiryQuotaResponse.builder()
-                .dailyFreeLimit(WEB_FREE_DAILY_LIMIT)
+                .channel(safe.name())
+                .dailyFreeLimit(limit)
                 .freeUsedToday(freeUsed)
-                .freeRemainingToday(freeRemaining)
+                .freeRemainingToday(Math.max(0, limit - freeUsed))
                 .availableCredits(walletService.getBalance(userId))
                 .build();
+    }
+
+    /** @deprecated Prefer {@link #getQuota(UUID, InquiryClientChannel)}. */
+    @Transactional(readOnly = true)
+    public InquiryQuotaResponse getWebQuota(UUID userId) {
+        return getQuota(userId, InquiryClientChannel.WEB);
     }
 
     /**
@@ -76,55 +107,75 @@ public class InquiryAccessService {
     @Transactional
     public void consumeAfterSuccessfulCreate(
             UUID userId, InquiryClientChannel channel, InquiryAccessGrant grant, UUID enquiryId) {
+        InquiryClientChannel safe = channel != null ? channel : InquiryClientChannel.WEB;
         switch (grant) {
             case FREE_WEB -> {
-                // Under concurrent load another TX may have taken the last free slot after authorize.
-                // Fail closed (rollback enquiry) unless paid credits can cover.
-                if (!tryIncrementWebFreeUsed(userId)) {
-                    if (walletService.getBalance(userId) > 0) {
-                        walletService.consumeUsage(userId, enquiryId);
-                        log.info(
-                                "inquiry_free_race_fallback_to_credit userId={} enquiryId={}",
-                                userId,
-                                enquiryId);
-                    } else {
-                        throw new BusinessException(
-                                "WEB_FREE_LIMIT_REACHED",
-                                "You have used all " + WEB_FREE_DAILY_LIMIT
-                                        + " free enquiries for today. Purchase inquiry credits to continue.",
-                                HttpStatus.PAYMENT_REQUIRED);
+                if (!tryIncrementFreeUsed(userId, InquiryClientChannel.WEB)) {
+                    fallbackToCreditOrFail(userId, enquiryId, webFreeLimit());
+                }
+            }
+            case ANDROID_FREE -> {
+                InquiryPaymentConfigEntity config = paymentConfigService.requireConfig();
+                AndroidInquiryBillingMode mode =
+                        AndroidInquiryBillingMode.fromDb(config.getAndroidBillingMode());
+                if (mode == AndroidInquiryBillingMode.CREDITS) {
+                    if (!tryIncrementFreeUsed(userId, InquiryClientChannel.ANDROID)) {
+                        fallbackToCreditOrFail(userId, enquiryId, config.getAndroidFreeDailyLimit());
                     }
+                } else {
+                    incrementAndroidUsageForMetrics(userId);
                 }
             }
             case PAID_CREDIT -> walletService.consumeUsage(userId, enquiryId);
-            case ANDROID_FREE -> incrementAndroidUsageForMetrics(userId);
         }
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────
 
     private InquiryAccessGrant authorizeAndroid(UUID userId) {
+        InquiryPaymentConfigEntity config = paymentConfigService.requireConfig();
+        int hourlyLimit = Math.max(1, config.getAndroidHourlyRateLimit());
         LocalDateTime oneHourAgo = LocalDateTime.now(clock).minusHours(1);
         long recentCount = spaceEnquiryRepository
                 .countByRequesterUserIdAndRequestedAtGreaterThanEqual(userId, oneHourAgo);
-        if (recentCount >= ANDROID_HOURLY_RATE_LIMIT) {
+        if (recentCount >= hourlyLimit) {
             throw new BusinessException(
                     "RATE_LIMITED",
                     "You have submitted too many enquiries recently. Please try again later.",
                     HttpStatus.TOO_MANY_REQUESTS);
         }
-        return InquiryAccessGrant.ANDROID_FREE;
+
+        AndroidInquiryBillingMode mode =
+                AndroidInquiryBillingMode.fromDb(config.getAndroidBillingMode());
+        if (mode == AndroidInquiryBillingMode.FREE) {
+            return InquiryAccessGrant.ANDROID_FREE;
+        }
+
+        int freeLimit = Math.max(0, config.getAndroidFreeDailyLimit());
+        LocalDate today = LocalDate.now(clock);
+        InquiryDailyUsageEntity usage = getOrCreateUsage(userId, today, InquiryClientChannel.ANDROID);
+        if (usage.getFreeUsed() < freeLimit) {
+            return InquiryAccessGrant.ANDROID_FREE;
+        }
+        if (walletService.getBalance(userId) > 0) {
+            return InquiryAccessGrant.PAID_CREDIT;
+        }
+        throw new BusinessException(
+                "WEB_FREE_LIMIT_REACHED",
+                "You have used all " + freeLimit
+                        + " free mobile enquiries for today. Purchase inquiry credits to continue.",
+                HttpStatus.PAYMENT_REQUIRED);
     }
 
     private InquiryAccessGrant authorizeWeb(UUID userId) {
+        int freeLimit = webFreeLimit();
         LocalDate today = LocalDate.now(clock);
-        InquiryDailyUsageEntity usage = getOrCreateWebUsage(userId, today);
+        InquiryDailyUsageEntity usage = getOrCreateUsage(userId, today, InquiryClientChannel.WEB);
 
-        if (usage.getFreeUsed() < WEB_FREE_DAILY_LIMIT) {
+        if (usage.getFreeUsed() < freeLimit) {
             return InquiryAccessGrant.FREE_WEB;
         }
 
-        // Free quota exhausted — check wallet
         int balance = walletService.getBalance(userId);
         if (balance > 0) {
             return InquiryAccessGrant.PAID_CREDIT;
@@ -132,16 +183,34 @@ public class InquiryAccessService {
 
         throw new BusinessException(
                 "WEB_FREE_LIMIT_REACHED",
-                "You have used all " + WEB_FREE_DAILY_LIMIT + " free enquiries for today. "
+                "You have used all " + freeLimit + " free email enquiries for today. "
                         + "Purchase inquiry credits to continue.",
                 HttpStatus.PAYMENT_REQUIRED);
     }
 
-    /** @return true if a free slot was reserved; false if the daily free limit is already exhausted */
-    private boolean tryIncrementWebFreeUsed(UUID userId) {
+    private void fallbackToCreditOrFail(UUID userId, UUID enquiryId, int freeLimit) {
+        if (walletService.getBalance(userId) > 0) {
+            walletService.consumeUsage(userId, enquiryId);
+            log.info(
+                    "inquiry_free_race_fallback_to_credit userId={} enquiryId={}",
+                    userId,
+                    enquiryId);
+            return;
+        }
+        throw new BusinessException(
+                "WEB_FREE_LIMIT_REACHED",
+                "You have used all " + freeLimit
+                        + " free enquiries for today. Purchase inquiry credits to continue.",
+                HttpStatus.PAYMENT_REQUIRED);
+    }
+
+    private boolean tryIncrementFreeUsed(UUID userId, InquiryClientChannel channel) {
+        int freeLimit = channel == InquiryClientChannel.ANDROID
+                ? Math.max(0, paymentConfigService.requireConfig().getAndroidFreeDailyLimit())
+                : webFreeLimit();
         LocalDate today = LocalDate.now(clock);
-        InquiryDailyUsageEntity usage = getOrCreateWebUsage(userId, today);
-        if (usage.getFreeUsed() >= WEB_FREE_DAILY_LIMIT) {
+        InquiryDailyUsageEntity usage = getOrCreateUsage(userId, today, channel);
+        if (usage.getFreeUsed() >= freeLimit) {
             return false;
         }
         usage.setFreeUsed(usage.getFreeUsed() + 1);
@@ -156,8 +225,8 @@ public class InquiryAccessService {
         dailyUsageRepository.save(usage);
     }
 
-    private InquiryDailyUsageEntity getOrCreateWebUsage(UUID userId, LocalDate date) {
-        return getOrCreateUsage(userId, date, InquiryClientChannel.WEB);
+    private int webFreeLimit() {
+        return Math.max(0, paymentConfigService.requireConfig().getWebFreeDailyLimit());
     }
 
     private InquiryDailyUsageEntity getOrCreateUsage(
@@ -177,7 +246,6 @@ public class InquiryAccessService {
                     .freeUsed(0)
                     .build());
         } catch (DataIntegrityViolationException ex) {
-            // Race condition: row was created concurrently — re-fetch.
             return dailyUsageRepository
                     .findByUserIdAndUsageDateAndChannel(userId, date, channel)
                     .orElseThrow(() -> new BusinessException(

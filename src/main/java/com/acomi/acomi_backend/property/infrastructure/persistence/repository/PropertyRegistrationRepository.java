@@ -168,4 +168,17 @@ public interface PropertyRegistrationRepository
             where p.convertedSpaceId in :spaceIds and p.testLead = true
             """)
     List<UUID> findTestLeadConvertedSpaceIds(@Param("spaceIds") Collection<UUID> spaceIds);
+
+    @Query(
+            value =
+                    """
+                    SELECT CAST(r.created_at AS date) AS day, COUNT(*) AS cnt
+                    FROM property_registrations r
+                    WHERE r.created_at >= :fromAt AND r.created_at < :toAt
+                    GROUP BY CAST(r.created_at AS date)
+                    ORDER BY day ASC
+                    """,
+            nativeQuery = true)
+    List<Object[]> countDailyCreatedBetween(
+            @Param("fromAt") java.time.LocalDateTime fromAt, @Param("toAt") java.time.LocalDateTime toAt);
 }

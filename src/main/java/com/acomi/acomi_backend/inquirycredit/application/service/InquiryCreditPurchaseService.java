@@ -3,6 +3,8 @@ package com.acomi.acomi_backend.inquirycredit.application.service;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.inquirycredit.api.dto.response.InquiryAdminSummaryResponse;
 import com.acomi.acomi_backend.inquirycredit.api.dto.response.InquiryCreditPurchaseRequestResponse;
+import com.acomi.acomi_backend.inquirycredit.domain.model.AndroidInquiryBillingMode;
+import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
 import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryCreditPurchaseStatus;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.entity.InquiryCreditPackageEntity;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.entity.InquiryCreditPurchaseRequestEntity;
@@ -53,6 +55,16 @@ public class InquiryCreditPurchaseService {
      */
     @Transactional
     public InquiryCreditPurchaseRequestResponse createRequest(UUID userId, UUID packageId, String utr) {
+        return createRequest(userId, packageId, utr, InquiryClientChannel.WEB);
+    }
+
+    /**
+     * Create a purchase request, or return the existing PENDING one for the same user + package.
+     * Package must be enabled and match the caller's client channel.
+     */
+    @Transactional
+    public InquiryCreditPurchaseRequestResponse createRequest(
+            UUID userId, UUID packageId, String utr, InquiryClientChannel channel) {
         InquiryCreditPurchaseRequestEntity existing = purchaseRepository
                 .findFirstByUserIdAndPackageIdAndStatusOrderByRequestedAtDesc(
                         userId, packageId, InquiryCreditPurchaseStatus.PENDING)
@@ -68,13 +80,34 @@ public class InquiryCreditPurchaseService {
 
         requirePaymentEnabled();
 
+        InquiryClientChannel safeChannel = channel != null ? channel : InquiryClientChannel.WEB;
         InquiryCreditPackageEntity pkg = packageRepository
                 .findById(packageId)
                 .filter(InquiryCreditPackageEntity::isEnabled)
+                .filter(p -> {
+                    InquiryClientChannel pkgChannel =
+                            p.getClientChannel() != null ? p.getClientChannel() : InquiryClientChannel.WEB;
+                    return pkgChannel == safeChannel;
+                })
                 .orElseThrow(() -> new BusinessException(
                         "INQUIRY_PACKAGE_UNAVAILABLE",
-                        "The selected credit package is not available.",
+                        "The selected credit package is not available for this channel.",
                         HttpStatus.NOT_FOUND));
+
+        if (safeChannel == InquiryClientChannel.ANDROID) {
+            InquiryPaymentConfigEntity config = paymentConfigRepository
+                    .findFirstByOrderByCreatedAtAsc()
+                    .orElse(null);
+            AndroidInquiryBillingMode mode = config == null
+                    ? AndroidInquiryBillingMode.FREE
+                    : AndroidInquiryBillingMode.fromDb(config.getAndroidBillingMode());
+            if (mode == AndroidInquiryBillingMode.FREE) {
+                throw new BusinessException(
+                        "ANDROID_PURCHASES_DISABLED",
+                        "Mobile app enquiries are currently free. Credit purchases are not required.",
+                        HttpStatus.BAD_REQUEST);
+            }
+        }
 
         LocalDateTime now = LocalDateTime.now(clock);
         InquiryCreditPurchaseRequestEntity request = InquiryCreditPurchaseRequestEntity.builder()

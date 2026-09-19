@@ -37,6 +37,8 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
     Page<UserEntity> findByMobileVerifiedAtIsNotNullAndIsActiveTrueAndSystemRole(
             SystemRole systemRole, Pageable pageable);
 
+    Page<UserEntity> findByIsActiveTrueAndSystemRole(SystemRole systemRole, Pageable pageable);
+
     @Query(
             """
             SELECT u FROM UserEntity u
@@ -82,80 +84,162 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
             @Param("toAt") LocalDateTime toAt);
 
     @Query(
-            """
-            SELECT DISTINCT u FROM UserEntity u
-            WHERE u.mobileVerifiedAt IS NOT NULL
-              AND u.isActive = true
-              AND u.systemRole = :systemRole
-              AND (
-                   :q IS NULL OR :q = '' OR
-                   LOWER(u.fullName) LIKE LOWER(CONCAT('%', :q, '%')) OR
-                   u.mobileNumber LIKE CONCAT('%', :q, '%') OR
-                   (u.email IS NOT NULL AND LOWER(u.email) LIKE LOWER(CONCAT('%', :q, '%')))
-              )
-              AND (:fromAt IS NULL OR COALESCE(u.mobileVerifiedAt, u.createdAt) >= :fromAt)
-              AND (:toAt IS NULL OR COALESCE(u.mobileVerifiedAt, u.createdAt) < :toAt)
-              AND (
-                   :hasSpace IS NULL OR
-                   (:hasSpace = TRUE AND EXISTS (
-                        SELECT 1 FROM SpaceMembershipEntity m
-                        WHERE m.user = u
-                          AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
-                   )) OR
-                   (:hasSpace = FALSE AND NOT EXISTS (
-                        SELECT 1 FROM SpaceMembershipEntity m
-                        WHERE m.user = u
-                          AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
-                   ))
-              )
-              AND (
-                   :role IS NULL OR :role = '' OR
-                   (:role = 'NOT_SELECTED' AND NOT EXISTS (
-                        SELECT 1 FROM SpaceMembershipEntity m
-                        WHERE m.user = u
-                          AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
-                   )) OR
-                   (:role = 'OWNER' AND EXISTS (
-                        SELECT 1 FROM SpaceMembershipEntity m
-                        WHERE m.user = u
-                          AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
-                          AND m.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
-                   ) AND NOT EXISTS (
-                        SELECT 1 FROM SpaceMembershipEntity m
-                        WHERE m.user = u
-                          AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
-                          AND m.role <> com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
-                   )) OR
-                   (:role = 'MEMBER' AND EXISTS (
-                        SELECT 1 FROM SpaceMembershipEntity m
-                        WHERE m.user = u
-                          AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
-                          AND m.role <> com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
-                   ) AND NOT EXISTS (
-                        SELECT 1 FROM SpaceMembershipEntity m
-                        WHERE m.user = u
-                          AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
-                          AND m.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
-                   )) OR
-                   (:role = 'OWNER_AND_MEMBER' AND EXISTS (
-                        SELECT 1 FROM SpaceMembershipEntity m
-                        WHERE m.user = u
-                          AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
-                          AND m.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
-                   ) AND EXISTS (
-                        SELECT 1 FROM SpaceMembershipEntity m
-                        WHERE m.user = u
-                          AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
-                          AND m.role <> com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
-                   ))
-              )
-            """)
-    Page<UserEntity> searchVerifiedUsersFiltered(
+            value =
+                    """
+                    SELECT DISTINCT u FROM UserEntity u
+                    WHERE u.isActive = true
+                      AND u.systemRole = :systemRole
+                      AND (
+                           :verifiedFlag = -1 OR
+                           (:verifiedFlag = 1 AND u.mobileVerifiedAt IS NOT NULL) OR
+                           (:verifiedFlag = 0 AND u.mobileVerifiedAt IS NULL)
+                      )
+                      AND (
+                           :q IS NULL OR :q = '' OR
+                           LOWER(u.fullName) LIKE LOWER(CONCAT('%', :q, '%')) OR
+                           u.mobileNumber LIKE CONCAT('%', :q, '%') OR
+                           (:qDigits IS NOT NULL AND u.mobileNumber LIKE CONCAT('%', :qDigits, '%')) OR
+                           (u.email IS NOT NULL AND LOWER(u.email) LIKE LOWER(CONCAT('%', :q, '%')))
+                      )
+                      AND (:fromAt IS NULL OR COALESCE(u.mobileVerifiedAt, u.createdAt) >= :fromAt)
+                      AND (:toAt IS NULL OR COALESCE(u.mobileVerifiedAt, u.createdAt) < :toAt)
+                      AND (
+                           :hasSpaceFlag = -1 OR
+                           (:hasSpaceFlag = 1 AND EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                           )) OR
+                           (:hasSpaceFlag = 0 AND NOT EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                           ))
+                      )
+                      AND (
+                           :role IS NULL OR :role = '' OR
+                           (:role = 'NOT_SELECTED' AND NOT EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                           )) OR
+                           (:role = 'OWNER' AND EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                                  AND m.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
+                           ) AND NOT EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                                  AND m.role <> com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
+                           )) OR
+                           (:role = 'MEMBER' AND EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                                  AND m.role <> com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
+                           ) AND NOT EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                                  AND m.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
+                           )) OR
+                           (:role = 'OWNER_AND_MEMBER' AND EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                                  AND m.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
+                           ) AND EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                                  AND m.role <> com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
+                           ))
+                      )
+                    """,
+            countQuery =
+                    """
+                    SELECT COUNT(DISTINCT u.id) FROM UserEntity u
+                    WHERE u.isActive = true
+                      AND u.systemRole = :systemRole
+                      AND (
+                           :verifiedFlag = -1 OR
+                           (:verifiedFlag = 1 AND u.mobileVerifiedAt IS NOT NULL) OR
+                           (:verifiedFlag = 0 AND u.mobileVerifiedAt IS NULL)
+                      )
+                      AND (
+                           :q IS NULL OR :q = '' OR
+                           LOWER(u.fullName) LIKE LOWER(CONCAT('%', :q, '%')) OR
+                           u.mobileNumber LIKE CONCAT('%', :q, '%') OR
+                           (:qDigits IS NOT NULL AND u.mobileNumber LIKE CONCAT('%', :qDigits, '%')) OR
+                           (u.email IS NOT NULL AND LOWER(u.email) LIKE LOWER(CONCAT('%', :q, '%')))
+                      )
+                      AND (:fromAt IS NULL OR COALESCE(u.mobileVerifiedAt, u.createdAt) >= :fromAt)
+                      AND (:toAt IS NULL OR COALESCE(u.mobileVerifiedAt, u.createdAt) < :toAt)
+                      AND (
+                           :hasSpaceFlag = -1 OR
+                           (:hasSpaceFlag = 1 AND EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                           )) OR
+                           (:hasSpaceFlag = 0 AND NOT EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                           ))
+                      )
+                      AND (
+                           :role IS NULL OR :role = '' OR
+                           (:role = 'NOT_SELECTED' AND NOT EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                           )) OR
+                           (:role = 'OWNER' AND EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                                  AND m.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
+                           ) AND NOT EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                                  AND m.role <> com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
+                           )) OR
+                           (:role = 'MEMBER' AND EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                                  AND m.role <> com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
+                           ) AND NOT EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                                  AND m.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
+                           )) OR
+                           (:role = 'OWNER_AND_MEMBER' AND EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                                  AND m.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
+                           ) AND EXISTS (
+                                SELECT 1 FROM SpaceMembershipEntity m
+                                WHERE m.user = u
+                                  AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+                                  AND m.role <> com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER
+                           ))
+                      )
+                    """)
+    Page<UserEntity> searchActiveUsersFiltered(
             @Param("systemRole") SystemRole systemRole,
             @Param("q") String q,
+            @Param("qDigits") String qDigits,
             @Param("fromAt") LocalDateTime fromAt,
             @Param("toAt") LocalDateTime toAt,
-            @Param("hasSpace") Boolean hasSpace,
+            @Param("hasSpaceFlag") int hasSpaceFlag,
+            @Param("verifiedFlag") int verifiedFlag,
             @Param("role") String role,
             Pageable pageable);
 
@@ -191,4 +275,21 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
             @Param("systemRole") SystemRole systemRole,
             @Param("fromAt") LocalDateTime fromAt,
             @Param("toAt") LocalDateTime toAt);
+
+    @Query(
+            value =
+                    """
+                    SELECT CAST(COALESCE(u.mobile_verified_at, u.created_at) AS date) AS day, COUNT(*) AS cnt
+                    FROM users u
+                    WHERE u.mobile_verified_at IS NOT NULL
+                      AND u.is_active = true
+                      AND u.system_role = 'USER'
+                      AND COALESCE(u.mobile_verified_at, u.created_at) >= :fromAt
+                      AND COALESCE(u.mobile_verified_at, u.created_at) < :toAt
+                    GROUP BY CAST(COALESCE(u.mobile_verified_at, u.created_at) AS date)
+                    ORDER BY day ASC
+                    """,
+            nativeQuery = true)
+    List<Object[]> countDailyVerifiedRegistrationsBetween(
+            @Param("fromAt") LocalDateTime fromAt, @Param("toAt") LocalDateTime toAt);
 }

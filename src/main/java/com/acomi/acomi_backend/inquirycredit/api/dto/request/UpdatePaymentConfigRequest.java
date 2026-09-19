@@ -15,4 +15,16 @@ public class UpdatePaymentConfigRequest {
     private String whatsappNumber;
     private String instructions;
     private Boolean enabled;
+
+    /** Free WEB (email) enquiries per calendar day. */
+    private Integer webFreeDailyLimit;
+
+    /** ANDROID billing: FREE or CREDITS. */
+    private String androidBillingMode;
+
+    /** Free ANDROID enquiries per day when billing mode is CREDITS. */
+    private Integer androidFreeDailyLimit;
+
+    /** ANDROID hourly rate limit (abuse protection). */
+    private Integer androidHourlyRateLimit;
 }

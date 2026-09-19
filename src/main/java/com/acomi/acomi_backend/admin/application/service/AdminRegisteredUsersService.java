@@ -74,12 +74,12 @@ public class AdminRegisteredUsersService {
 
     @Transactional(readOnly = true)
     public Page<AdminRegisteredUserResponse> list(Pageable pageable) {
-        return list(null, null, null, null, null, null, pageable);
+        return list(null, null, null, null, null, null, null, pageable);
     }
 
     @Transactional(readOnly = true)
     public Page<AdminRegisteredUserResponse> search(String q, Pageable pageable) {
-        return list(q, null, null, null, null, null, pageable);
+        return list(q, null, null, null, null, null, null, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -88,34 +88,54 @@ public class AdminRegisteredUsersService {
             String role,
             String onboarding,
             String spaceAssociation,
+            Boolean verified,
             LocalDate from,
             LocalDate to,
             Pageable pageable) {
         Pageable safe = safePage(pageable);
         String query = StringUtils.hasText(q) ? q.trim() : null;
+        String queryDigits = digitsForSearch(query);
         String roleFilter = normalizeRole(role);
-        Boolean hasSpace = null;
         Boolean fromOnboarding = parseHasSpaceFromOnboarding(onboarding);
         Boolean fromSpace = parseHasSpaceFromAssociation(spaceAssociation);
         if (fromOnboarding != null && fromSpace != null && !fromOnboarding.equals(fromSpace)) {
             return Page.empty(safe);
         }
-        hasSpace = fromOnboarding != null ? fromOnboarding : fromSpace;
+        Boolean hasSpace = fromOnboarding != null ? fromOnboarding : fromSpace;
+        // Integer sentinels avoid Hibernate/Postgres null-boolean binding bugs that return empty pages.
+        int hasSpaceFlag = hasSpace == null ? -1 : (hasSpace ? 1 : 0);
+        int verifiedFlag = verified == null ? -1 : (verified ? 1 : 0);
         LocalDateTime fromAt = from == null ? null : from.atStartOfDay();
         LocalDateTime toAt = to == null ? null : to.plusDays(1).atStartOfDay();
 
         boolean filtered = query != null
                 || roleFilter != null
-                || hasSpace != null
+                || hasSpaceFlag != -1
+                || verifiedFlag != -1
                 || fromAt != null
                 || toAt != null;
 
         Page<UserEntity> users = filtered
-                ? userRepository.searchVerifiedUsersFiltered(
-                        SystemRole.USER, query, fromAt, toAt, hasSpace, roleFilter, safe)
-                : userRepository.findByMobileVerifiedAtIsNotNullAndIsActiveTrueAndSystemRole(
-                        SystemRole.USER, safe);
+                ? userRepository.searchActiveUsersFiltered(
+                        SystemRole.USER,
+                        query,
+                        queryDigits,
+                        fromAt,
+                        toAt,
+                        hasSpaceFlag,
+                        verifiedFlag,
+                        roleFilter,
+                        safe)
+                : userRepository.findByIsActiveTrueAndSystemRole(SystemRole.USER, safe);
         return mapUsers(users);
+    }
+
+    private static String digitsForSearch(String query) {
+        if (query == null) {
+            return null;
+        }
+        String digits = query.replaceAll("\\D", "");
+        return StringUtils.hasText(digits) ? digits : null;
     }
 
     @Transactional(readOnly = true)
@@ -218,9 +238,9 @@ public class AdminRegisteredUsersService {
             }
             return;
         }
+        // Non-OWNER: space is optional — omit spaceId to create a user with no membership.
         if (request.getSpaceId() == null) {
-            throw new BusinessException(
-                    "Space is required for " + spaceRole.name() + " test users", HttpStatus.BAD_REQUEST);
+            return;
         }
         spaceRepository
                 .findByIdAndIsActiveTrue(request.getSpaceId())
@@ -250,6 +270,9 @@ public class AdminRegisteredUsersService {
      * normal invite acceptance.
      */
     private void attachNonOwnerMembership(UserEntity user, UUID spaceId, MembershipRole spaceRole) {
+        if (spaceId == null) {
+            return;
+        }
         SpaceEntity space = spaceRepository
                 .findByIdAndIsActiveTrue(spaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("Space", "id", spaceId));

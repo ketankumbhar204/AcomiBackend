@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.repository;
 
+import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.entity.InquiryCreditPackageEntity;
 import java.util.List;
 import java.util.UUID;
@@ -10,4 +11,7 @@ import org.springframework.stereotype.Repository;
 public interface InquiryCreditPackageRepository extends JpaRepository<InquiryCreditPackageEntity, UUID> {
 
     List<InquiryCreditPackageEntity> findByEnabledTrueOrderByDisplayOrderAsc();
+
+    List<InquiryCreditPackageEntity> findByEnabledTrueAndClientChannelOrderByDisplayOrderAsc(
+            InquiryClientChannel clientChannel);
 }

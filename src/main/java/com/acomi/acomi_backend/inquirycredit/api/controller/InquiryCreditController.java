@@ -11,6 +11,7 @@ import com.acomi.acomi_backend.inquirycredit.application.service.InquiryAccessSe
 import com.acomi.acomi_backend.inquirycredit.application.service.InquiryCreditPurchaseService;
 import com.acomi.acomi_backend.inquirycredit.application.service.InquiryCreditWalletService;
 import com.acomi.acomi_backend.inquirycredit.application.service.InquiryPaymentConfigService;
+import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,6 +24,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -47,27 +49,35 @@ public class InquiryCreditController {
     }
 
     @GetMapping("/quota")
-    @Operation(summary = "Get my WEB free enquiry quota remaining for today")
-    public ResponseEntity<ApiResponse<InquiryQuotaResponse>> getQuota() {
+    @Operation(summary = "Get my free enquiry quota remaining for today (channel from X-ACOMI-CLIENT)")
+    public ResponseEntity<ApiResponse<InquiryQuotaResponse>> getQuota(
+            @RequestHeader(value = "X-ACOMI-CLIENT", required = false) String clientHeader) {
         UUID callerId = SecurityUtils.getCurrentUserId();
-        return ResponseEntity.ok(ApiResponse.success(inquiryAccessService.getWebQuota(callerId)));
+        InquiryClientChannel channel = InquiryClientChannel.fromHeader(clientHeader);
+        return ResponseEntity.ok(ApiResponse.success(inquiryAccessService.getQuota(callerId, channel)));
     }
 
     @GetMapping("/payment-config")
-    @Operation(summary = "Get inquiry payment configuration and available packages")
-    public ResponseEntity<ApiResponse<InquiryPaymentConfigResponse>> getPaymentConfig() {
+    @Operation(summary = "Get inquiry payment configuration and channel-specific packages")
+    public ResponseEntity<ApiResponse<InquiryPaymentConfigResponse>> getPaymentConfig(
+            @RequestHeader(value = "X-ACOMI-CLIENT", required = false) String clientHeader) {
         UUID callerId = SecurityUtils.getCurrentUserId();
-        return ResponseEntity.ok(ApiResponse.success(paymentConfigService.getPublicConfig(callerId)));
+        InquiryClientChannel channel = InquiryClientChannel.fromHeader(clientHeader);
+        return ResponseEntity.ok(
+                ApiResponse.success(paymentConfigService.getPublicConfig(callerId, channel)));
     }
 
     @PostMapping("/purchase-requests")
     @Operation(summary = "Submit a payment request to purchase inquiry credits")
     public ResponseEntity<ApiResponse<InquiryCreditPurchaseRequestResponse>> createPurchaseRequest(
+            @RequestHeader(value = "X-ACOMI-CLIENT", required = false) String clientHeader,
             @RequestBody @Valid CreateInquiryPurchaseRequest request) {
         UUID callerId = SecurityUtils.getCurrentUserId();
-        InquiryCreditPurchaseRequestResponse response =
-                purchaseService.createRequest(callerId, request.getPackageId(), request.getUtr());
-        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success("Purchase request submitted", response));
+        InquiryClientChannel channel = InquiryClientChannel.fromHeader(clientHeader);
+        InquiryCreditPurchaseRequestResponse response = purchaseService.createRequest(
+                callerId, request.getPackageId(), request.getUtr(), channel);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Purchase request submitted", response));
     }
 
     @GetMapping("/purchase-requests/me")

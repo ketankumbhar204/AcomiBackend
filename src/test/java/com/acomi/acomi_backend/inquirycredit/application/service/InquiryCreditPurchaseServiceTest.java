@@ -267,6 +267,7 @@ class InquiryCreditPurchaseServiceTest {
                 .credits(credits)
                 .enabled(true)
                 .displayOrder(0)
+                .clientChannel(com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel.WEB)
                 .build();
         pkg.setId(id);
         return pkg;
