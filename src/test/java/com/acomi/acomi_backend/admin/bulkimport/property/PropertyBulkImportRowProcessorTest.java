@@ -129,6 +129,174 @@ class PropertyBulkImportRowProcessorTest {
         assertThat(processed.valuesSnapshot().get("TEST_LEAD")).isEqualTo("true");
     }
 
+    @Test
+    void compoundPropertyType_pgHostel_keepsOriginalInSnapshot() {
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Property Type", "PG / Hostel");
+        excelRow.put("Property Name", "D Nest");
+        excelRow.put("Rent", "₹8,000");
+
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Property Type",
+                "PROPERTY_NAME", "Property Name",
+                "STARTING_PRICE", "Rent");
+
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.VALID);
+        assertThat(processed.request().getPropertyType())
+                .isEqualTo(com.acomi.acomi_backend.space.domain.model.SpaceType.PG);
+        assertThat(processed.request().getStartingPrice()).isEqualByComparingTo("8000");
+        assertThat(processed.valuesSnapshot().get("PROPERTY_TYPE")).isEqualTo("PG / Hostel");
+        assertThat(processed.valuesSnapshot().get("STARTING_PRICE")).isEqualTo("₹8,000");
+    }
+
+    @Test
+    void landline_doesNotInvalidateRow_preservedAsNote() {
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Property Type", "Hostel");
+        excelRow.put("Property Name", "Campus Hostel");
+        excelRow.put("Mobile", "020-65328521");
+
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Property Type",
+                "PROPERTY_NAME", "Property Name",
+                "MOBILE_NUMBER", "Mobile");
+
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.VALID);
+        assertThat(processed.request().getMobileNumber()).isNull();
+        assertThat(processed.request().getUnmappedAmenities()).contains("02065328521");
+        assertThat(processed.valuesSnapshot().get("MOBILE_NUMBER")).isEqualTo("020-65328521");
+    }
+
+    @Test
+    void plus91StdLandline_isValidNote_previewKeepsOriginal() {
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Property Type", "Serviced Apartment");
+        excelRow.put("Property Name", "Capital O Hotel");
+        excelRow.put("Mobile", "+91 124 620 1217");
+
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Property Type",
+                "PROPERTY_NAME", "Property Name",
+                "MOBILE_NUMBER", "Mobile");
+
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.VALID);
+        assertThat(processed.request().getMobileNumber()).isNull();
+        assertThat(processed.request().getUnmappedAmenities()).contains("01246201217");
+        assertThat(processed.request().getUnmappedAmenities()).contains("landline");
+        assertThat(processed.valuesSnapshot().get("MOBILE_NUMBER")).isEqualTo("+91 124 620 1217");
+        assertThat(processed.request().getPropertyType())
+                .isEqualTo(com.acomi.acomi_backend.space.domain.model.SpaceType.RENTAL);
+    }
+
+    @Test
+    void guestHouseAccommodation_isRental_previewKeepsOriginal() {
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Property Type", "Guest House / Accommodation");
+        excelRow.put("Property Name", "Pg services");
+
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Property Type",
+                "PROPERTY_NAME", "Property Name");
+
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.VALID);
+        assertThat(processed.request().getPropertyType())
+                .isEqualTo(com.acomi.acomi_backend.space.domain.model.SpaceType.RENTAL);
+        assertThat(processed.valuesSnapshot().get("PROPERTY_TYPE")).isEqualTo("Guest House / Accommodation");
+    }
+
+    @Test
+    void foodExtraCharge_isNo_andNoteIsPreserved() {
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Property Type", "PG");
+        excelRow.put("Property Name", "Sunrise PG");
+        excelRow.put("Food", "Extra charge");
+
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Property Type",
+                "PROPERTY_NAME", "Property Name",
+                "FOOD_INCLUDED", "Food");
+
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.VALID);
+        assertThat(processed.request().getFoodIncludedListing()).isFalse();
+        assertThat(processed.request().getUnmappedAmenities()).contains("Extra charge");
+        assertThat(processed.valuesSnapshot().get("FOOD_INCLUDED")).isEqualTo("Extra charge");
+    }
+
+    @Test
+    void mapUrl_isPreservedUnchanged() {
+        String url = "https://www.google.com/maps/search/?api=1&query=D+NEST+PG+HOSTEL";
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Property Type", "PG");
+        excelRow.put("Property Name", "D Nest");
+        excelRow.put("Google Maps Link", url);
+
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Property Type",
+                "PROPERTY_NAME", "Property Name",
+                "MAP_URL", "Google Maps Link");
+
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.VALID);
+        assertThat(processed.request().getMapUrl()).isEqualTo(url);
+        assertThat(processed.request().getLatitude()).isNull();
+        assertThat(processed.request().getLongitude()).isNull();
+        assertThat(processed.valuesSnapshot().get("MAP_URL")).isEqualTo(url);
+    }
+
+    @Test
+    void sharing_preservesCompoundText() {
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Property Type", "PG");
+        excelRow.put("Property Name", "Sunrise");
+        excelRow.put("Sharing", "  Single / Twin / Triple  ");
+
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Property Type",
+                "PROPERTY_NAME", "Property Name",
+                "SHARING", "Sharing");
+
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.VALID);
+        assertThat(processed.request().getSharingNotes()).isEqualTo("Single / Twin / Triple");
+        assertThat(processed.valuesSnapshot().get("SHARING")).isEqualTo("  Single / Twin / Triple  ");
+    }
+
+    @Test
+    void placeholderOnlyMappedRow_isBlank() {
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Property Type", "-");
+        excelRow.put("Property Name", "n/a");
+        excelRow.put("Mobile", "—");
+
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Property Type",
+                "PROPERTY_NAME", "Property Name",
+                "MOBILE_NUMBER", "Mobile");
+
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.BLANK);
+    }
+
+    @Test
+    void rentRange_isFieldInvalid_notSilent() {
+        Map<String, String> excelRow = Map.of("Type", "PG", "Rent", "₹5,000-₹7,000");
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Type",
+                "STARTING_PRICE", "Rent");
+
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.INVALID);
+        assertThat(processed.errors())
+                .anyMatch(e -> "STARTING_PRICE".equals(e.getField())
+                        && e.getMessage().contains("Rent range cannot be represented"));
+        assertThat(processed.valuesSnapshot().get("STARTING_PRICE")).isEqualTo("₹5,000-₹7,000");
+    }
+
     private static Map<String, String> identityMapping(String... keyHeaderPairs) {
         Map<String, String> mapping = new LinkedHashMap<>();
         for (PropertyBulkImportField field : PropertyBulkImportField.values()) {

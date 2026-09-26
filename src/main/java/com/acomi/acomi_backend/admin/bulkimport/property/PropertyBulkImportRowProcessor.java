@@ -12,15 +12,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 /**
  * Maps a raw Excel data row through a field→header mapping into a validated property or mess
  * request (or BLANK / INVALID outcome).
  */
 public final class PropertyBulkImportRowProcessor {
-
-    private static final Pattern MOBILE = Pattern.compile("^[6-9]\\d{9}$");
 
     public enum RowStatus {
         VALID,
@@ -133,32 +130,25 @@ public final class PropertyBulkImportRowProcessor {
         String ownerName = PropertyBulkImportValueParser.blankToNull(
                 rawByField.get(PropertyBulkImportField.OWNER_NAME));
 
-        String mobile = PropertyBulkImportValueParser.stripMobileDigits(
-                rawByField.get(PropertyBulkImportField.MOBILE_NUMBER));
-        if (mobile != null && !MOBILE.matcher(mobile).matches()) {
-            errors.add(new PropertyBulkImportFieldError(
-                    PropertyBulkImportField.MOBILE_NUMBER.name(),
-                    "Mobile number must be a valid 10-digit Indian number"));
-            mobile = null;
-        }
-
-        String altMobile = PropertyBulkImportValueParser.stripMobileDigits(
-                rawByField.get(PropertyBulkImportField.ALTERNATE_MOBILE_NUMBER));
-        if (altMobile != null && !MOBILE.matcher(altMobile).matches()) {
-            errors.add(new PropertyBulkImportFieldError(
-                    PropertyBulkImportField.ALTERNATE_MOBILE_NUMBER.name(),
-                    "Alternate mobile number must be a valid 10-digit Indian number"));
-            altMobile = null;
-        }
-
-        String contact3 = PropertyBulkImportValueParser.stripMobileDigits(
-                rawByField.get(PropertyBulkImportField.CONTACT_3));
-        if (contact3 != null && !MOBILE.matcher(contact3).matches()) {
-            errors.add(new PropertyBulkImportFieldError(
-                    PropertyBulkImportField.CONTACT_3.name(),
-                    "Contact 3 must be a valid 10-digit Indian number"));
-            contact3 = null;
-        }
+        List<String> extraNotes = new ArrayList<>();
+        String mobile = applyContact(
+                rawByField.get(PropertyBulkImportField.MOBILE_NUMBER),
+                PropertyBulkImportField.MOBILE_NUMBER,
+                "Contact 1",
+                errors,
+                extraNotes);
+        String altMobile = applyContact(
+                rawByField.get(PropertyBulkImportField.ALTERNATE_MOBILE_NUMBER),
+                PropertyBulkImportField.ALTERNATE_MOBILE_NUMBER,
+                "Contact 2",
+                errors,
+                extraNotes);
+        String contact3 = applyContact(
+                rawByField.get(PropertyBulkImportField.CONTACT_3),
+                PropertyBulkImportField.CONTACT_3,
+                "Contact 3",
+                errors,
+                extraNotes);
 
         String addressLine = PropertyBulkImportValueParser.blankToNull(
                 rawByField.get(PropertyBulkImportField.ADDRESS_LINE));
@@ -201,6 +191,8 @@ public final class PropertyBulkImportRowProcessor {
         if (foodResult.isInvalid()) {
             errors.add(new PropertyBulkImportFieldError(
                     PropertyBulkImportField.FOOD_INCLUDED.name(), foodResult.error()));
+        } else if (foodResult.note() != null) {
+            extraNotes.add("Food included: " + foodResult.note());
         }
 
         var latResult = PropertyBulkImportValueParser.parseCoordinate(
@@ -217,11 +209,16 @@ public final class PropertyBulkImportRowProcessor {
                     PropertyBulkImportField.LONGITUDE.name(), lngResult.error()));
         }
 
-        String sharingNotes = PropertyBulkImportValueParser.blankToNull(
+        String sharingNotes = PropertyBulkImportValueParser.normalizeFreeText(
                 rawByField.get(PropertyBulkImportField.SHARING));
 
         var amenitiesResult = PropertyBulkImportValueParser.parseAmenities(
                 rawByField.get(PropertyBulkImportField.AMENITIES));
+
+        String unmapped = amenitiesResult.unmappedAmenities();
+        for (String note : extraNotes) {
+            unmapped = PropertyBulkImportValueParser.mergeUnmappedNotes(unmapped, note);
+        }
 
         return new SharedParsedFields(
                 ownerName,
@@ -241,7 +238,32 @@ public final class PropertyBulkImportRowProcessor {
                 lngResult.value(),
                 sharingNotes,
                 amenitiesResult.amenities(),
-                amenitiesResult.unmappedAmenities());
+                unmapped);
+    }
+
+    /**
+     * Mobiles go on the contact DTO field. Landlines cannot (Bean Validation is still
+     * {@code ^[6-9]\\d{9}$}); they are preserved as notes so the row stays VALID.
+     */
+    private static String applyContact(
+            String raw,
+            PropertyBulkImportField field,
+            String label,
+            List<PropertyBulkImportFieldError> errors,
+            List<String> extraNotes) {
+        var parsed = PropertyBulkImportValueParser.parseContactPhone(raw);
+        if (parsed.isBlank()) {
+            return null;
+        }
+        if (parsed.isInvalid()) {
+            errors.add(new PropertyBulkImportFieldError(field.name(), parsed.error()));
+            return null;
+        }
+        if (parsed.kind() == PropertyBulkImportValueParser.PhoneKind.LANDLINE) {
+            extraNotes.add(label + " landline: " + parsed.value());
+            return null;
+        }
+        return parsed.value();
     }
 
     private static void applySharedToProperty(
