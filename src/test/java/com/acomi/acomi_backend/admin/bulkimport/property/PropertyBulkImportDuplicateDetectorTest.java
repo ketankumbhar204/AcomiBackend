@@ -9,7 +9,6 @@ import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRe
 import com.acomi.acomi_backend.property.infrastructure.persistence.entity.PropertyRegistrationEntity;
 import com.acomi.acomi_backend.property.infrastructure.persistence.repository.PropertyRegistrationRepository;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -40,7 +39,7 @@ class PropertyBulkImportDuplicateDetectorTest {
     }
 
     @Test
-    void inFile_sameAddressAndName_isHighDuplicate() {
+    void inFile_sameNameDifferentContact_isNotDuplicate() {
         var first = new PropertyBulkImportDuplicateDetector.Fingerprint(
                 2,
                 PropertyBulkImportRowProcessor.TargetKind.PROPERTY,
@@ -65,10 +64,7 @@ class PropertyBulkImportDuplicateDetectorTest {
         Optional<PropertyBulkImportDuplicateMatch> match =
                 detector.findMatch(second, List.of(first), List.of());
 
-        assertThat(match).isPresent();
-        assertThat(match.get().getConfidence()).isEqualTo("HIGH");
-        assertThat(match.get().getSource()).isEqualTo("IN_FILE");
-        assertThat(match.get().getMatchedRowNumber()).isEqualTo(2);
+        assertThat(match).isEmpty();
     }
 
     @Test
@@ -99,7 +95,7 @@ class PropertyBulkImportDuplicateDetectorTest {
 
         assertThat(match).isPresent();
         assertThat(match.get().getConfidence()).isEqualTo("HIGH");
-        assertThat(match.get().getReason()).contains("Same mobile and similar name");
+        assertThat(match.get().getReason()).contains("Same name and contact number");
     }
 
     @Test
@@ -167,32 +163,31 @@ class PropertyBulkImportDuplicateDetectorTest {
     }
 
     @Test
-    void nearbyGeoAndSimilarName_isHighDuplicate() {
+    void similarNameSameMobile_isNotDuplicate() {
         var first = new PropertyBulkImportDuplicateDetector.Fingerprint(
                 2,
                 PropertyBulkImportRowProcessor.TargetKind.PROPERTY,
-                "Campus Stay",
-                Set.of("9000000001"),
+                "Zolo townhouse",
+                Set.of("8884180100"),
                 null,
                 null,
                 null,
-                new BigDecimal("18.5204000"),
-                new BigDecimal("73.8567000"));
+                null,
+                null);
         var second = new PropertyBulkImportDuplicateDetector.Fingerprint(
                 3,
                 PropertyBulkImportRowProcessor.TargetKind.PROPERTY,
-                "Campus Stay PG",
-                Set.of("9000000002"),
+                "Zolo Kingstown",
+                Set.of("8884180100"),
                 null,
                 null,
                 null,
-                new BigDecimal("18.5204100"),
-                new BigDecimal("73.8567100"));
+                null,
+                null);
 
         Optional<PropertyBulkImportDuplicateMatch> match =
                 detector.findMatch(second, List.of(first), List.of());
 
-        assertThat(match).isPresent();
-        assertThat(match.get().getConfidence()).isEqualTo("HIGH");
+        assertThat(match).isEmpty();
     }
 }

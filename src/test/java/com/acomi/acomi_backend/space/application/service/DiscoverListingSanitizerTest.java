@@ -47,6 +47,15 @@ class DiscoverListingSanitizerTest {
     }
 
     @Test
+    void hasUsableContact_acceptsOneValidPhoneOrEmail() {
+        assertThat(DiscoverListingSanitizer.hasUsableContact(null, "", "—")).isFalse();
+        assertThat(DiscoverListingSanitizer.hasUsableContact("9991110001", null, null)).isTrue();
+        assertThat(DiscoverListingSanitizer.hasUsableContact(null, "9991110002")).isTrue();
+        assertThat(DiscoverListingSanitizer.hasUsableContact("owner@example.com")).isTrue();
+        assertThat(DiscoverListingSanitizer.hasUsableContact("123")).isFalse();
+    }
+
+    @Test
     void mapUrl_allowsHttpOnly() {
         assertThat(DiscoverListingSanitizer.mapUrl("https://maps.google.com/?q=18.6,73.7"))
                 .isEqualTo("https://maps.google.com/?q=18.6,73.7");

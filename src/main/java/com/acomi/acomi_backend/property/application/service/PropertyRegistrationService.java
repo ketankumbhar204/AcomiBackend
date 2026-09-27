@@ -17,6 +17,7 @@ import com.acomi.acomi_backend.registration.application.AdminLeadDefaults;
 import com.acomi.acomi_backend.registration.application.RegistrationMobiles;
 import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
+import com.acomi.acomi_backend.space.application.service.ListingMapLocation;
 import com.acomi.acomi_backend.space.application.service.SpaceAmenityService;
 import com.acomi.acomi_backend.space.application.service.SpaceService;
 import com.acomi.acomi_backend.space.domain.model.AmenityCode;
@@ -27,7 +28,6 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.util.List;
-import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -139,6 +139,7 @@ public class PropertyRegistrationService {
                 RegistrationMobiles.resolveAlternate(payload.getMobileNumber(), payload.getAlternateMobileNumber());
         String additionalMobileNumber = RegistrationMobiles.resolveAdditional(
                 payload.getMobileNumber(), alternateMobileNumber, payload.getAdditionalMobileNumber());
+        ListingMapLocation.Resolved location = resolveLocation(payload);
 
         PropertyRegistrationEntity entity = PropertyRegistrationEntity.builder()
                 .reference(nextReference())
@@ -154,9 +155,9 @@ public class PropertyRegistrationService {
                 .city(payload.getCity().trim())
                 .state(payload.getState().trim())
                 .pincode(pincode)
-                .latitude(payload.getLatitude())
-                .longitude(payload.getLongitude())
-                .mapUrl(normalizeMapUrl(payload.getMapUrl()))
+                .latitude(location.latitude())
+                .longitude(location.longitude())
+                .mapUrl(location.mapUrl())
                 .startingPrice(normalizePrice(payload.getStartingPrice()))
                 .priceBasis(PriceBasis.forPropertyType(propertyType))
                 .capacityEstimate(payload.getCapacityEstimate())
@@ -194,9 +195,10 @@ public class PropertyRegistrationService {
         entity.setCity(payload.getCity().trim());
         entity.setState(payload.getState().trim());
         entity.setPincode(payload.getPincode().trim());
-        entity.setLatitude(payload.getLatitude());
-        entity.setLongitude(payload.getLongitude());
-        entity.setMapUrl(normalizeMapUrl(payload.getMapUrl()));
+        ListingMapLocation.Resolved location = resolveLocation(payload);
+        entity.setLatitude(location.latitude());
+        entity.setLongitude(location.longitude());
+        entity.setMapUrl(location.mapUrl());
         entity.setStartingPrice(normalizePrice(payload.getStartingPrice()));
         entity.setPriceBasis(PriceBasis.forPropertyType(propertyType));
         entity.setCapacityEstimate(payload.getCapacityEstimate());
@@ -249,16 +251,12 @@ public class PropertyRegistrationService {
         return startingPrice.setScale(2, RoundingMode.HALF_UP);
     }
 
-    private String normalizeMapUrl(String mapUrl) {
-        String trimmed = trimToNull(mapUrl);
-        if (trimmed == null) {
-            return null;
-        }
-        String lower = trimmed.toLowerCase(Locale.ROOT);
-        if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+    private ListingMapLocation.Resolved resolveLocation(PropertyRegistrationPayload payload) {
+        String rawMap = trimToNull(payload.getMapUrl());
+        if (rawMap != null && !ListingMapLocation.looksLikeHttpUrl(rawMap)) {
             throw new BusinessException("Map link must start with http:// or https://");
         }
-        return trimmed;
+        return ListingMapLocation.resolve(payload.getLatitude(), payload.getLongitude(), rawMap);
     }
 
     private String trimToNull(String value) {

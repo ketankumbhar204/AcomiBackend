@@ -56,6 +56,7 @@ class PropertyBulkImportValueParserTest {
         "mess, MESS",
         "Canteen, MESS",
         "Mess / Tiffin, MESS",
+        "Mess or Tiffin, MESS",
         "Mess/Tiffin, MESS",
         "Tiffin, MESS",
         "Tiffin Service, MESS",
@@ -241,6 +242,10 @@ class PropertyBulkImportValueParserTest {
 
     @ParameterizedTest
     @CsvSource({
+        "'₹7,607', 7607",
+        "'₹7,500', 7500",
+        "'18,000/bed', 18000",
+        "'竄ｹ18,000/bed', 18000",
         "'₹8,000', 8000",
         "'₹3,000*', 3000",
         "'â‚¹10,000', 10000",
@@ -248,6 +253,14 @@ class PropertyBulkImportValueParserTest {
         "'₹7,500/bed', 7500",
         "'₹5,000/month', 5000",
         "'₹8,000 per bed', 8000",
+        "'₹8,500/person', 8500",
+        "'₹2,000/bed*', 2000",
+        "'₹8,599/mo', 8599",
+        "'₹8,499/mo', 8499",
+        "'₹5,300/mo', 5300",
+        "'Rs 10,000 per month', 10000",
+        "'INR 12,500/bed', 12500",
+        "'₹8000', 8000",
         "5000, 5000",
         "'5,000', 5000",
         "'Rs. 8000', 8000",
@@ -260,7 +273,15 @@ class PropertyBulkImportValueParserTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"₹5,000-₹7,000", "₹5,000 - ₹7,000", "5000-7000"})
+    @ValueSource(
+            strings = {
+                "₹5,000-₹7,000",
+                "₹5,000 - ₹7,000",
+                "5000-7000",
+                "₹8,000 - ₹10,000",
+                "₹8,000 to ₹10,000",
+                "8000/9000"
+            })
     void parseStartingPrice_rejectsRange(String raw) {
         var result = PropertyBulkImportValueParser.parseStartingPrice(raw);
         assertThat(result.isInvalid()).isTrue();
@@ -268,9 +289,10 @@ class PropertyBulkImportValueParserTest {
         assertThat(result.error()).contains(raw);
     }
 
-    @Test
-    void parseStartingPrice_invalidText() {
-        var result = PropertyBulkImportValueParser.parseStartingPrice("ask for price");
+    @ParameterizedTest
+    @ValueSource(strings = {"ask for price", "Negotiable", "Contact owner", "Call for price"})
+    void parseStartingPrice_invalidText(String raw) {
+        var result = PropertyBulkImportValueParser.parseStartingPrice(raw);
         assertThat(result.isInvalid()).isTrue();
         assertThat(result.error()).startsWith("Invalid rent value:");
     }
@@ -315,6 +337,9 @@ class PropertyBulkImportValueParserTest {
         "excluded, false, ''",
         "Food not included, false, Food not included",
         "Extra charge, false, Extra charge",
+        "Food charge extra, false, Food charge extra",
+        "Optional / separate plan, false, Optional / separate plan",
+        "no forced mess fee, false, no forced mess fee",
         "Paid separately, false, Paid separately",
         "Not included in rent, false, Not included in rent"
     })

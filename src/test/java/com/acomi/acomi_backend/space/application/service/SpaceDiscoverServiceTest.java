@@ -105,6 +105,8 @@ class SpaceDiscoverServiceTest {
                 .thenReturn(List.of());
         when(messRegistrationRepository.findTestLeadConvertedSpaceIds(List.of(activeSpaceId)))
                 .thenReturn(List.of());
+        when(propertyRegistrationRepository.findByConvertedSpaceIdIn(List.of(activeSpaceId)))
+                .thenReturn(List.of());
 
         PagedResponse<DiscoverSpaceCardResponse> response =
                 spaceDiscoverService.discover(callerId, null, null, "newest", pageable);
@@ -112,7 +114,7 @@ class SpaceDiscoverServiceTest {
         ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
         verify(spaceRepository).findAll(any(Specification.class), pageableCaptor.capture());
         assertThat(pageableCaptor.getValue().getSort())
-                .isEqualTo(Sort.by(Sort.Direction.DESC, "createdAt"));
+                .isEqualTo(Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
         assertThat(response.getContent()).hasSize(1);
         assertThat(response.getContent().get(0).getSpaceId()).isEqualTo(activeSpaceId);
         assertThat(response.getContent().get(0).isAlreadyMember()).isFalse();
@@ -148,6 +150,8 @@ class SpaceDiscoverServiceTest {
                 .thenReturn(List.of());
         when(messRegistrationRepository.findTestLeadConvertedSpaceIds(List.of(activeSpaceId)))
                 .thenReturn(List.of());
+        when(propertyRegistrationRepository.findByConvertedSpaceIdIn(List.of(activeSpaceId)))
+                .thenReturn(List.of());
 
         PagedResponse<DiscoverSpaceCardResponse> response =
                 spaceDiscoverService.discover(callerId, " sunrise ", null, "newest", pageable);
@@ -174,6 +178,8 @@ class SpaceDiscoverServiceTest {
                 .thenReturn(List.of());
         when(messRegistrationRepository.findTestLeadConvertedSpaceIds(List.of(activeSpaceId)))
                 .thenReturn(List.of());
+        when(propertyRegistrationRepository.findByConvertedSpaceIdIn(List.of(activeSpaceId)))
+                .thenReturn(List.of());
 
         PagedResponse<DiscoverSpaceCardResponse> response =
                 spaceDiscoverService.discover(callerId, null, null, "newest", pageable);
@@ -190,6 +196,8 @@ class SpaceDiscoverServiceTest {
         when(propertyRegistrationRepository.findTestLeadConvertedSpaceIds(List.of(activeSpaceId)))
                 .thenReturn(List.of());
         when(messRegistrationRepository.findTestLeadConvertedSpaceIds(List.of(activeSpaceId)))
+                .thenReturn(List.of());
+        when(propertyRegistrationRepository.findByConvertedSpaceIdIn(List.of(activeSpaceId)))
                 .thenReturn(List.of());
 
         PagedResponse<DiscoverSpaceCardResponse> response =
@@ -314,6 +322,7 @@ class SpaceDiscoverServiceTest {
         assertThat(detail.getSharingNotes()).isEqualTo("1, 2 & 3 Sharing");
         assertThat(detail.getDescription()).isEqualTo("A quiet paying-guest stay near the IT parks.");
         assertThat(detail.getMapUrl()).isEqualTo("https://maps.google.com/?q=18.6052262,73.7236231");
+        assertThat(detail.isHasContact()).isTrue();
         assertThat(detail.getGenderPolicy()).isEqualTo(GenderPolicy.MIXED);
         String json = new ObjectMapper().writeValueAsString(detail);
         assertThat(json).doesNotContain("9991110001");
@@ -429,6 +438,59 @@ class SpaceDiscoverServiceTest {
         assertThatThrownBy(() -> spaceDiscoverService.getDetail(callerId, missingId))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Space not found");
+    }
+
+    @Test
+    void discover_forwardsPageIndexAndMarksLastPage() {
+        UUID secondId = UUID.randomUUID();
+        SpaceEntity second = SpaceEntity.builder().name("Second").type(SpaceType.PG).isActive(true).build();
+        second.setId(secondId);
+        Pageable pageable = PageRequest.of(1, 20);
+        when(spaceRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(second), pageable, 40));
+        when(spaceAmenityService.getForSpaces(List.of(secondId))).thenReturn(Map.of());
+        when(spaceMembershipRepository.findActiveSpaceIdsByUserIdAndSpaceIdIn(eq(callerId), eq(List.of(secondId))))
+                .thenReturn(List.of());
+        when(propertyRegistrationRepository.findTestLeadConvertedSpaceIds(List.of(secondId))).thenReturn(List.of());
+        when(messRegistrationRepository.findTestLeadConvertedSpaceIds(List.of(secondId))).thenReturn(List.of());
+        when(propertyRegistrationRepository.findByConvertedSpaceIdIn(List.of(secondId))).thenReturn(List.of());
+
+        PagedResponse<DiscoverSpaceCardResponse> response =
+                spaceDiscoverService.discover(callerId, null, null, "newest", pageable);
+
+        ArgumentCaptor<Pageable> pageableCaptor = ArgumentCaptor.forClass(Pageable.class);
+        verify(spaceRepository).findAll(any(Specification.class), pageableCaptor.capture());
+        assertThat(pageableCaptor.getValue().getPageNumber()).isEqualTo(1);
+        assertThat(pageableCaptor.getValue().getPageSize()).isEqualTo(20);
+        assertThat(response.getContent()).extracting(DiscoverSpaceCardResponse::getSpaceId).containsExactly(secondId);
+        assertThat(response.isFirst()).isFalse();
+        assertThat(response.isLast()).isTrue();
+        assertThat(response.getTotalPages()).isEqualTo(2);
+    }
+
+    @Test
+    void discover_defaultPageHasAtMostRequestedSize() {
+        Pageable pageable = PageRequest.of(0, 20);
+        when(spaceRepository.findAll(any(Specification.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(activeSpace), pageable, 59));
+        when(spaceAmenityService.getForSpaces(List.of(activeSpaceId))).thenReturn(Map.of());
+        when(spaceMembershipRepository.findActiveSpaceIdsByUserIdAndSpaceIdIn(
+                        eq(callerId), eq(List.of(activeSpaceId))))
+                .thenReturn(List.of());
+        when(propertyRegistrationRepository.findTestLeadConvertedSpaceIds(List.of(activeSpaceId)))
+                .thenReturn(List.of());
+        when(messRegistrationRepository.findTestLeadConvertedSpaceIds(List.of(activeSpaceId)))
+                .thenReturn(List.of());
+        when(propertyRegistrationRepository.findByConvertedSpaceIdIn(List.of(activeSpaceId)))
+                .thenReturn(List.of());
+
+        PagedResponse<DiscoverSpaceCardResponse> response =
+                spaceDiscoverService.discover(callerId, null, null, "newest", pageable);
+
+        assertThat(response.getContent()).hasSizeLessThanOrEqualTo(20);
+        assertThat(response.getSize()).isEqualTo(20);
+        assertThat(response.isFirst()).isTrue();
+        assertThat(response.isLast()).isFalse();
     }
 
     private static AmenityAssignmentDto amenity(String code, String label) {

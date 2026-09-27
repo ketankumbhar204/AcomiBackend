@@ -60,6 +60,12 @@ public interface SpaceRepository extends JpaRepository<SpaceEntity, UUID>, JpaSp
     boolean existsByOwnerIdAndIsActiveTrueAndNameIgnoreCaseAndIdNot(
             UUID ownerId, String name, UUID id);
 
+    boolean existsByOwnerIdAndIsActiveTrueAndNameIgnoreCaseAndContactNumber(
+            UUID ownerId, String name, String contactNumber);
+
+    boolean existsByOwnerIdAndIsActiveTrueAndNameIgnoreCaseAndContactNumberAndIdNot(
+            UUID ownerId, String name, String contactNumber, UUID id);
+
     long countByTypeAndIsActiveTrue(SpaceType type);
 
     long countByTypeInAndIsActiveTrueAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(

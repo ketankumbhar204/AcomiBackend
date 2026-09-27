@@ -150,6 +150,8 @@ public interface PropertyRegistrationRepository
 
     Optional<PropertyRegistrationEntity> findByConvertedSpaceId(UUID convertedSpaceId);
 
+    List<PropertyRegistrationEntity> findByConvertedSpaceIdIn(Collection<UUID> convertedSpaceIds);
+
     @Query(
             """
             SELECT r FROM PropertyRegistrationEntity r

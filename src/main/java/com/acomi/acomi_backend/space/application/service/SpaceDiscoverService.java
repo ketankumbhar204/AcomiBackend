@@ -12,10 +12,13 @@ import com.acomi.acomi_backend.property.infrastructure.persistence.repository.Pr
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import com.acomi.acomi_backend.space.api.dto.response.DiscoverSpaceCardResponse;
 import com.acomi.acomi_backend.space.api.dto.response.DiscoverSpaceDetailResponse;
+import com.acomi.acomi_backend.space.application.support.SpaceDiscoverQuery;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceDiscoverSpecs;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -47,12 +50,46 @@ public class SpaceDiscoverService {
     @Transactional(readOnly = true)
     public PagedResponse<DiscoverSpaceCardResponse> discover(
             UUID callerId, String search, SpaceType type, String sort, Pageable pageable) {
+        return discover(callerId, search, null, type, sort, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public PagedResponse<DiscoverSpaceCardResponse> discover(
+            UUID callerId,
+            String search,
+            String location,
+            SpaceType type,
+            String sort,
+            Pageable pageable) {
+        return discover(
+                callerId,
+                new SpaceDiscoverQuery(
+                        normalizeSearch(search),
+                        normalizeSearch(location),
+                        type == null ? List.of() : List.of(type),
+                        null,
+                        null,
+                        List.of()),
+                sort,
+                pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public PagedResponse<DiscoverSpaceCardResponse> discover(
+            UUID callerId, SpaceDiscoverQuery query, String sort, Pageable pageable) {
         Pageable safePageable = toSafePageable(pageable, sort);
-        String normalizedSearch = normalizeSearch(search);
+        SpaceDiscoverQuery normalized = query == null
+                ? SpaceDiscoverQuery.of(null, null, null)
+                : new SpaceDiscoverQuery(
+                        normalizeSearch(query.search()),
+                        normalizeSearch(query.location()),
+                        query.types(),
+                        query.minRent(),
+                        query.maxRent(),
+                        query.amenityCodes());
         boolean includeTest = discoveryProperties.isIncludeTestSpaces();
 
-        Specification<SpaceEntity> spec =
-                SpaceDiscoverSpecs.discover(normalizedSearch, type, includeTest);
+        Specification<SpaceEntity> spec = SpaceDiscoverSpecs.discover(normalized, includeTest);
         Page<SpaceEntity> page = spaceRepository.findAll(spec, safePageable);
         List<SpaceEntity> spaces = page.getContent();
         List<UUID> spaceIds = spaces.stream().map(SpaceEntity::getId).toList();
@@ -61,13 +98,15 @@ public class SpaceDiscoverService {
                 spaceAmenityService.getForSpaces(spaceIds);
         Set<UUID> memberSpaceIds = loadMemberSpaceIds(callerId, spaceIds);
         Set<UUID> testSpaceIds = loadTestSpaceIds(spaceIds);
+        Map<UUID, PropertyRegistrationEntity> propertiesBySpace = loadPropertiesBySpace(spaceIds);
 
         List<DiscoverSpaceCardResponse> content = spaces.stream()
                 .map(space -> toCard(
                         space,
                         amenitiesBySpace.getOrDefault(space.getId(), List.of()),
                         memberSpaceIds.contains(space.getId()),
-                        testSpaceIds.contains(space.getId())))
+                        testSpaceIds.contains(space.getId()),
+                        propertiesBySpace.get(space.getId())))
                 .toList();
 
         return PagedResponse.<DiscoverSpaceCardResponse>builder()
@@ -142,16 +181,37 @@ public class SpaceDiscoverService {
         return (property != null && property.isTestLead()) || (mess != null && mess.isTestLead());
     }
 
+    private Map<UUID, PropertyRegistrationEntity> loadPropertiesBySpace(List<UUID> spaceIds) {
+        if (spaceIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, PropertyRegistrationEntity> bySpace = new HashMap<>();
+        for (PropertyRegistrationEntity property :
+                propertyRegistrationRepository.findByConvertedSpaceIdIn(spaceIds)) {
+            if (property.getConvertedSpaceId() != null) {
+                bySpace.put(property.getConvertedSpaceId(), property);
+            }
+        }
+        return bySpace;
+    }
+
     private static DiscoverSpaceCardResponse toCard(
             SpaceEntity space,
             List<AmenityAssignmentDto> amenities,
             boolean alreadyMember,
-            boolean testSpace) {
+            boolean testSpace,
+            PropertyRegistrationEntity property) {
+        BigDecimal startingPrice = property == null
+                ? null
+                : DiscoverListingSanitizer.positivePrice(property.getStartingPrice());
         return DiscoverSpaceCardResponse.builder()
                 .spaceId(space.getId())
                 .name(space.getName())
                 .type(space.getType())
                 .address(space.getAddress())
+                .startingPrice(startingPrice)
+                .mapUrl(property == null ? null : DiscoverListingSanitizer.mapUrl(property.getMapUrl()))
+                .hasContact(hasStoredContact(space, property, null))
                 .amenityCodes(amenities.stream().map(AmenityAssignmentDto::getCode).toList())
                 .amenityLabels(amenities.stream().map(AmenityAssignmentDto::getLabel).toList())
                 .foodIncludedInRent(space.isFoodIncludedInRent())
@@ -184,7 +244,8 @@ public class SpaceDiscoverService {
                         .genderPolicy(space.getGenderPolicy())
                         .alreadyMember(alreadyMember)
                         .testSpace(testSpace)
-                        .ownedByCurrentUser(ownedByCurrentUser);
+                        .ownedByCurrentUser(ownedByCurrentUser)
+                        .hasContact(hasStoredContact(space, property, mess));
 
         if (property != null) {
             applyPropertyListing(builder, space, property);
@@ -228,6 +289,25 @@ public class SpaceDiscoverService {
                 .mealPrice(DiscoverListingSanitizer.positivePrice(mess.getMealPrice()));
     }
 
+    private static boolean hasStoredContact(
+            SpaceEntity space, PropertyRegistrationEntity property, MessRegistrationEntity mess) {
+        if (property != null) {
+            return DiscoverListingSanitizer.hasUsableContact(
+                    space.getContactNumber(),
+                    property.getMobileNumber(),
+                    property.getAlternateMobileNumber(),
+                    property.getAdditionalMobileNumber());
+        }
+        if (mess != null) {
+            return DiscoverListingSanitizer.hasUsableContact(
+                    space.getContactNumber(),
+                    mess.getMobileNumber(),
+                    mess.getAlternateMobileNumber(),
+                    mess.getAdditionalMobileNumber());
+        }
+        return DiscoverListingSanitizer.hasUsableContact(space.getContactNumber());
+    }
+
     private static String normalizeSearch(String search) {
         if (search == null || search.isBlank()) {
             return null;
@@ -242,6 +322,6 @@ public class SpaceDiscoverService {
         return PageRequest.of(
                 page,
                 safeSize,
-                Sort.by(Sort.Direction.DESC, "createdAt"));
+                Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
     }
 }

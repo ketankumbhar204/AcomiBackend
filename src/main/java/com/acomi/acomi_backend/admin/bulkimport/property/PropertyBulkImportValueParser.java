@@ -20,9 +20,10 @@ public final class PropertyBulkImportValueParser {
 
     private static final Pattern MOBILE_CANONICAL = Pattern.compile("^[6-9]\\d{9}$");
     private static final Pattern PRICE_NUMBER = Pattern.compile("\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?");
-    private static final Pattern RANGE_SEPARATOR = Pattern.compile("\\s*(?:[-–—]|to)\\s*", Pattern.CASE_INSENSITIVE);
+    private static final Pattern RANGE_SEPARATOR =
+            Pattern.compile("\\s*(?:[-–—]|to|/)\\s*", Pattern.CASE_INSENSITIVE);
     private static final Pattern PRICE_SUFFIX = Pattern.compile(
-            "(?i)(?:\\s*/\\s*|\\s+per\\s+)(?:bed|month|night|day|room)\\b|/-|\\*");
+            "(?i)(?:\\s*/\\s*|\\s+per\\s+)(?:person|persons|bed|beds|month|months|night|nights|day|days|room|rooms|mo)\\b|/-|\\*");
     private static final Pattern CURRENCY_MARKER = Pattern.compile(
             "(?i)(?:₹|â‚¹|竄ｹ|(?<![a-z])rs\\.?|(?<![a-z])inr(?![a-z]))");
     private static final Pattern MULTI_SPACE = Pattern.compile("\\s+");
@@ -290,7 +291,9 @@ public final class PropertyBulkImportValueParser {
         }
 
         String leftover = PRICE_NUMBER.matcher(working).replaceAll("");
+        leftover = leftover.replaceAll("\\p{Sc}+", "");
         leftover = leftover.replace(",", "").replace(".", "").trim();
+        leftover = leftover.replaceAll("[^\\p{L}\\p{N}]+", "").trim();
         if (!leftover.isEmpty()) {
             return BigDecimalParseResult.invalid("Invalid rent value: " + value);
         }
@@ -498,8 +501,19 @@ public final class PropertyBulkImportValueParser {
                     "excluded",
                     "food not included",
                     "extra charge",
+                    "food charge extra",
+                    "charged extra",
+                    "food extra",
+                    "pay extra",
+                    "paid extra",
                     "paid separately",
-                    "not included in rent" -> true;
+                    "not included in rent",
+                    "optional",
+                    "optional separate plan",
+                    "separate plan",
+                    "no forced mess fee",
+                    "mess fee extra",
+                    "food optional" -> true;
             default -> false;
         };
     }

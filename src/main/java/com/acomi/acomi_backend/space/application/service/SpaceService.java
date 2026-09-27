@@ -64,12 +64,7 @@ public class SpaceService {
         if (spaceName.isEmpty()) {
             throw new BusinessException("Space name is required", HttpStatus.BAD_REQUEST);
         }
-        if (spaceRepository.existsByOwnerIdAndIsActiveTrueAndNameIgnoreCase(owner.getId(), spaceName)) {
-            throw new BusinessException(
-                    "SPACE_NAME_TAKEN",
-                    "You already have a space with this name.",
-                    HttpStatus.CONFLICT);
-        }
+        assertNameAndContactAvailable(owner.getId(), spaceName, request.getContactNumber(), null);
 
         SpaceEntity space = SpaceEntity.builder()
                 .owner(owner)
@@ -134,18 +129,10 @@ public class SpaceService {
         assertCanManageSpace(entity, callerId);
 
         Space updated = SpaceMapper.applyUpdate(SpaceMapper.toDomain(entity), request);
-        if (request.getName() != null) {
-            String nextName = request.getName().trim();
-            if (!nextName.isEmpty()
-                    && !nextName.equalsIgnoreCase(entity.getName())
-                    && spaceRepository.existsByOwnerIdAndIsActiveTrueAndNameIgnoreCaseAndIdNot(
-                            entity.getOwner().getId(), nextName, spaceId)) {
-                throw new BusinessException(
-                        "SPACE_NAME_TAKEN",
-                        "You already have a space with this name.",
-                        HttpStatus.CONFLICT);
-            }
-        }
+        String nextName = request.getName() != null ? request.getName().trim() : entity.getName();
+        String nextContact =
+                request.getContactNumber() != null ? request.getContactNumber().trim() : entity.getContactNumber();
+        assertNameAndContactAvailable(entity.getOwner().getId(), nextName, nextContact, spaceId);
         SpaceMapper.applyToEntity(entity, updated);
 
         SpaceEntity saved = spaceRepository.save(entity);
@@ -353,5 +340,24 @@ public class SpaceService {
         SpaceEntity saved = spaceRepository.save(entity);
         return SpaceMapper.toDetailsResponse(
                 SpaceMapper.toDomain(saved), spaceAmenityService.getForSpace(spaceId));
+    }
+
+    private void assertNameAndContactAvailable(
+            UUID ownerId, String name, String contactNumber, UUID exceptSpaceId) {
+        String contact = contactNumber == null ? "" : contactNumber.trim();
+        if (name == null || name.isBlank() || contact.isEmpty()) {
+            return;
+        }
+        boolean taken = exceptSpaceId == null
+                ? spaceRepository.existsByOwnerIdAndIsActiveTrueAndNameIgnoreCaseAndContactNumber(
+                        ownerId, name, contact)
+                : spaceRepository.existsByOwnerIdAndIsActiveTrueAndNameIgnoreCaseAndContactNumberAndIdNot(
+                        ownerId, name, contact, exceptSpaceId);
+        if (taken) {
+            throw new BusinessException(
+                    "SPACE_NAME_TAKEN",
+                    "You already have a space with this name and contact number.",
+                    HttpStatus.CONFLICT);
+        }
     }
 }

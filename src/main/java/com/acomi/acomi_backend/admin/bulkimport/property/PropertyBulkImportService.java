@@ -137,7 +137,7 @@ public class PropertyBulkImportService {
         Map<String, String> mapping = parseMapping(mappingJson);
         PropertyBulkImportExcelReader.ParsedWorkbook parsed = PropertyBulkImportExcelReader.parse(file);
 
-        List<ProcessedEntry> entries = processAll(parsed, mapping, markAsTestLead);
+        List<ProcessedEntry> entries = processAll(parsed, mapping, markAsTestLead, Map.of());
         DuplicateAnnotations annotations = annotateDuplicates(entries);
 
         List<PropertyBulkImportPreviewRow> rows = new ArrayList<>();
@@ -183,11 +183,21 @@ public class PropertyBulkImportService {
             String mappingJson,
             boolean markAsTestLead,
             String keepDuplicateRowNumbersJson) {
+        return importRows(file, mappingJson, markAsTestLead, keepDuplicateRowNumbersJson, null);
+    }
+
+    public PropertyBulkImportResultResponse importRows(
+            MultipartFile file,
+            String mappingJson,
+            boolean markAsTestLead,
+            String keepDuplicateRowNumbersJson,
+            String fieldOverridesJson) {
         Map<String, String> mapping = parseMapping(mappingJson);
         Set<Integer> keepDuplicates = parseKeepDuplicateRowNumbers(keepDuplicateRowNumbersJson);
+        Map<Integer, Map<String, String>> fieldOverrides = parseFieldOverrides(fieldOverridesJson);
         PropertyBulkImportExcelReader.ParsedWorkbook parsed = PropertyBulkImportExcelReader.parse(file);
 
-        List<ProcessedEntry> entries = processAll(parsed, mapping, markAsTestLead);
+        List<ProcessedEntry> entries = processAll(parsed, mapping, markAsTestLead, fieldOverrides);
         DuplicateAnnotations annotations = annotateDuplicates(entries);
 
         List<PropertyBulkImportResultRow> rows = new ArrayList<>();
@@ -293,12 +303,19 @@ public class PropertyBulkImportService {
     private List<ProcessedEntry> processAll(
             PropertyBulkImportExcelReader.ParsedWorkbook parsed,
             Map<String, String> mapping,
-            boolean markAsTestLead) {
+            boolean markAsTestLead,
+            Map<Integer, Map<String, String>> fieldOverrides) {
         List<ProcessedEntry> entries = new ArrayList<>();
+        Map<Integer, Map<String, String>> overrides =
+                fieldOverrides == null ? Map.of() : fieldOverrides;
         for (int i = 0; i < parsed.dataRows().size(); i++) {
             int rowNumber = i + 2;
             var processed = PropertyBulkImportRowProcessor.process(
-                    parsed.dataRows().get(i), mapping, validator, markAsTestLead);
+                    parsed.dataRows().get(i),
+                    mapping,
+                    validator,
+                    markAsTestLead,
+                    overrides.getOrDefault(rowNumber, Map.of()));
             entries.add(new ProcessedEntry(rowNumber, processed));
         }
         return entries;
@@ -409,6 +426,25 @@ public class PropertyBulkImportService {
         } catch (Exception ex) {
             throw new BusinessException(
                     "mapping must be a JSON object of fieldKey → excelHeader|null",
+                    HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    Map<Integer, Map<String, String>> parseFieldOverrides(String json) {
+        if (json == null || json.isBlank()) {
+            return Map.of();
+        }
+        try {
+            Map<String, Map<String, String>> raw =
+                    objectMapper.readValue(json, new TypeReference<Map<String, Map<String, String>>>() {});
+            Map<Integer, Map<String, String>> byRow = new LinkedHashMap<>();
+            for (Map.Entry<String, Map<String, String>> entry : raw.entrySet()) {
+                byRow.put(Integer.valueOf(entry.getKey()), entry.getValue() == null ? Map.of() : entry.getValue());
+            }
+            return byRow;
+        } catch (Exception ex) {
+            throw new BusinessException(
+                    "fieldOverrides must be a JSON object of rowNumber → { fieldKey: value }",
                     HttpStatus.BAD_REQUEST);
         }
     }

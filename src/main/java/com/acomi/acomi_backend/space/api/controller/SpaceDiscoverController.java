@@ -6,10 +6,14 @@ import com.acomi.acomi_backend.common.web.PagedResponse;
 import com.acomi.acomi_backend.space.api.dto.response.DiscoverSpaceCardResponse;
 import com.acomi.acomi_backend.space.api.dto.response.DiscoverSpaceDetailResponse;
 import com.acomi.acomi_backend.space.application.service.SpaceDiscoverService;
+import com.acomi.acomi_backend.space.application.support.SpaceDiscoverQuery;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -34,17 +38,32 @@ public class SpaceDiscoverController {
     @Operation(
             summary = "Discover active spaces",
             description = "Returns a paginated list of active discoverable spaces. "
-                    + "Optional case-insensitive search on name or address, and optional type filter. "
-                    + "Does not expose owner or contact details. Join remains invitation-only. "
+                    + "Filters (location address-only, search, types, rent, amenities) are applied "
+                    + "before page/size. Does not expose owner or contact details. "
                     + "Anonymous callers are allowed; alreadyMember is false until signed in.")
     public ResponseEntity<ApiResponse<PagedResponse<DiscoverSpaceCardResponse>>> discover(
             @RequestParam(required = false) String search,
+            @RequestParam(required = false) String location,
             @RequestParam(required = false) SpaceType type,
+            @RequestParam(required = false) List<SpaceType> types,
+            @RequestParam(required = false) BigDecimal minRent,
+            @RequestParam(required = false) BigDecimal maxRent,
+            @RequestParam(required = false) List<String> amenities,
             @RequestParam(required = false, defaultValue = "newest") String sort,
             @PageableDefault(size = 20) Pageable pageable) {
         UUID callerId = SecurityUtils.getCurrentUserIdOrNull();
-        PagedResponse<DiscoverSpaceCardResponse> response =
-                spaceDiscoverService.discover(callerId, search, type, sort, pageable);
+        List<SpaceType> resolvedTypes = new ArrayList<>();
+        if (types != null) {
+            resolvedTypes.addAll(types);
+        }
+        if (type != null && !resolvedTypes.contains(type)) {
+            resolvedTypes.add(type);
+        }
+        PagedResponse<DiscoverSpaceCardResponse> response = spaceDiscoverService.discover(
+                callerId,
+                new SpaceDiscoverQuery(search, location, resolvedTypes, minRent, maxRent, amenities),
+                sort,
+                pageable);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 

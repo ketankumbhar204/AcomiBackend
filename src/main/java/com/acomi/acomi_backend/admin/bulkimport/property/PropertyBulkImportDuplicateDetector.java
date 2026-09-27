@@ -24,8 +24,8 @@ import org.springframework.util.StringUtils;
 /**
  * Detects likely duplicates for bulk import preview/import without persisting rows.
  *
- * <p>Name-only and mobile-only are never enough on their own. Matches require location signals
- * (address / pincode / geo) combined with name and/or contact overlap.
+ * <p>A row is a duplicate only when the listing name and a contact number both match.
+ * Name-only, mobile-only, address, and geo matches are not enough.
  */
 @Component
 @RequiredArgsConstructor
@@ -218,51 +218,15 @@ public class PropertyBulkImportDuplicateDetector {
             String otherPincode,
             BigDecimal otherLat,
             BigDecimal otherLng) {
-        boolean namesSimilar = namesSimilar(row.name(), otherName);
+        boolean sameName = namesEqual(row.name(), otherName);
         boolean mobileOverlap = !intersection(row.mobiles(), otherMobiles).isEmpty();
-        boolean samePincode =
-                isRealPincode(row.pincode())
-                        && isRealPincode(otherPincode)
-                        && row.pincode().trim().equals(otherPincode.trim());
-        boolean addressMatch = addressFingerprintsMatch(row, otherAddress, otherCity, otherPincode);
-        Double meters = distanceMeters(row.latitude(), row.longitude(), otherLat, otherLng);
-
-        // High: near-identical place (geo or address) with similar listing name
-        if (namesSimilar && meters != null && meters <= HIGH_GEO_METERS) {
-            return new MatchSignals(
-                    "HIGH",
-                    "Same location (~" + Math.round(meters) + "m) and similar name");
+        if (sameName && mobileOverlap) {
+            return new MatchSignals("HIGH", "Same name and contact number");
         }
-        if (namesSimilar && addressMatch) {
-            return new MatchSignals("HIGH", "Same address and similar name");
-        }
-        // High: same listing identity — name + shared contact (works when address/geo are missing
-        // or still placeholders from incomplete admin leads).
-        if (namesSimilar && mobileOverlap) {
-            return new MatchSignals("HIGH", "Same mobile and similar name");
-        }
-        if (namesSimilar && samePincode && mobileOverlap) {
-            return new MatchSignals("HIGH", "Same mobile, pincode, and name");
-        }
-
-        // Medium: same contact managing what looks like the same place
-        if (mobileOverlap && addressMatch) {
-            return new MatchSignals("MEDIUM", "Shared mobile and same address");
-        }
-        if (mobileOverlap && meters != null && meters <= MEDIUM_GEO_METERS) {
-            return new MatchSignals(
-                    "MEDIUM",
-                    "Shared mobile and nearby location (~" + Math.round(meters) + "m)");
-        }
-        if (mobileOverlap && samePincode && hasRealAddress(row.addressLine()) && hasRealAddress(otherAddress)
-                && tokenOverlap(row.addressLine(), otherAddress)) {
-            return new MatchSignals("MEDIUM", "Shared mobile, same pincode, and overlapping address");
-        }
-
         return null;
     }
 
-    private static boolean namesSimilar(String a, String b) {
+    private static boolean namesEqual(String a, String b) {
         String na = normalizeName(a);
         String nb = normalizeName(b);
         if (!StringUtils.hasText(na) || !StringUtils.hasText(nb)) {
@@ -271,13 +235,7 @@ public class PropertyBulkImportDuplicateDetector {
         if (isPlaceholderName(na) || isPlaceholderName(nb)) {
             return false;
         }
-        if (na.equals(nb)) {
-            return true;
-        }
-        if (na.length() >= 4 && nb.length() >= 4 && (na.contains(nb) || nb.contains(na))) {
-            return true;
-        }
-        return false;
+        return na.equals(nb);
     }
 
     private static boolean addressFingerprintsMatch(

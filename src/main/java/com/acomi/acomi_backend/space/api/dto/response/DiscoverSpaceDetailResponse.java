@@ -45,8 +45,11 @@ public class DiscoverSpaceDetailResponse {
     @Schema(description = "Longitude when valid")
     private BigDecimal longitude;
 
-    @Schema(description = "Existing Google Maps URL when coordinates are unavailable")
+    @Schema(description = "Existing Google Maps URL when the listing stored one")
     private String mapUrl;
+
+    @Schema(description = "True when at least one stored contact value is usable. Never includes the raw contact.")
+    private boolean hasContact;
 
     @Schema(description = "Public listing description when available")
     private String description;
