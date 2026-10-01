@@ -91,6 +91,16 @@ public class CreatePropertyRegistrationRequest {
     @Schema(description = "Optional pasted Google Maps share link")
     private String mapUrl;
 
+    @DecimalMin(value = "-90.0", message = "Latitude is out of range")
+    @DecimalMax(value = "90.0", message = "Latitude is out of range")
+    @Schema(description = "Optional latitude when a Maps link is not available")
+    private BigDecimal latitude;
+
+    @DecimalMin(value = "-180.0", message = "Longitude is out of range")
+    @DecimalMax(value = "180.0", message = "Longitude is out of range")
+    @Schema(description = "Optional longitude when a Maps link is not available")
+    private BigDecimal longitude;
+
     @NotNull(message = "Starting price is required")
     @DecimalMin(value = "0", message = "Starting price cannot be negative")
     @DecimalMax(value = "9999999999", message = "Starting price is too large")

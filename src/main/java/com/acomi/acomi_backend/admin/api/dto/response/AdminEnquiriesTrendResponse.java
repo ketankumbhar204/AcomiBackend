@@ -9,6 +9,9 @@ import lombok.Getter;
 @Builder
 public class AdminEnquiriesTrendResponse {
 
+    /** Metric key for multi-series trends (defaults to ENQUIRIES for legacy clients). */
+    private String metric;
+
     private LocalDate from;
     private LocalDate to;
     private List<AdminEnquiriesTrendPointResponse> points;

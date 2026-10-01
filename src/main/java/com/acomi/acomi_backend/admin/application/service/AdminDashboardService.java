@@ -7,8 +7,11 @@ import com.acomi.acomi_backend.admin.api.dto.response.AdminEnquiriesTrendPointRe
 import com.acomi.acomi_backend.admin.api.dto.response.AdminEnquiriesTrendResponse;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminUserRegistrationBreakdownResponse;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminUserRegistrationBreakdownSliceResponse;
+import com.acomi.acomi_backend.admin.domain.model.AdminDashboardTrendMetric;
+import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.enquiry.infrastructure.persistence.repository.SpaceEnquiryRepository;
+import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.repository.InquiryCreditPurchaseRequestRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationSource;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationStatus;
@@ -35,6 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -59,6 +63,9 @@ public class AdminDashboardService {
     private final SpaceMembershipRepository spaceMembershipRepository;
     private final SavedAddressRepository savedAddressRepository;
     private final UserRepository userRepository;
+    private final InquiryCreditPurchaseRequestRepository inquiryCreditPurchaseRequestRepository;
+
+    private static final int MAX_TREND_SPAN_DAYS = 366;
 
     @Transactional(readOnly = true)
     public AdminDashboardSummaryResponse getSummary(LocalDateTime from, LocalDateTime to) {
@@ -155,6 +162,14 @@ public class AdminDashboardService {
 
     @Transactional(readOnly = true)
     public AdminEnquiriesTrendResponse enquiriesTrend(LocalDate from, LocalDate to) {
+        return dashboardTrend(AdminDashboardTrendMetric.ENQUIRIES, from, to);
+    }
+
+    @Transactional(readOnly = true)
+    public AdminEnquiriesTrendResponse dashboardTrend(
+            AdminDashboardTrendMetric metric, LocalDate from, LocalDate to) {
+        AdminDashboardTrendMetric safeMetric =
+                metric != null ? metric : AdminDashboardTrendMetric.ENQUIRIES;
         LocalDate safeFrom = from != null ? from : LocalDate.now().minusDays(6);
         LocalDate safeTo = to != null ? to : LocalDate.now();
         if (safeTo.isBefore(safeFrom)) {
@@ -162,6 +177,14 @@ public class AdminDashboardService {
             safeFrom = safeTo;
             safeTo = swap;
         }
+        long spanDays = ChronoUnit.DAYS.between(safeFrom, safeTo) + 1;
+        if (spanDays > MAX_TREND_SPAN_DAYS) {
+            throw new BusinessException(
+                    "TREND_RANGE_TOO_LARGE",
+                    "Trend range cannot exceed " + MAX_TREND_SPAN_DAYS + " days.",
+                    HttpStatus.BAD_REQUEST);
+        }
+
         LocalDateTime fromAt = safeFrom.atStartOfDay();
         LocalDateTime toAt = safeTo.plusDays(1).atStartOfDay();
 
@@ -169,7 +192,7 @@ public class AdminDashboardService {
         for (LocalDate d = safeFrom; !d.isAfter(safeTo); d = d.plusDays(1)) {
             byDay.put(d, 0L);
         }
-        for (Object[] row : spaceEnquiryRepository.countDailyRequestedBetween(fromAt, toAt)) {
+        for (Object[] row : dailyCounts(safeMetric, fromAt, toAt)) {
             LocalDate day = toLocalDate(row[0]);
             long count = row[1] == null ? 0L : ((Number) row[1]).longValue();
             if (day != null && byDay.containsKey(day)) {
@@ -188,11 +211,33 @@ public class AdminDashboardService {
         }
 
         return AdminEnquiriesTrendResponse.builder()
+                .metric(safeMetric.name())
                 .from(safeFrom)
                 .to(safeTo)
                 .points(points)
                 .total(total)
                 .build();
+    }
+
+    private List<Object[]> dailyCounts(
+            AdminDashboardTrendMetric metric, LocalDateTime fromAt, LocalDateTime toAt) {
+        return switch (metric) {
+            case ENQUIRIES -> spaceEnquiryRepository.countDailyRequestedBetween(fromAt, toAt);
+            case REGISTERED_USERS -> userRepository.countDailyVerifiedRegistrationsBetween(fromAt, toAt);
+            case PROPERTY_REGISTRATIONS ->
+                    propertyRegistrationRepository.countDailyCreatedBetween(fromAt, toAt);
+            case MESS_REGISTRATIONS -> messRegistrationRepository.countDailyCreatedBetween(fromAt, toAt);
+            case PROPERTY_SPACES -> spaceRepository.countDailyActiveCreatedByTypesBetween(
+                    PROPERTY_SPACE_TYPES.stream().map(Enum::name).toList(), fromAt, toAt);
+            case MESS_SPACES -> spaceRepository.countDailyActiveCreatedByTypesBetween(
+                    List.of(SpaceType.MESS.name()), fromAt, toAt);
+            case OWNERS -> spaceMembershipRepository.countDailyDistinctActiveOwnersJoinedBetween(
+                    fromAt, toAt);
+            case SAVED_ADDRESSES ->
+                    savedAddressRepository.countDailyActiveCreatedBetween(fromAt, toAt);
+            case CREDIT_PAYMENTS ->
+                    inquiryCreditPurchaseRequestRepository.countDailyRequestedBetween(fromAt, toAt);
+        };
     }
 
     @Transactional(readOnly = true)

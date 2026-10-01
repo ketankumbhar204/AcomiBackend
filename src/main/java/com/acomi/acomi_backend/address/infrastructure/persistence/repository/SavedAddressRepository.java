@@ -162,4 +162,19 @@ public interface SavedAddressRepository extends JpaRepository<SavedAddressEntity
 
     long countByIsActiveTrueAndCreatedAtGreaterThanEqualAndCreatedAtLessThan(
             java.time.LocalDateTime from, java.time.LocalDateTime to);
+
+    @Query(
+            value =
+                    """
+                    SELECT CAST(s.created_at AS date) AS day, COUNT(*) AS cnt
+                    FROM saved_addresses s
+                    WHERE s.is_active = true
+                      AND s.created_at >= :fromAt
+                      AND s.created_at < :toAt
+                    GROUP BY CAST(s.created_at AS date)
+                    ORDER BY day ASC
+                    """,
+            nativeQuery = true)
+    List<Object[]> countDailyActiveCreatedBetween(
+            @Param("fromAt") java.time.LocalDateTime fromAt, @Param("toAt") java.time.LocalDateTime toAt);
 }

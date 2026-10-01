@@ -49,6 +49,38 @@ class PropertyBulkImportAutoMapperTest {
     }
 
     @Test
+    void suggestMapping_matchesSpreadsheetMapColumns() {
+        List<String> headers = List.of(
+                "Property Type",
+                "Property Name",
+                "Contact1",
+                "Latitude",
+                "Longitude",
+                "Google Maps Link");
+
+        Map<String, String> suggested = PropertyBulkImportAutoMapper.suggestMapping(headers);
+
+        assertThat(suggested.get("PROPERTY_TYPE")).isEqualTo("Property Type");
+        assertThat(suggested.get("PROPERTY_NAME")).isEqualTo("Property Name");
+        assertThat(suggested.get("MOBILE_NUMBER")).isEqualTo("Contact1");
+        assertThat(suggested.get("LATITUDE")).isEqualTo("Latitude");
+        assertThat(suggested.get("LONGITUDE")).isEqualTo("Longitude");
+        assertThat(suggested.get("MAP_URL")).isEqualTo("Google Maps Link");
+    }
+
+    @Test
+    void suggestMapping_matchesMapUrlHeaderVariants() {
+        assertThat(PropertyBulkImportAutoMapper.suggestMapping(List.of("Maps Link")).get("MAP_URL"))
+                .isEqualTo("Maps Link");
+        assertThat(PropertyBulkImportAutoMapper.suggestMapping(List.of("Map URL")).get("MAP_URL"))
+                .isEqualTo("Map URL");
+        assertThat(PropertyBulkImportAutoMapper.suggestMapping(List.of("Google Maps URL")).get("MAP_URL"))
+                .isEqualTo("Google Maps URL");
+        assertThat(PropertyBulkImportAutoMapper.suggestMapping(List.of("Google Map Link")).get("MAP_URL"))
+                .isEqualTo("Google Map Link");
+    }
+
+    @Test
     void suggestMapping_ignoresBlankHeaders() {
         Map<String, String> suggested =
                 PropertyBulkImportAutoMapper.suggestMapping(List.of("", "  ", "State"));

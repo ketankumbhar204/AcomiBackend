@@ -56,13 +56,28 @@ class AdminRegisteredUsersControllerTest {
     @Test
     void list_returnsOk() throws Exception {
         when(adminRegisteredUsersService.list(
-                        isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
+                        isNull(),
+                        isNull(),
+                        isNull(),
+                        isNull(),
+                        isNull(),
+                        isNull(),
+                        isNull(),
+                        any(Pageable.class)))
                 .thenReturn(Page.empty());
 
         mockMvc.perform(get("/api/v1/admin/registered-users")).andExpect(status().isOk());
 
         verify(adminRegisteredUsersService)
-                .list(isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class));
+                .list(
+                        isNull(),
+                        isNull(),
+                        isNull(),
+                        isNull(),
+                        isNull(),
+                        isNull(),
+                        isNull(),
+                        any(Pageable.class));
     }
 
     @Test

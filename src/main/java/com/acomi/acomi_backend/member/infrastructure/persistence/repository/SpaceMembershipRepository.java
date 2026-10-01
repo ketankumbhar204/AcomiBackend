@@ -182,4 +182,22 @@ public interface SpaceMembershipRepository extends JpaRepository<SpaceMembership
             """)
     long countDistinctActiveOwnersJoinedBetween(
             @Param("fromAt") java.time.LocalDateTime fromAt, @Param("toAt") java.time.LocalDateTime toAt);
+
+    @Query(
+            value =
+                    """
+                    SELECT CAST(sm.joined_at AS date) AS day, COUNT(DISTINCT sm.user_id) AS cnt
+                    FROM space_memberships sm
+                    JOIN spaces s ON s.id = sm.space_id
+                    WHERE sm.role = 'OWNER'
+                      AND sm.status = 'ACTIVE'
+                      AND s.is_active = true
+                      AND sm.joined_at >= :fromAt
+                      AND sm.joined_at < :toAt
+                    GROUP BY CAST(sm.joined_at AS date)
+                    ORDER BY day ASC
+                    """,
+            nativeQuery = true)
+    List<Object[]> countDailyDistinctActiveOwnersJoinedBetween(
+            @Param("fromAt") java.time.LocalDateTime fromAt, @Param("toAt") java.time.LocalDateTime toAt);
 }

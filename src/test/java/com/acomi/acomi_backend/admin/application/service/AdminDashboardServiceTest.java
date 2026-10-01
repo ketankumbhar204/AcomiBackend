@@ -5,6 +5,7 @@ import static org.mockito.Mockito.when;
 
 import com.acomi.acomi_backend.address.infrastructure.persistence.repository.SavedAddressRepository;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminDashboardSummaryResponse;
+import com.acomi.acomi_backend.admin.domain.model.AdminDashboardTrendMetric;
 import com.acomi.acomi_backend.enquiry.infrastructure.persistence.repository.SpaceEnquiryRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationSource;
@@ -13,6 +14,9 @@ import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRe
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationSource;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationStatus;
 import com.acomi.acomi_backend.property.infrastructure.persistence.repository.PropertyRegistrationRepository;
+import java.sql.Date;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
@@ -50,6 +54,11 @@ class AdminDashboardServiceTest {
     @Mock
     private UserRepository userRepository;
 
+    @Mock
+    private com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.repository
+                    .InquiryCreditPurchaseRequestRepository
+            inquiryCreditPurchaseRequestRepository;
+
     private AdminDashboardService service;
 
     @BeforeEach
@@ -62,7 +71,8 @@ class AdminDashboardServiceTest {
                 spaceEnquiryRepository,
                 spaceMembershipRepository,
                 savedAddressRepository,
-                userRepository);
+                userRepository,
+                inquiryCreditPurchaseRequestRepository);
     }
 
     @Test
@@ -109,5 +119,31 @@ class AdminDashboardServiceTest {
         assertThat(summary.getOwnersCount()).isEqualTo(6L);
         assertThat(summary.getSavedAddressesCount()).isEqualTo(4L);
         assertThat(summary.getRegisteredUsersDeltaPercent()).isNull();
+    }
+
+    @Test
+    void dashboardTrend_fillsMissingDaysAndUsesSelectedMetric() {
+        LocalDate from = LocalDate.of(2026, 9, 12);
+        LocalDate to = LocalDate.of(2026, 9, 14);
+        LocalDateTime fromAt = from.atStartOfDay();
+        LocalDateTime toAt = to.plusDays(1).atStartOfDay();
+
+        when(spaceEnquiryRepository.countDailyRequestedBetween(fromAt, toAt))
+                .thenReturn(List.<Object[]>of(new Object[] {Date.valueOf(from), 2L}));
+        when(userRepository.countDailyVerifiedRegistrationsBetween(fromAt, toAt))
+                .thenReturn(List.<Object[]>of(new Object[] {Date.valueOf(from.plusDays(1)), 5L}));
+
+        var enquiries = service.dashboardTrend(AdminDashboardTrendMetric.ENQUIRIES, from, to);
+        assertThat(enquiries.getMetric()).isEqualTo("ENQUIRIES");
+        assertThat(enquiries.getTotal()).isEqualTo(2L);
+        assertThat(enquiries.getPoints()).hasSize(3);
+        assertThat(enquiries.getPoints().get(0).getCount()).isEqualTo(2L);
+        assertThat(enquiries.getPoints().get(1).getCount()).isZero();
+        assertThat(enquiries.getPoints().get(2).getCount()).isZero();
+
+        var users = service.dashboardTrend(AdminDashboardTrendMetric.REGISTERED_USERS, from, to);
+        assertThat(users.getMetric()).isEqualTo("REGISTERED_USERS");
+        assertThat(users.getTotal()).isEqualTo(5L);
+        assertThat(users.getPoints().get(1).getCount()).isEqualTo(5L);
     }
 }

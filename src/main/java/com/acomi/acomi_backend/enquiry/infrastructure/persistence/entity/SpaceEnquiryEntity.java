@@ -44,7 +44,8 @@ public class SpaceEnquiryEntity extends BaseEntity {
     @Column(name = "requester_name_snapshot", nullable = false, length = 120)
     private String requesterNameSnapshot;
 
-    @Column(name = "requester_email", nullable = false, length = 255)
+    /** Optional — required only when delivering owner contact by email. */
+    @Column(name = "requester_email", length = 255)
     private String requesterEmail;
 
     @Enumerated(EnumType.STRING)

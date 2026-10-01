@@ -13,6 +13,7 @@ import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRe
 import com.acomi.acomi_backend.registration.application.AdminLeadDefaults;
 import com.acomi.acomi_backend.registration.application.RegistrationMobiles;
 import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
+import com.acomi.acomi_backend.space.application.service.ListingMapLocation;
 import com.acomi.acomi_backend.space.application.service.SpaceService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.math.BigDecimal;
@@ -118,6 +119,8 @@ public class MessRegistrationService {
                 RegistrationMobiles.resolveAlternate(payload.getMobileNumber(), payload.getAlternateMobileNumber());
         String additionalMobileNumber = RegistrationMobiles.resolveAdditional(
                 payload.getMobileNumber(), alternateMobileNumber, payload.getAdditionalMobileNumber());
+        ListingMapLocation.Resolved location = ListingMapLocation.resolve(
+                payload.getLatitude(), payload.getLongitude(), payload.getMapUrl());
 
         MessRegistrationEntity entity = MessRegistrationEntity.builder()
                 .reference(nextReference())
@@ -132,9 +135,9 @@ public class MessRegistrationService {
                 .city(payload.getCity().trim())
                 .state(payload.getState().trim())
                 .pincode(pincode)
-                .latitude(payload.getLatitude())
-                .longitude(payload.getLongitude())
-                .mapUrl(normalizeMapUrl(payload.getMapUrl()))
+                .latitude(location.latitude())
+                .longitude(location.longitude())
+                .mapUrl(location.mapUrl())
                 .monthlyPrice(normalizePrice(payload.getMonthlyPrice()))
                 .mealPrice(normalizePrice(payload.getMealPrice()))
                 .capacityEstimate(payload.getCapacityEstimate())
@@ -167,9 +170,11 @@ public class MessRegistrationService {
         entity.setCity(payload.getCity().trim());
         entity.setState(payload.getState().trim());
         entity.setPincode(payload.getPincode().trim());
-        entity.setLatitude(payload.getLatitude());
-        entity.setLongitude(payload.getLongitude());
-        entity.setMapUrl(normalizeMapUrl(payload.getMapUrl()));
+        ListingMapLocation.Resolved location = ListingMapLocation.resolve(
+                payload.getLatitude(), payload.getLongitude(), payload.getMapUrl());
+        entity.setLatitude(location.latitude());
+        entity.setLongitude(location.longitude());
+        entity.setMapUrl(location.mapUrl());
         entity.setMonthlyPrice(normalizePrice(payload.getMonthlyPrice()));
         entity.setMealPrice(normalizePrice(payload.getMealPrice()));
         entity.setCapacityEstimate(payload.getCapacityEstimate());
@@ -193,18 +198,6 @@ public class MessRegistrationService {
 
     private BigDecimal normalizePrice(BigDecimal price) {
         return price.setScale(2, RoundingMode.HALF_UP);
-    }
-
-    private String normalizeMapUrl(String mapUrl) {
-        if (!StringUtils.hasText(mapUrl)) {
-            return null;
-        }
-        String trimmed = mapUrl.trim();
-        String lower = trimmed.toLowerCase();
-        if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
-            return null;
-        }
-        return trimmed;
     }
 
     private String trimToNull(String value) {

@@ -51,6 +51,8 @@ public class PropertyRegistrationPayload {
                 .state(request.getState())
                 .pincode(request.getPincode())
                 .mapUrl(request.getMapUrl())
+                .latitude(request.getLatitude())
+                .longitude(request.getLongitude())
                 .startingPrice(request.getStartingPrice())
                 .capacityEstimate(request.getCapacityEstimate())
                 .amenities(request.getAmenities())
