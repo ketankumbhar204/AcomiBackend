@@ -61,6 +61,15 @@ public final class PropertyBulkImportRowProcessor {
             Map<String, String> mapping,
             Validator validator,
             boolean markAsTestLead) {
+        return process(excelRow, mapping, validator, markAsTestLead, Map.of());
+    }
+
+    public static ProcessedRow process(
+            Map<String, String> excelRow,
+            Map<String, String> mapping,
+            Validator validator,
+            boolean markAsTestLead,
+            Map<String, String> fieldOverrides) {
         Map<PropertyBulkImportField, String> rawByField = extractMappedValues(excelRow, mapping);
         Map<String, String> snapshot = new LinkedHashMap<>();
         for (PropertyBulkImportField field : PropertyBulkImportField.values()) {
@@ -71,6 +80,7 @@ public final class PropertyBulkImportRowProcessor {
         if (isCompletelyBlank(rawByField)) {
             return new ProcessedRow(RowStatus.BLANK, null, snapshot, null, null, List.of());
         }
+        applyFieldOverrides(rawByField, fieldOverrides);
 
         List<PropertyBulkImportFieldError> errors = new ArrayList<>();
         var typeResult = PropertyBulkImportValueParser.parsePropertyType(
@@ -306,6 +316,23 @@ public final class PropertyBulkImportRowProcessor {
             }
         }
         return true;
+    }
+
+    private static void applyFieldOverrides(
+            Map<PropertyBulkImportField, String> rawByField, Map<String, String> fieldOverrides) {
+        if (fieldOverrides == null || fieldOverrides.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, String> entry : fieldOverrides.entrySet()) {
+            if (entry.getKey() == null || entry.getKey().isBlank()) {
+                continue;
+            }
+            try {
+                rawByField.put(PropertyBulkImportField.valueOf(entry.getKey().trim()), entry.getValue());
+            } catch (IllegalArgumentException ignored) {
+                // Ignore unknown field keys from the client.
+            }
+        }
     }
 
     public static Map<PropertyBulkImportField, String> extractMappedValues(

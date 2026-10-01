@@ -39,6 +39,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class EmailService {
 
     public static final String RELATED_SPACE_ENQUIRY = "SPACE_ENQUIRY";
+    public static final String RELATED_INQUIRY_CREDIT_PURCHASE = "INQUIRY_CREDIT_PURCHASE";
 
     private final EmailSendLogRepository sendLogRepository;
     private final MailTransport mailTransport;

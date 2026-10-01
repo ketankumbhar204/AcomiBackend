@@ -9,9 +9,20 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Stateless parsers for Excel cell values used by property bulk import. */
 public final class PropertyBulkImportValueParser {
+
+    private static final Pattern MULTI_SPACE = Pattern.compile("\\s+");
+    private static final Pattern PRICE_NUMBER = Pattern.compile("\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?");
+    private static final Pattern RANGE_SEPARATOR =
+            Pattern.compile("\\s*(?:[-–—]|to|/)\\s*", Pattern.CASE_INSENSITIVE);
+    private static final Pattern PRICE_SUFFIX = Pattern.compile(
+            "(?i)(?:\\s*/\\s*|\\s+per\\s+)(?:person|persons|bed|beds|month|months|night|nights|day|days|room|rooms|mo)\\b|/-|\\*");
+    private static final Pattern CURRENCY_MARKER = Pattern.compile(
+            "(?i)(?:₹|â‚¹|竄ｹ|(?<![a-z])rs\\.?|(?<![a-z])inr(?![a-z]))");
 
     private PropertyBulkImportValueParser() {}
 
@@ -50,24 +61,57 @@ public final class PropertyBulkImportValueParser {
     /**
      * Normalizes property type labels to {@link SpaceType}.
      * Mess is a valid type result for mixed-Excel routing (not an invalid property type).
+     *
+     * <p>Compound labels use a deterministic priority:
+     * co-living → mess/tiffin/meal service → serviced/rental/apartment → pg+hostel → pg → hostel
+     * → guest-house fallback (RENTAL).
+     *
+     * <p>Catering / food-service phrases map to MESS only when no explicit lodging category
+     * is present, so {@code PG / Food Service} stays PG.
      */
     public static PropertyTypeParseResult parsePropertyType(String raw) {
         String value = blankToNull(raw);
         if (value == null) {
             return PropertyTypeParseResult.blank();
         }
-        String key = value.trim().toLowerCase(Locale.ROOT).replace('-', ' ').replace('_', ' ');
-        key = key.replaceAll("\\s+", " ");
+        String key = classificationKey(value);
 
-        return switch (key) {
-            case "pg", "paying guest", "paying guest accommodation" -> PropertyTypeParseResult.ok(SpaceType.PG);
-            case "hostel" -> PropertyTypeParseResult.ok(SpaceType.HOSTEL);
-            case "co living", "coliving", "co living space", "co living accommodation" ->
-                    PropertyTypeParseResult.ok(SpaceType.CO_LIVING);
-            case "rental", "rent", "apartment", "flat" -> PropertyTypeParseResult.ok(SpaceType.RENTAL);
-            case "mess", "canteen", "food mess" -> PropertyTypeParseResult.ok(SpaceType.MESS);
-            default -> PropertyTypeParseResult.invalid("Unknown property type: " + value);
-        };
+        if (hasPhrase(key, "co living", "coliving")) {
+            return PropertyTypeParseResult.ok(SpaceType.CO_LIVING);
+        }
+        if (hasCoreMessPhrase(key)
+                || (hasCateringFoodServicePhrase(key) && !hasExplicitLodging(key))) {
+            return PropertyTypeParseResult.ok(SpaceType.MESS);
+        }
+        if (hasPhrase(
+                key,
+                "serviced",
+                "corporate apartment",
+                "corporate apartments",
+                "rental",
+                "rentals",
+                "apartment",
+                "apartments",
+                "flat",
+                "flats")
+                || hasWord(key, "rent")) {
+            return PropertyTypeParseResult.ok(SpaceType.RENTAL);
+        }
+        boolean pg = hasWord(key, "pg") || key.contains("paying guest");
+        boolean hostel = hasWord(key, "hostel") || hasWord(key, "hostels");
+        if (pg && hostel) {
+            return PropertyTypeParseResult.ok(SpaceType.PG);
+        }
+        if (pg) {
+            return PropertyTypeParseResult.ok(SpaceType.PG);
+        }
+        if (hostel) {
+            return PropertyTypeParseResult.ok(SpaceType.HOSTEL);
+        }
+        if (isGuestHouseFallback(key)) {
+            return PropertyTypeParseResult.ok(SpaceType.RENTAL);
+        }
+        return PropertyTypeParseResult.invalid("Unknown property type: " + value);
     }
 
     public static BooleanParseResult parseBoolean(String raw) {
@@ -89,13 +133,32 @@ public final class PropertyBulkImportValueParser {
         if (value == null) {
             return BooleanParseResult.blank();
         }
-        String key = value.trim().toLowerCase(Locale.ROOT).replace('_', ' ').replace('-', ' ');
-        key = key.replaceAll("\\s+", " ");
+        String key = classificationKey(value);
         return switch (key) {
             case "true", "yes", "y", "1", "included", "food included", "with food" ->
                     BooleanParseResult.ok(Boolean.TRUE);
-            case "false", "no", "n", "0", "not included", "without food", "excluded" ->
-                    BooleanParseResult.ok(Boolean.FALSE);
+            case "false",
+                    "no",
+                    "n",
+                    "0",
+                    "not included",
+                    "without food",
+                    "excluded",
+                    "food not included",
+                    "extra charge",
+                    "food charge extra",
+                    "charged extra",
+                    "food extra",
+                    "pay extra",
+                    "paid extra",
+                    "paid separately",
+                    "not included in rent",
+                    "optional",
+                    "optional separate plan",
+                    "separate plan",
+                    "no forced mess fee",
+                    "mess fee extra",
+                    "food optional" -> BooleanParseResult.ok(Boolean.FALSE);
             default -> BooleanParseResult.invalid(
                     "Food included must be yes/no or true/false (got: " + value + ")");
         };
@@ -152,16 +215,46 @@ public final class PropertyBulkImportValueParser {
         return digits;
     }
 
+    /**
+     * Accepts a single starting rent. Strips currency marks (including mojibake {@code 竄ｹ}
+     * for ₹) and unit suffixes such as {@code /bed}. Rent ranges stay invalid.
+     */
     public static BigDecimalParseResult parseStartingPrice(String raw) {
         String value = blankToNull(raw);
         if (value == null) {
             return BigDecimalParseResult.blank();
         }
+
+        String working = CURRENCY_MARKER.matcher(value).replaceAll(" ");
+        working = PRICE_SUFFIX.matcher(working).replaceAll(" ");
+        working = MULTI_SPACE.matcher(working).replaceAll(" ").trim();
+
+        Matcher numbers = PRICE_NUMBER.matcher(working);
+        List<String> found = new ArrayList<>();
+        while (numbers.find()) {
+            found.add(numbers.group());
+        }
+        if (found.size() >= 2 && RANGE_SEPARATOR.matcher(working).find()) {
+            return BigDecimalParseResult.invalid(
+                    "Rent range cannot be represented by a single starting price (got: " + value + ")");
+        }
+        if (found.size() != 1) {
+            return BigDecimalParseResult.invalid("Invalid rent value: " + value);
+        }
+
+        String leftover = PRICE_NUMBER.matcher(working).replaceAll("");
+        leftover = leftover.replaceAll("\\p{Sc}+", "");
+        leftover = leftover.replace(",", "").replace(".", "").trim();
+        leftover = leftover.replaceAll("[^\\p{L}\\p{N}]+", "").trim();
+        if (!leftover.isEmpty()) {
+            return BigDecimalParseResult.invalid("Invalid rent value: " + value);
+        }
+
         try {
-            String normalized = value.replace(",", "").trim();
-            return BigDecimalParseResult.ok(new BigDecimal(normalized));
+            String numeric = found.get(0).replace(",", "");
+            return BigDecimalParseResult.ok(new BigDecimal(numeric));
         } catch (NumberFormatException ex) {
-            return BigDecimalParseResult.invalid("Starting price must be a number (got: " + value + ")");
+            return BigDecimalParseResult.invalid("Invalid rent value: " + value);
         }
     }
 
@@ -228,6 +321,88 @@ public final class PropertyBulkImportValueParser {
             case "wardrobe", "cupboard", "almirah" -> Optional.of(AmenityCode.WARDROBE);
             default -> Optional.empty();
         };
+    }
+
+    private static String classificationKey(String value) {
+        String key = value.toLowerCase(Locale.ROOT);
+        key = key.replace('-', ' ').replace('_', ' ').replace('/', ' ').replace('\\', ' ');
+        key = key.replace('.', ' ').replace(',', ' ');
+        key = MULTI_SPACE.matcher(key).replaceAll(" ").trim();
+        key = key.replaceAll("\\bp\\s+g\\b", "pg");
+        return key;
+    }
+
+    private static boolean hasCoreMessPhrase(String key) {
+        return hasPhrase(key, "mess", "tiffin", "meal service", "meal services", "canteen", "food mess");
+    }
+
+    private static boolean hasCateringFoodServicePhrase(String key) {
+        return hasPhrase(key, "catering", "caterer", "food service", "food services");
+    }
+
+    private static boolean hasExplicitLodging(String key) {
+        return hasPhrase(key, "co living", "coliving")
+                || hasWord(key, "pg")
+                || key.contains("paying guest")
+                || hasWord(key, "hostel")
+                || hasWord(key, "hostels")
+                || hasPhrase(
+                        key,
+                        "serviced",
+                        "rental",
+                        "rentals",
+                        "apartment",
+                        "apartments",
+                        "flat",
+                        "flats")
+                || hasWord(key, "rent");
+    }
+
+    /**
+     * Guest house is not a first-class type. Map to RENTAL only when no stronger
+     * lodging/food category is present. Hotel is intentionally not included.
+     */
+    private static boolean isGuestHouseFallback(String key) {
+        if (!hasPhrase(key, "guest house", "guesthouse")) {
+            return false;
+        }
+        return !hasWord(key, "pg")
+                && !key.contains("paying guest")
+                && !hasWord(key, "hostel")
+                && !hasWord(key, "hostels")
+                && !hasPhrase(key, "co living", "coliving")
+                && !hasPhrase(key, "mess", "tiffin");
+    }
+
+    private static boolean hasPhrase(String key, String... phrases) {
+        for (String phrase : phrases) {
+            if (phrase.indexOf(' ') >= 0) {
+                if (key.contains(phrase)) {
+                    return true;
+                }
+            } else if (hasWord(key, phrase)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasWord(String key, String word) {
+        int from = 0;
+        while (from <= key.length() - word.length()) {
+            int at = key.indexOf(word, from);
+            if (at < 0) {
+                return false;
+            }
+            boolean startOk = at == 0 || !Character.isLetterOrDigit(key.charAt(at - 1));
+            int end = at + word.length();
+            boolean endOk = end == key.length() || !Character.isLetterOrDigit(key.charAt(end));
+            if (startOk && endOk) {
+                return true;
+            }
+            from = at + 1;
+        }
+        return false;
     }
 
     public record PropertyTypeParseResult(SpaceType value, String error) {

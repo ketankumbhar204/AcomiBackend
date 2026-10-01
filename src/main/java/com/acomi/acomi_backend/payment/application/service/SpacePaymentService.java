@@ -5,9 +5,15 @@ import com.acomi.acomi_backend.common.security.SecurityUtils;
 import com.acomi.acomi_backend.storage.application.service.StoredFileService;
 import com.acomi.acomi_backend.storage.application.support.FileLegacySupport;
 import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
+import com.acomi.acomi_backend.member.domain.model.MembershipRole;
+import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
+import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
+import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
 import com.acomi.acomi_backend.occupancy.application.service.OccupancyTargetLabelBuilder;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
-import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
+import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
+import com.acomi.acomi_backend.payment.api.dto.request.CreateSpacePaymentRequest;
+import com.acomi.acomi_backend.payment.api.dto.request.MarkPaymentReceivedRequest;
 import com.acomi.acomi_backend.payment.api.dto.request.ReviewSpacePaymentRequest;
 import com.acomi.acomi_backend.payment.api.dto.request.SubmitSpacePaymentProofRequest;
 import com.acomi.acomi_backend.payment.api.dto.response.PaymentTimelineEventResponse;
@@ -60,6 +66,8 @@ public class SpacePaymentService {
     private final PaymentMonthSnapshotService snapshotService;
     private final PaymentReferenceService paymentReferenceService;
     private final StoredFileService storedFileService;
+    private final MemberRepository memberRepository;
+    private final OccupancyRepository occupancyRepository;
 
     @Transactional
     public SpacePaymentListResponse listPayments(
@@ -296,6 +304,158 @@ public class SpacePaymentService {
         refreshSnapshotQuietly(payment, callerId);
 
         return toResponse(payment);
+    }
+
+    @Transactional
+    public SpacePaymentResponse markReceived(
+            UUID spaceId, UUID paymentId, UUID callerId, MarkPaymentReceivedRequest request) {
+        accessService.requireManagePayments(spaceId, callerId);
+        SpacePaymentEntity payment = loadPayment(spaceId, paymentId);
+
+        if (payment.getPaymentStatus() == SpacePaymentStatus.PAID) {
+            return toResponse(payment);
+        }
+
+        boolean pending = payment.getPaymentStatus() == SpacePaymentStatus.PENDING;
+        boolean underReview = payment.getPaymentStatus() == SpacePaymentStatus.UNDER_REVIEW
+                || payment.getPaymentStatus() == SpacePaymentStatus.PROOF_UPLOADED;
+        if (!pending && !underReview) {
+            throw new BusinessException(
+                    "Only pending or under-review payments can be marked as received",
+                    HttpStatus.BAD_REQUEST);
+        }
+
+        String remarks = request != null ? trimToNull(request.getRemarks()) : null;
+        if (remarks == null) {
+            remarks = underReview
+                    ? "Marked received by owner/manager without completing proof approval"
+                    : "Marked received by owner/manager without payment proof";
+        }
+
+        payment.setPaymentStatus(SpacePaymentStatus.PAID);
+        payment.setPaymentDate(LocalDate.now());
+        payment.setReviewedAt(LocalDateTime.now());
+        payment.setReviewedBy(callerId);
+        payment.setRejectionReason(null);
+        payment.setRejectionCode(null);
+        payment.setRemarks(remarks);
+        paymentRepository.save(payment);
+        timelineService.record(payment, PaymentTimelineEventType.PAID, remarks, callerId);
+        mealDaySpacePaymentBridge.syncDayPaymentFromSpaceReview(payment);
+        refreshSnapshotQuietly(payment, callerId);
+        return toResponse(payment);
+    }
+
+    @Transactional
+    public SpacePaymentResponse createManualPayment(
+            UUID spaceId, UUID callerId, CreateSpacePaymentRequest request) {
+        accessService.requireManagePayments(spaceId, callerId);
+        SpaceEntity space = spaceRepository
+                .findById(spaceId)
+                .orElseThrow(() -> new BusinessException("Space not found", HttpStatus.NOT_FOUND));
+
+        validateManualPaymentType(request.getPaymentType(), request.getPaymentCategory());
+
+        MemberEntity member = memberRepository
+                .findByIdAndSpaceIdAndActiveTrue(request.getMemberId(), spaceId)
+                .orElseThrow(() -> new BusinessException("Member not found in this space", HttpStatus.NOT_FOUND));
+        if (member.getRole() == MembershipRole.OWNER || member.getRole() == MembershipRole.MANAGER) {
+            throw new BusinessException(
+                    "Cannot create a payment for an owner or manager member", HttpStatus.BAD_REQUEST);
+        }
+
+        if (request.getPaymentType() == SpacePaymentType.DEPOSIT
+                && request.getPaymentCategory() == SpacePaymentCategory.SECURITY
+                && !request.isConfirmDuplicateDeposit()) {
+            List<SpacePaymentEntity> existingDeposits =
+                    paymentRepository.findBySpaceIdAndMemberIdAndPaymentTypeAndPaymentCategory(
+                            spaceId,
+                            member.getId(),
+                            SpacePaymentType.DEPOSIT,
+                            SpacePaymentCategory.SECURITY);
+            if (!existingDeposits.isEmpty()) {
+                throw new BusinessException(
+                        "DEPOSIT_ALREADY_EXISTS",
+                        "A security deposit already exists for this member",
+                        HttpStatus.CONFLICT);
+            }
+        }
+
+        LocalDate dueDate = request.getDueDate() != null ? request.getDueDate() : LocalDate.now();
+        YearMonth month = parseMonth(
+                request.getMonth() != null && !request.getMonth().isBlank()
+                        ? request.getMonth()
+                        : YearMonth.from(dueDate).toString());
+        String monthKey = month.toString();
+        String title = trimToNull(request.getTitle());
+        if (title == null) {
+            title = defaultManualTitle(request.getPaymentType(), request.getPaymentCategory());
+        }
+
+        OccupancyEntity occupancy = occupancyRepository
+                .findActiveBySpaceIdAndMemberId(spaceId, member.getId())
+                .orElse(null);
+
+        SpacePaymentEntity payment = SpacePaymentEntity.builder()
+                .space(space)
+                .member(member)
+                .occupancy(occupancy)
+                .paymentType(request.getPaymentType())
+                .paymentCategory(request.getPaymentCategory())
+                .title(title)
+                .amount(request.getAmount())
+                .currencyCode("INR")
+                .dueDate(dueDate)
+                .month(monthKey)
+                .paymentStatus(SpacePaymentStatus.PENDING)
+                .remarks(trimToNull(request.getRemarks()))
+                .targetLabel(occupancy != null ? occupancyTargetLabelBuilder.build(occupancy) : null)
+                .build();
+        paymentRepository.save(payment);
+        timelineService.record(
+                payment, PaymentTimelineEventType.CREATED, "Created manually by owner/manager", callerId);
+        refreshSnapshotQuietly(payment, callerId);
+        return toResponse(payment);
+    }
+
+    private void validateManualPaymentType(SpacePaymentType type, SpacePaymentCategory category) {
+        if (type == SpacePaymentType.MEAL || type == SpacePaymentType.RENT) {
+            throw new BusinessException(
+                    "Rent and meal payments are generated automatically; choose another type",
+                    HttpStatus.BAD_REQUEST);
+        }
+        if (category == SpacePaymentCategory.REFUND) {
+            throw new BusinessException("Refund is not a creatable payment type", HttpStatus.BAD_REQUEST);
+        }
+        boolean allowed =
+                (type == SpacePaymentType.DEPOSIT && category == SpacePaymentCategory.SECURITY)
+                        || (type == SpacePaymentType.MAINTENANCE
+                                && (category == SpacePaymentCategory.EXTRA
+                                        || category == SpacePaymentCategory.OTHER))
+                        || (type == SpacePaymentType.OTHER
+                                && (category == SpacePaymentCategory.ELECTRICITY
+                                        || category == SpacePaymentCategory.WATER
+                                        || category == SpacePaymentCategory.INTERNET
+                                        || category == SpacePaymentCategory.EXTRA
+                                        || category == SpacePaymentCategory.OTHER));
+        if (!allowed) {
+            throw new BusinessException("Unsupported payment type and category combination", HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    private String defaultManualTitle(SpacePaymentType type, SpacePaymentCategory category) {
+        if (type == SpacePaymentType.DEPOSIT) {
+            return "Security deposit";
+        }
+        if (type == SpacePaymentType.MAINTENANCE) {
+            return "Maintenance";
+        }
+        return switch (category) {
+            case ELECTRICITY -> "Electricity";
+            case WATER -> "Water";
+            case INTERNET -> "Utility";
+            default -> "Other charge";
+        };
     }
 
     private void refreshSnapshotQuietly(SpacePaymentEntity payment, UUID callerId) {

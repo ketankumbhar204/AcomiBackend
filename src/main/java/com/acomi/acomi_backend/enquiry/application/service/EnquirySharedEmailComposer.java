@@ -60,11 +60,7 @@ public class EnquirySharedEmailComposer implements EmailPayloadComposer {
             log.warn("Enquiry share email retry skipped space missing enquiryId={}", enquiry.getId());
             return Optional.empty();
         }
-        OwnerContactResponse contact = ownerContactResolver.resolve(space);
-        if (!ownerContactResolver.hasShareableContact(contact)) {
-            log.warn("Enquiry share email retry skipped owner contact unavailable enquiryId={}", enquiry.getId());
-            return Optional.empty();
-        }
+        OwnerContactResponse contact = ownerContactResolver.resolveOrEmpty(space);
         String requesterName = requester != null ? requester.getFullName() : enquiry.getRequesterNameSnapshot();
         EnquiryMailMessage message = new EnquiryMailMessage(
                 sendLog.getRecipientEmail() != null ? sendLog.getRecipientEmail() : enquiry.getRequesterEmail(),

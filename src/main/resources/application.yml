@@ -109,6 +109,12 @@ acomi:
     retention-days: ${ACOMI_ENQUIRY_RETENTION_DAYS:30}
     expiry-job-delay-ms: ${ACOMI_ENQUIRY_EXPIRY_JOB_MS:3600000}
     auto-share-enabled: ${ACOMI_ENQUIRY_AUTO_SHARE_ENABLED:true}
+  inquiry:
+    # Production stays off. Local profile enables reset + purchases for testing.
+    allow-quota-reset: ${ACOMI_INQUIRY_ALLOW_QUOTA_RESET:false}
+    enable-purchases: ${ACOMI_INQUIRY_ENABLE_PURCHASES:false}
+    whatsapp-number: ${ACOMI_INQUIRY_WHATSAPP:}
+    upi-id: ${ACOMI_INQUIRY_UPI:}
   push:
     # FCM is off until credentials are supplied. Business operations never depend on push.
     enabled: ${ACOMI_PUSH_ENABLED:false}
@@ -144,3 +150,13 @@ acomi:
       path-style: ${ACOMI_STORAGE_PATH_STYLE:true}
       access-key: ${ACOMI_STORAGE_ACCESS_KEY:}
       secret-key: ${ACOMI_STORAGE_SECRET_KEY:}
+  geoapify:
+    # Optional autocomplete. Empty key keeps startup and the location cascade working.
+    api-key: ${GEOAPIFY_API_KEY:}
+    base-url: https://api.geoapify.com
+    timeout-ms: 3000
+    limit: 8
+    min-query-length: 3
+    cache-ttl-seconds: 300
+    cache-max-entries: 200
+    country-code: in

@@ -30,10 +30,16 @@ class EnquiryPrivacySerializationTest {
                 .build();
 
         String json = mapper.writeValueAsString(card);
-        assertThat(json).doesNotContain("mobile");
-        assertThat(json).doesNotContain("owner");
+        assertThat(json).contains("hasContact");
+        assertThat(json).contains("hasMobileContact");
+        assertThat(json).doesNotContain("mobileNumber");
+        assertThat(json).doesNotContain("contactNumber");
+        assertThat(json).doesNotContain("contact1");
+        assertThat(json).doesNotContain("contact2");
+        assertThat(json).doesNotContain("contact3");
+        assertThat(json).doesNotContain("ownerName");
+        assertThat(json).doesNotContain("ownerEmail");
         assertThat(json).doesNotContain("email");
-        assertThat(json).doesNotContain("contact");
         assertThat(json).contains("Sunrise PG");
     }
 
@@ -51,7 +57,7 @@ class EnquiryPrivacySerializationTest {
                 .build();
 
         String json = mapper.writeValueAsString(detail);
-        assertThat(json).doesNotContain("mobile");
+        assertThat(json).contains("hasMobileContact");
         assertThat(json).doesNotContain("ownerName");
         assertThat(json).doesNotContain("ownerMobile");
         assertThat(json).doesNotContain("contactNumber");
@@ -140,5 +146,28 @@ class EnquiryPrivacySerializationTest {
         assertThat(json).doesNotContain("9991110001");
         assertThat(json).doesNotContain("actorId");
         assertThat(json).doesNotContain("userId");
+    }
+
+    @Test
+    void inquiredListingIds_containsOnlySpaceIds() throws Exception {
+        UUID spaceId = UUID.randomUUID();
+        MyInquiredListingIdsResponse response = MyInquiredListingIdsResponse.builder()
+                .inquiredListingIds(java.util.List.of(spaceId))
+                .inquiries(java.util.List.of(InquiredListingDestinationResponse.builder()
+                        .listingId(spaceId)
+                        .sentVia("EMAIL")
+                        .build()))
+                .build();
+
+        String json = mapper.writeValueAsString(response);
+        assertThat(json).contains("inquiredListingIds");
+        assertThat(json).contains("sentVia");
+        assertThat(json).contains("EMAIL");
+        assertThat(json).contains(spaceId.toString());
+        assertThat(json).doesNotContain("mobileNumber");
+        assertThat(json).doesNotContain("requesterEmail");
+        assertThat(json).doesNotContain("ownerContact");
+        assertThat(json).doesNotContain("contactNumber");
+        assertThat(json).doesNotContain("@");
     }
 }

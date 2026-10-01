@@ -1,7 +1,9 @@
 package com.acomi.acomi_backend.accommodation.application.service;
 
 import com.acomi.acomi_backend.accommodation.api.dto.request.CreateBedRequest;
+import com.acomi.acomi_backend.accommodation.api.dto.request.PreviewBedPricingRequest;
 import com.acomi.acomi_backend.accommodation.api.dto.request.UpdateBedRequest;
+import com.acomi.acomi_backend.accommodation.api.dto.response.BedPricingPreviewResponse;
 import com.acomi.acomi_backend.accommodation.api.dto.response.BedResponse;
 import com.acomi.acomi_backend.accommodation.domain.model.AccommodationStatus;
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.BedEntity;
@@ -149,6 +151,21 @@ public class BedService {
         bed = bedRepository.save(bed);
         pricingPropagationService.propagateFrom(spaceId, bed);
         return BedResponse.from(bed);
+    }
+
+    @Transactional(readOnly = true)
+    public BedPricingPreviewResponse previewPricing(
+            UUID spaceId, UUID roomId, UUID bedId, UUID callerId, PreviewBedPricingRequest request) {
+        accessService.assertCanManageStructure(spaceId, callerId);
+        roomRepository.findActiveByIdAndSpaceId(roomId, spaceId)
+                .orElseThrow(() -> ResourceNotFoundException.notInSpace("Room", roomId));
+        BedEntity bed = bedRepository.findActiveByIdAndRoomId(bedId, roomId)
+                .orElseThrow(() -> new ResourceNotFoundException("Bed", "id", bedId));
+        return pricingPropagationService.preview(
+                spaceId,
+                bed,
+                request == null ? null : request.getDefaultRent(),
+                request == null ? null : request.getDefaultDeposit());
     }
 
     @Transactional

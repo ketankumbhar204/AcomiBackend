@@ -155,9 +155,6 @@ final class EnquiryShareEmailHtml {
 
     private static String ownerCard(OwnerContactResponse contact) {
         List<IconRow> rows = ownerRows(contact);
-        if (rows.isEmpty()) {
-            return "";
-        }
         return "<tr><td style=\"background:"
                 + SURFACE
                 + ";padding:12px 24px 8px 24px;\">"
@@ -210,22 +207,13 @@ final class EnquiryShareEmailHtml {
     private static List<IconRow> listingRows(EnquiryMailMessage message) {
         EnquiryListingDetails listing = message.listingOrEmpty();
         List<IconRow> rows = new ArrayList<>();
+        addRequiredContactRow(rows, EnquiryContactEmailComposer.contactNumber(message.ownerContact()));
+        addRequiredRow(rows, "map", "Address", "Address", EnquiryContactEmailComposer.addressValue(message));
+        addRequiredMapRow(rows, EnquiryContactEmailComposer.mapLink(message));
         addTextRow(rows, "users", "Gender", "Gender", listing.genderPolicy());
         addTextRow(rows, "building-2", "Sharing", "Sharing ratio", listing.sharingNotes());
         addTextRow(rows, "star", "Amenities", "Amenities", listing.amenities());
         addTextRow(rows, "file-text", "Description", "Description", listing.description());
-        boolean structured = addTextRow(rows, "map", "Address", "Address", listing.addressLine())
-                | addTextRow(rows, "map", "City", "City", listing.city())
-                | addTextRow(rows, "map", "State", "State", listing.state())
-                | addTextRow(rows, "hash", "Pincode", "Pincode", listing.pincode());
-        if (!structured) {
-            addTextRow(
-                    rows,
-                    "map",
-                    "Location",
-                    "Location",
-                    EnquiryContactEmailComposer.locationValue(listing.location(), message.spaceAddress()));
-        }
         addTextRow(rows, "utensils", "Food", "Food included in rent", listing.foodIncluded());
         if (message.spaceType() == SpaceType.MESS) {
             boolean priced = addTextRow(rows, "banknote", "Price", "Monthly price", listing.monthlyPrice());
@@ -245,20 +233,19 @@ final class EnquiryShareEmailHtml {
 
     private static List<IconRow> ownerRows(OwnerContactResponse contact) {
         List<IconRow> rows = new ArrayList<>();
+        String primary = EnquiryContactEmailComposer.contactNumber(contact);
+        addRequiredContactRow(rows, primary);
         addTextRow(rows, "user", "Name", "Name", contact != null ? contact.getOwnerName() : null);
-        addPhoneRow(rows, "phone", "Mobile", "Mobile", contact != null ? contact.getMobileNumber() : null);
-        addPhoneRow(
-                rows,
-                "whatsapp",
-                "WhatsApp",
-                "Alternate mobile",
+        String alternate = EnquiryContactEmailComposer.displayMobile(
                 contact != null ? contact.getAlternateMobileNumber() : null);
-        addPhoneRow(
-                rows,
-                "phone",
-                "Phone",
-                "Additional contact",
+        String additional = EnquiryContactEmailComposer.displayMobile(
                 contact != null ? contact.getAdditionalMobileNumber() : null);
+        if (alternate != null && !alternate.equals(primary)) {
+            addPhoneRow(rows, "whatsapp", "WhatsApp", "Alternate mobile", contact.getAlternateMobileNumber());
+        }
+        if (additional != null && !additional.equals(primary) && !additional.equals(alternate)) {
+            addPhoneRow(rows, "phone", "Phone", "Additional contact", contact.getAdditionalMobileNumber());
+        }
         String email = EnquiryContactEmailComposer.display(contact != null ? contact.getEmail() : null);
         if (email != null) {
             rows.add(new IconRow(
@@ -283,6 +270,51 @@ final class EnquiryShareEmailHtml {
         }
         rows.add(new IconRow(icon, alt, label, EmailTextSanitizer.html(shown)));
         return true;
+    }
+
+    private static void addRequiredRow(List<IconRow> rows, String icon, String alt, String label, String value) {
+        String shown = EnquiryContactEmailComposer.display(value);
+        rows.add(new IconRow(
+                icon,
+                alt,
+                label,
+                shown == null ? notAvailableHtml() : EmailTextSanitizer.html(shown)));
+    }
+
+    private static void addRequiredContactRow(List<IconRow> rows, String formattedMobile) {
+        if (formattedMobile == null) {
+            rows.add(new IconRow("phone", "Contact", "Contact number", notAvailableHtml()));
+            return;
+        }
+        addPhoneRow(rows, "phone", "Contact", "Contact number", formattedMobile);
+    }
+
+    private static void addRequiredMapRow(List<IconRow> rows, String mapUrl) {
+        String shown = EnquiryContactEmailComposer.display(mapUrl);
+        if (shown == null) {
+            rows.add(new IconRow("map-pin", "Map", "Map link", notAvailableHtml()));
+            return;
+        }
+        String href = EmailTextSanitizer.html(shown);
+        rows.add(new IconRow(
+                "map-pin",
+                "Map",
+                "Map link",
+                "<a href=\""
+                        + href
+                        + "\" style=\"color:"
+                        + NAVY
+                        + ";text-decoration:none;font-weight:700;\">"
+                        + href
+                        + "</a>"));
+    }
+
+    private static String notAvailableHtml() {
+        return "<span style=\"color:"
+                + MUTED
+                + ";font-weight:600;\">"
+                + EmailTextSanitizer.html(EnquiryContactEmailComposer.NOT_AVAILABLE)
+                + "</span>";
     }
 
     private static void addPhoneRow(List<IconRow> rows, String icon, String alt, String label, String mobile) {

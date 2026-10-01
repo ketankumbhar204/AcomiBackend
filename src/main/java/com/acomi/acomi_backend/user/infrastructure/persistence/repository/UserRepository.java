@@ -88,28 +88,28 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
               AND u.isActive = true
               AND u.systemRole = :systemRole
               AND (
-                   :q IS NULL OR :q = '' OR
+                   :q = '' OR
                    LOWER(u.fullName) LIKE LOWER(CONCAT('%', :q, '%')) OR
                    u.mobileNumber LIKE CONCAT('%', :q, '%') OR
                    (u.email IS NOT NULL AND LOWER(u.email) LIKE LOWER(CONCAT('%', :q, '%')))
               )
-              AND (:fromAt IS NULL OR COALESCE(u.mobileVerifiedAt, u.createdAt) >= :fromAt)
-              AND (:toAt IS NULL OR COALESCE(u.mobileVerifiedAt, u.createdAt) < :toAt)
+              AND (:applyFrom = FALSE OR COALESCE(u.mobileVerifiedAt, u.createdAt) >= :fromAt)
+              AND (:applyTo = FALSE OR COALESCE(u.mobileVerifiedAt, u.createdAt) < :toAt)
               AND (
-                   :hasSpace IS NULL OR
-                   (:hasSpace = TRUE AND EXISTS (
+                   :hasSpaceFlag = -1 OR
+                   (:hasSpaceFlag = 1 AND EXISTS (
                         SELECT 1 FROM SpaceMembershipEntity m
                         WHERE m.user = u
                           AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
                    )) OR
-                   (:hasSpace = FALSE AND NOT EXISTS (
+                   (:hasSpaceFlag = 0 AND NOT EXISTS (
                         SELECT 1 FROM SpaceMembershipEntity m
                         WHERE m.user = u
                           AND m.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
                    ))
               )
               AND (
-                   :role IS NULL OR :role = '' OR
+                   :role = '' OR
                    (:role = 'NOT_SELECTED' AND NOT EXISTS (
                         SELECT 1 FROM SpaceMembershipEntity m
                         WHERE m.user = u
@@ -153,9 +153,11 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
     Page<UserEntity> searchVerifiedUsersFiltered(
             @Param("systemRole") SystemRole systemRole,
             @Param("q") String q,
+            @Param("applyFrom") boolean applyFrom,
             @Param("fromAt") LocalDateTime fromAt,
+            @Param("applyTo") boolean applyTo,
             @Param("toAt") LocalDateTime toAt,
-            @Param("hasSpace") Boolean hasSpace,
+            @Param("hasSpaceFlag") int hasSpaceFlag,
             @Param("role") String role,
             Pageable pageable);
 

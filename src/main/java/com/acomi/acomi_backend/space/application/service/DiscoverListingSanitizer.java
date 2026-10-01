@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.space.application.service;
 
+import com.acomi.acomi_backend.registration.application.AdminLeadDefaults;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.util.Locale;
@@ -64,6 +65,36 @@ public final class DiscoverListingSanitizer {
             return null;
         }
         return value;
+    }
+
+    /** True when any value looks like a usable phone or email. Never returns the raw value. */
+    public static boolean hasUsableContact(String... values) {
+        if (values == null) {
+            return false;
+        }
+        for (String value : values) {
+            if (isUsableContact(value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static boolean isUsableContact(String value) {
+        String trimmed = text(value);
+        if (trimmed == null || AdminLeadDefaults.PLACEHOLDER_MOBILE.equals(trimmed)) {
+            return false;
+        }
+        int digits = 0;
+        for (int i = 0; i < trimmed.length(); i++) {
+            if (Character.isDigit(trimmed.charAt(i))) {
+                digits += 1;
+            }
+        }
+        if (digits >= 8) {
+            return true;
+        }
+        return trimmed.contains("@") && trimmed.indexOf('.') > trimmed.indexOf('@');
     }
 
     public static String mapUrl(String value) {

@@ -90,6 +90,7 @@ public class SpaceDashboardSummaryService {
         Map<AccommodationStatus, Long> bedCounts = countBedStatusesForSpace(spaceId);
         long occupiedBeds = bedCounts.getOrDefault(AccommodationStatus.OCCUPIED, 0L);
         long vacantBeds = bedCounts.getOrDefault(AccommodationStatus.AVAILABLE, 0L);
+        long reservedBeds = bedCounts.getOrDefault(AccommodationStatus.RESERVED, 0L);
 
         int moveInsThisMonth = (int) occupancyRepository.countMoveInsBetween(
                 spaceId,
@@ -101,6 +102,7 @@ public class SpaceDashboardSummaryService {
         return DashboardAccommodationOperationsResponse.builder()
                 .occupiedBeds((int) occupiedBeds)
                 .vacantBeds((int) vacantBeds)
+                .reservedBeds((int) reservedBeds)
                 .moveInsThisMonth(moveInsThisMonth)
                 .pendingPaymentsCount(pendingPaymentsCount)
                 .build();

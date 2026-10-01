@@ -116,6 +116,25 @@ class SpacePaymentLedgerSupportTest {
                 .isEqualTo(MemberPaymentStatus.UPDATE_REQUESTED);
     }
 
+    @Test
+    void sumsDepositAndManualObligationsSeparatelyFromRent() {
+        SpacePaymentEntity rent = payment(SpacePaymentStatus.PENDING, "3400");
+        SpacePaymentEntity deposit = SpacePaymentEntity.builder()
+                .paymentType(SpacePaymentType.DEPOSIT)
+                .paymentCategory(SpacePaymentCategory.SECURITY)
+                .paymentStatus(SpacePaymentStatus.PENDING)
+                .amount(new BigDecimal("3000"))
+                .build();
+        SpacePaymentEntity electricity = SpacePaymentEntity.builder()
+                .paymentType(SpacePaymentType.OTHER)
+                .paymentCategory(SpacePaymentCategory.ELECTRICITY)
+                .paymentStatus(SpacePaymentStatus.PENDING)
+                .amount(new BigDecimal("850"))
+                .build();
+        assertThat(support.sumNonRecurringObligationAmount(List.of(rent, deposit, electricity)))
+                .isEqualByComparingTo("3850");
+    }
+
     private SpacePaymentEntity payment(SpacePaymentStatus status, String amount) {
         return SpacePaymentEntity.builder()
                 .paymentType(SpacePaymentType.RENT)

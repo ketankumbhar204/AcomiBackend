@@ -137,7 +137,8 @@ class SpaceEnquiryServiceTest {
                 mailProperties,
                 clock,
                 30,
-                inquiryAccessService);
+                inquiryAccessService,
+                new com.acomi.acomi_backend.config.discovery.DiscoveryProperties());
         // Lenient default: allow tests that create new enquiries to succeed without STRICT_STUBS failures
         Mockito.lenient().when(inquiryAccessService.authorizeNewEnquiry(any(), any()))
                 .thenReturn(InquiryAccessGrant.FREE_WEB);
@@ -271,7 +272,7 @@ class SpaceEnquiryServiceTest {
         assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
         assertThat(response.isDetailsShared()).isTrue();
         assertThat(response.getSharedAt()).isNotNull();
-        assertThat(response.isContactEmailSent()).isFalse();
+        assertThat(response.isContactEmailSent()).isTrue();
         ArgumentCaptor<PublishNotificationCommand> noteCaptor = ArgumentCaptor.forClass(PublishNotificationCommand.class);
         verify(notificationService, times(2)).publish(noteCaptor.capture());
         assertThat(noteCaptor.getAllValues())
@@ -281,6 +282,11 @@ class SpaceEnquiryServiceTest {
         assertThat(noteCaptor.getAllValues())
                 .extracting(PublishNotificationCommand::getNotificationType)
                 .doesNotContain(NotificationType.CONTACT_ENQUIRY);
+        PublishNotificationCommand sharedNote = noteCaptor.getAllValues().stream()
+                .filter(n -> n.getNotificationType() == NotificationType.CONTACT_ENQUIRY_SHARED)
+                .findFirst()
+                .orElseThrow();
+        assertThat(sharedNote.getMessage()).contains("have been emailed");
         noteCaptor.getAllValues().forEach(note -> {
             assertThat(note.getMessage()).doesNotContain("9991110001");
             assertThat(note.getMessage()).doesNotContain("owner@example.com");
@@ -288,13 +294,12 @@ class SpaceEnquiryServiceTest {
         });
 
         ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
-        verify(emailService, times(1)).send(mailCaptor.capture());
+        verify(emailService, times(2)).send(mailCaptor.capture());
         SendEmailCommand support = mailOf(mailCaptor, EmailEventType.ENQUIRY_SUBMITTED_SUPPORT);
         assertThat(support.getRecipientEmail()).isEqualTo("support@acomi.in");
         assertThat(support.getPlainBody()).contains("shared automatically");
-        assertThat(mailCaptor.getAllValues())
-                .extracting(SendEmailCommand::getEventType)
-                .doesNotContain(EmailEventType.ENQUIRY_SHARED);
+        SendEmailCommand sharedMail = mailOf(mailCaptor, EmailEventType.ENQUIRY_SHARED);
+        assertThat(sharedMail.getRecipientEmail()).isEqualTo("ketan@example.com");
         verify(userRepository, never()).findBySystemRoleAndIsActiveTrue(SystemRole.ADMIN);
     }
 
@@ -346,16 +351,25 @@ class SpaceEnquiryServiceTest {
     }
 
     @Test
-    void createRequiresEmailWhenProfileHasNone() {
+    void createWithoutEmailSucceedsForAndroid() {
         member.setEmail(null);
-        when(userRepository.findByIdAndIsActiveTrue(memberId)).thenReturn(Optional.of(member));
-        when(spaceRepository.findByIdAndIsActiveTrueAndDiscoverableTrue(spaceBId)).thenReturn(Optional.of(spaceB));
-        when(spaceRepository.existsByIdAndOwnerIdAndIsActiveTrue(spaceBId, memberId)).thenReturn(false);
+        stubCreateSuccess(member, spaceB, false);
+        when(userRepository.findBySystemRoleAndIsActiveTrue(SystemRole.ADMIN)).thenReturn(List.of());
+        when(enquiryRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+            SpaceEnquiryEntity entity = invocation.getArgument(0);
+            entity.setId(UUID.randomUUID());
+            when(enquiryRepository.findById(entity.getId())).thenReturn(Optional.of(entity));
+            return entity;
+        });
 
-        assertThatThrownBy(() -> service.create(memberId, spaceBId, new CreateSpaceEnquiryRequest()))
-                .isInstanceOf(BusinessException.class)
-                .extracting("errorCode")
-                .isEqualTo("REQUESTER_EMAIL_REQUIRED");
+        SpaceEnquiryResponse response = service.create(
+                memberId, spaceBId, new CreateSpaceEnquiryRequest(), InquiryClientChannel.ANDROID);
+
+        assertThat(response.getRequesterEmail()).isNull();
+        assertThat(response.getClientChannel()).isEqualTo(InquiryClientChannel.ANDROID);
+        ArgumentCaptor<SpaceEnquiryEntity> saved = ArgumentCaptor.forClass(SpaceEnquiryEntity.class);
+        verify(enquiryRepository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getRequesterEmail()).isNull();
     }
 
     @Test
@@ -424,6 +438,58 @@ class SpaceEnquiryServiceTest {
         assertThat(response.isReusedExisting()).isTrue();
         verify(emailService, never()).send(any());
         verify(notificationService, never()).publish(any());
+    }
+
+    @Test
+    void expiredSharedEnquiryAllowsANewEnquiry() {
+        SpaceEnquiryEntity shared = pendingEnquiry();
+        shared.setStatus(SpaceEnquiryStatus.SHARED);
+        shared.setSharedAt(LocalDateTime.now(clock).minusDays(31));
+        shared.setExpiresAt(LocalDateTime.now(clock).minusDays(1));
+        stubCreateSuccess(member, spaceB, false);
+        when(enquiryRepository.findBySpaceIdAndRequesterUserIdAndStatus(
+                        eq(spaceBId), eq(memberId), eq(SpaceEnquiryStatus.SHARED)))
+                .thenReturn(Optional.of(shared));
+        when(userRepository.findBySystemRoleAndIsActiveTrue(SystemRole.ADMIN)).thenReturn(List.of());
+        when(enquiryRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+            SpaceEnquiryEntity entity = invocation.getArgument(0);
+            if (entity.getId() == null) {
+                entity.setId(UUID.randomUUID());
+            }
+            return entity;
+        });
+
+        SpaceEnquiryResponse response = service.create(memberId, spaceBId, new CreateSpaceEnquiryRequest());
+
+        assertThat(shared.getStatus()).isEqualTo(SpaceEnquiryStatus.EXPIRED);
+        assertThat(response.getEnquiryId()).isNotEqualTo(shared.getId());
+        assertThat(response.isReusedExisting()).isFalse();
+        assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.PENDING);
+    }
+
+    @Test
+    void expiredPendingEnquiryAllowsANewEnquiry() {
+        SpaceEnquiryEntity pending = pendingEnquiry();
+        pending.setExpiresAt(LocalDateTime.now(clock).minusDays(1));
+        stubCreateSuccess(member, spaceB, false);
+        when(enquiryRepository.findBySpaceIdAndRequesterUserIdAndStatus(
+                        eq(spaceBId), eq(memberId), eq(SpaceEnquiryStatus.PENDING)))
+                .thenReturn(Optional.of(pending));
+        when(userRepository.findBySystemRoleAndIsActiveTrue(SystemRole.ADMIN)).thenReturn(List.of());
+        when(enquiryRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+            SpaceEnquiryEntity entity = invocation.getArgument(0);
+            if (entity.getId() == null) {
+                entity.setId(UUID.randomUUID());
+            }
+            return entity;
+        });
+
+        SpaceEnquiryResponse response = service.create(memberId, spaceBId, new CreateSpaceEnquiryRequest());
+
+        assertThat(pending.getStatus()).isEqualTo(SpaceEnquiryStatus.EXPIRED);
+        assertThat(response.getEnquiryId()).isNotEqualTo(pending.getId());
+        assertThat(response.isReusedExisting()).isFalse();
+        assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.PENDING);
     }
 
     @Test
@@ -667,29 +733,32 @@ class SpaceEnquiryServiceTest {
     }
 
     @Test
-    void shareMarksReadyWithoutEmail_webDeliverContactByEmailSendsOnce() {
+    void shareEmailsRequesterAndDeliverContactByEmailCanSendToAlternate() {
         SpaceEnquiryEntity pending = pendingEnquiry();
         OwnerContactResponse contact = shareableContact();
         when(enquiryRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
         when(userRepository.findByIdAndIsActiveTrue(memberId)).thenReturn(Optional.of(member));
         when(spaceRepository.findByIdAndIsActiveTrue(spaceBId)).thenReturn(Optional.of(spaceB));
-        when(ownerContactResolver.resolve(spaceB)).thenReturn(contact);
-        when(ownerContactResolver.hasShareableContact(contact)).thenReturn(true);
+        when(ownerContactResolver.resolveOrEmpty(spaceB)).thenReturn(contact);
 
         AdminSpaceEnquiryDetailResponse shared = service.share(pending.getId(), adminId);
 
         assertThat(shared.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
         assertThat(shared.getSharedByAdminId()).isEqualTo(adminId);
-        assertThat(pending.getContactEmailSentAt()).isNull();
-        verify(emailService, never()).send(any());
+        assertThat(pending.getContactEmailSentAt()).isNotNull();
 
         ArgumentCaptor<PublishNotificationCommand> captor = ArgumentCaptor.forClass(PublishNotificationCommand.class);
         verify(notificationService).publish(captor.capture());
         assertThat(captor.getValue().getNotificationType()).isEqualTo(NotificationType.CONTACT_ENQUIRY_SHARED);
         assertThat(captor.getValue().getMessage())
-                .contains("are ready")
+                .contains("have been emailed")
                 .doesNotContain("Check your email")
                 .doesNotContain("9991110001");
+
+        ArgumentCaptor<SendEmailCommand> firstMail = ArgumentCaptor.forClass(SendEmailCommand.class);
+        verify(emailService, times(1)).send(firstMail.capture());
+        assertThat(firstMail.getValue().getEventType()).isEqualTo(EmailEventType.ENQUIRY_SHARED);
+        assertThat(firstMail.getValue().getRecipientEmail()).isEqualTo("ketan@example.com");
 
         when(enquiryRepository.findByIdAndRequesterUserId(pending.getId(), memberId))
                 .thenReturn(Optional.of(pending));
@@ -701,9 +770,13 @@ class SpaceEnquiryServiceTest {
         assertThat(emailed.getContactDelivery()).isEqualTo("EMAIL");
         assertThat(emailed.getRequesterEmail()).isEqualTo("alt@example.com");
         ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
-        verify(emailService, times(1)).send(mailCaptor.capture());
-        assertThat(mailCaptor.getValue().getEventType()).isEqualTo(EmailEventType.ENQUIRY_SHARED);
-        assertThat(mailCaptor.getValue().getRecipientEmail()).isEqualTo("alt@example.com");
+        verify(emailService, times(2)).send(mailCaptor.capture());
+        assertThat(mailCaptor.getAllValues())
+                .extracting(SendEmailCommand::getRecipientEmail)
+                .containsExactly("ketan@example.com", "alt@example.com");
+        assertThat(mailCaptor.getAllValues())
+                .extracting(SendEmailCommand::getEventType)
+                .containsOnly(EmailEventType.ENQUIRY_SHARED);
         assertThat(mailCaptor.getValue().getPlainBody()).contains("+919991110001");
         assertThat(mailCaptor.getValue().getIdempotencyKey())
                 .isEqualTo(EmailIdempotencyKeys.enquirySharedTo(pending.getId(), "alt@example.com"));
@@ -775,8 +848,7 @@ class SpaceEnquiryServiceTest {
         when(enquiryRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
         when(userRepository.findByIdAndIsActiveTrue(memberId)).thenReturn(Optional.of(member));
         when(spaceRepository.findByIdAndIsActiveTrue(spaceBId)).thenReturn(Optional.of(spaceB));
-        when(ownerContactResolver.resolve(spaceB)).thenReturn(contact);
-        when(ownerContactResolver.hasShareableContact(contact)).thenReturn(true);
+        when(ownerContactResolver.resolveOrEmpty(spaceB)).thenReturn(contact);
 
         AdminSpaceEnquiryDetailResponse shared = service.share(pending.getId(), adminId);
 
@@ -956,30 +1028,112 @@ class SpaceEnquiryServiceTest {
     }
 
     @Test
-    void shareConflictWhenOwnerContactMissing() {
+    void shareSendsListingEmailWhenOwnerContactMissing() {
         SpaceEnquiryEntity pending = pendingEnquiry();
         OwnerContactResponse empty = OwnerContactResponse.builder().available(false).build();
         when(enquiryRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
         when(userRepository.findByIdAndIsActiveTrue(memberId)).thenReturn(Optional.of(member));
         when(spaceRepository.findByIdAndIsActiveTrue(spaceBId)).thenReturn(Optional.of(spaceB));
-        when(ownerContactResolver.resolve(spaceB)).thenReturn(empty);
-        when(ownerContactResolver.hasShareableContact(empty)).thenReturn(false);
+        when(ownerContactResolver.resolveOrEmpty(spaceB)).thenReturn(empty);
 
-        assertThatThrownBy(() -> service.share(pending.getId(), adminId))
-                .isInstanceOf(BusinessException.class)
-                .extracting("errorCode")
-                .isEqualTo("OWNER_CONTACT_UNAVAILABLE");
-        verify(emailService, never()).send(any());
+        AdminSpaceEnquiryDetailResponse shared = service.share(pending.getId(), adminId);
+
+        assertThat(shared.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
+        assertThat(pending.getContactEmailSentAt()).isNotNull();
+        ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
+        verify(emailService).send(mailCaptor.capture());
+        assertThat(mailCaptor.getValue().getEventType()).isEqualTo(EmailEventType.ENQUIRY_SHARED);
+        assertThat(mailCaptor.getValue().getRecipientEmail()).isEqualTo("ketan@example.com");
+    }
+
+    @Test
+    void localTestLeadListingCanBeEnquiredWhenNotDiscoverable() {
+        com.acomi.acomi_backend.config.discovery.DiscoveryProperties discovery =
+                new com.acomi.acomi_backend.config.discovery.DiscoveryProperties();
+        discovery.setIncludeTestSpaces(true);
+        service = new SpaceEnquiryService(
+                enquiryRepository,
+                deliveryRepository,
+                spaceRepository,
+                userRepository,
+                propertyRegistrationRepository,
+                messRegistrationRepository,
+                ownerContactResolver,
+                listingDetailsResolver,
+                enquiryAutoSharePolicy,
+                emailService,
+                notificationService,
+                mailProperties,
+                clock,
+                30,
+                inquiryAccessService,
+                discovery);
+
+        spaceB.setDiscoverable(false);
+        when(userRepository.findByIdAndIsActiveTrue(memberId)).thenReturn(Optional.of(member));
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceBId)).thenReturn(Optional.of(spaceB));
+        when(propertyRegistrationRepository.findTestLeadConvertedSpaceIds(any())).thenReturn(List.of(spaceBId));
+        when(messRegistrationRepository.findTestLeadConvertedSpaceIds(any())).thenReturn(List.of());
+        when(spaceRepository.existsByIdAndOwnerIdAndIsActiveTrue(spaceBId, memberId)).thenReturn(false);
+        when(enquiryRepository.findBySpaceIdAndRequesterUserIdAndStatus(
+                        eq(spaceBId), eq(memberId), eq(SpaceEnquiryStatus.PENDING)))
+                .thenReturn(Optional.empty());
+        when(enquiryRepository.findBySpaceIdAndRequesterUserIdAndStatus(
+                        eq(spaceBId), eq(memberId), eq(SpaceEnquiryStatus.SHARED)))
+                .thenReturn(Optional.empty());
+        when(spaceRepository.existsByOwnerIdAndIsActiveTrue(memberId)).thenReturn(false);
+        when(enquiryAutoSharePolicy.evaluate(any(), any()))
+                .thenReturn(EnquiryAutoShareDecision.deny(EnquiryAutoShareReason.OWNER_NOT_LINKED));
+        when(userRepository.findBySystemRoleAndIsActiveTrue(SystemRole.ADMIN)).thenReturn(List.of());
+        when(enquiryRepository.saveAndFlush(any())).thenAnswer(invocation -> {
+            SpaceEnquiryEntity entity = invocation.getArgument(0);
+            if (entity.getId() == null) {
+                entity.setId(UUID.randomUUID());
+            }
+            return entity;
+        });
+
+        SpaceEnquiryResponse response = service.create(memberId, spaceBId, new CreateSpaceEnquiryRequest());
+
+        assertThat(response.getSpaceName()).isEqualTo("Orchid Stay PG");
+        assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.PENDING);
+    }
+
+    @Test
+    void listInquiredListingIds_usesOnlyTheCurrentUsersActiveEnquiries() {
+        UUID otherUserId = UUID.randomUUID();
+        SpaceEnquiryEntity byEmail = pendingEnquiry();
+        byEmail.setSpaceId(spaceAId);
+        byEmail.setClientChannel(InquiryClientChannel.WEB);
+        SpaceEnquiryEntity inApp = pendingEnquiry();
+        inApp.setSpaceId(spaceBId);
+        inApp.setClientChannel(InquiryClientChannel.ANDROID);
+        when(enquiryRepository.findActiveByRequester(eq(memberId), any()))
+                .thenReturn(List.of(byEmail, inApp));
+        when(deliveryRepository.findActiveByRequester(eq(memberId), any())).thenReturn(List.of());
+
+        var response = service.listInquiredListingIds(memberId);
+
+        assertThat(response.getInquiredListingIds()).containsExactly(spaceAId, spaceBId);
+        assertThat(response.getInquiries()).extracting("listingId", "sentVia")
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(spaceAId, "EMAIL"),
+                        org.assertj.core.groups.Tuple.tuple(spaceBId, "APP"));
+        assertThat(response.toString()).doesNotContain("ketan@example.com");
+        verify(enquiryRepository).findActiveByRequester(eq(memberId), any());
+        verify(enquiryRepository, never()).findActiveByRequester(eq(otherUserId), any());
     }
 
     private void stubCreateSuccess(UserEntity requester, SpaceEntity space, boolean registeredOwner) {
         when(userRepository.findByIdAndIsActiveTrue(requester.getId())).thenReturn(Optional.of(requester));
         when(spaceRepository.findByIdAndIsActiveTrueAndDiscoverableTrue(space.getId())).thenReturn(Optional.of(space));
         when(spaceRepository.existsByIdAndOwnerIdAndIsActiveTrue(space.getId(), requester.getId())).thenReturn(false);
-        when(enquiryRepository.findBySpaceIdAndRequesterUserIdAndStatus(
+        Mockito.lenient()
+                .when(enquiryRepository.findBySpaceIdAndRequesterUserIdAndStatus(
                         eq(space.getId()), eq(requester.getId()), eq(SpaceEnquiryStatus.PENDING)))
                 .thenReturn(Optional.empty());
-        when(enquiryRepository.findBySpaceIdAndRequesterUserIdAndStatus(
+        Mockito.lenient()
+                .when(enquiryRepository.findBySpaceIdAndRequesterUserIdAndStatus(
                         eq(space.getId()), eq(requester.getId()), eq(SpaceEnquiryStatus.SHARED)))
                 .thenReturn(Optional.empty());
         when(spaceRepository.existsByOwnerIdAndIsActiveTrue(requester.getId())).thenReturn(registeredOwner);

@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.util.StringUtils;
 
 @Configuration
@@ -15,6 +16,7 @@ public class StorageProviderConfig {
     private static final Logger log = LoggerFactory.getLogger(StorageProviderConfig.class);
 
     @Bean
+    @Primary
     public StorageProvider storageProvider(StorageProperties properties) {
         if (properties.isS3Compatible()) {
             StorageProperties.S3 s3 = properties.getS3();

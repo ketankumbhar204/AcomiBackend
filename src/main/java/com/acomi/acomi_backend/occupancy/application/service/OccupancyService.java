@@ -28,17 +28,21 @@ import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.Occup
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyHistoryEntity;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyHistoryRepository;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
+import com.acomi.acomi_backend.payment.application.service.PaymentMonthSnapshotService;
+import com.acomi.acomi_backend.payment.application.service.SpacePaymentGenerationService;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.Hibernate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -62,6 +66,8 @@ public class OccupancyService {
     private final MealOccupancyBridgeService mealOccupancyBridgeService;
     private final OccupancyAmenityService occupancyAmenityService;
     private final OccupancyNotificationSyncService occupancyNotificationSyncService;
+    private final SpacePaymentGenerationService paymentGenerationService;
+    private final PaymentMonthSnapshotService paymentMonthSnapshotService;
 
     @Transactional
     public OccupancyResponse reserve(UUID spaceId, UUID callerId, ReserveOccupancyRequest request) {
@@ -160,6 +166,7 @@ public class OccupancyService {
 
         recordHistory(occupancy, OccupancyHistoryEvent.MOVE_IN, targetSnapshot(occupancy), targetSnapshot(occupancy), actor, now, body.getRemarks());
         mealOccupancyBridgeService.onOccupancyActivated(occupancy, actor, body.isCreateMealParticipation());
+        syncActivationPayments(occupancy, callerId);
         occupancyNotificationSyncService.onMoveInCompleted(occupancy);
         return toResponse(occupancy);
     }
@@ -236,6 +243,7 @@ public class OccupancyService {
 
         recordHistory(occupancy, OccupancyHistoryEvent.ALLOCATED, null, targetSnapshot(target), actor, now, request.getRemarks());
         mealOccupancyBridgeService.onOccupancyActivated(occupancy, actor, request.isCreateMealParticipation());
+        syncActivationPayments(occupancy, callerId);
         occupancyNotificationSyncService.onAllocationCreated(occupancy);
         return toResponse(occupancy);
     }
@@ -433,6 +441,18 @@ public class OccupancyService {
                 .memberName(occupancy.getMember().getFullName())
                 .occupancyStatus(occupancy.getStatus())
                 .build());
+    }
+
+    private void syncActivationPayments(OccupancyEntity occupancy, UUID callerId) {
+        paymentGenerationService.createActivationPayments(occupancy, callerId);
+        LocalDate start = occupancy.getActualMoveInAt() != null
+                ? occupancy.getActualMoveInAt().toLocalDate()
+                : occupancy.getMoveInDate();
+        if (start == null || occupancy.getSpace() == null) {
+            return;
+        }
+        paymentMonthSnapshotService.refreshAfterMutation(
+                occupancy.getSpace().getId(), callerId, YearMonth.from(start).toString());
     }
 
     private OccupancyEntity.OccupancyEntityBuilder buildOccupancy(
@@ -635,6 +655,12 @@ public class OccupancyService {
     }
 
     private OccupancyResponse toResponse(OccupancyEntity occupancy) {
+        if (occupancy.getFloor() != null) {
+            Hibernate.initialize(occupancy.getFloor());
+        }
+        if (occupancy.getUnit() != null) {
+            Hibernate.initialize(occupancy.getUnit());
+        }
         return OccupancyResponse.from(
                 occupancy,
                 contractSnapshotService.loadChargeSnapshots(occupancy),

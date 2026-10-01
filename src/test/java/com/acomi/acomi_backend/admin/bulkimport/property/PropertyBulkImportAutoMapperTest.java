@@ -32,6 +32,13 @@ class PropertyBulkImportAutoMapperTest {
     }
 
     @Test
+    void suggestMapping_matchesGoogleMapsLinkHeader() {
+        Map<String, String> suggested =
+                PropertyBulkImportAutoMapper.suggestMapping(List.of("Google Maps Link"));
+        assertThat(suggested.get("MAP_URL")).isEqualTo("Google Maps Link");
+    }
+
+    @Test
     void suggestMapping_leavesAmbiguousFieldUnmapped() {
         List<String> headers = List.of("Property Name", "PG Name", "City");
 

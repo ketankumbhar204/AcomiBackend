@@ -193,11 +193,29 @@ class OwnerContactResolverTest {
                 .mobileNumber("6000000000")
                 .linkedOwnerUserId(null)
                 .build();
+        space.setContactNumber(null);
         when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.of(registration));
 
         OwnerContactResponse contact = resolver.resolve(space);
 
         assertThat(contact.getMobileNumber()).isNull();
         assertThat(resolver.hasShareableContact(contact)).isFalse();
+    }
+
+    @Test
+    void usesSpaceContactWhenConvertedLeadIsPlaceholder() {
+        owner.setSystemRole(SystemRole.ADMIN);
+        space.setContactNumber("7722085599");
+        PropertyRegistrationEntity registration = PropertyRegistrationEntity.builder()
+                .ownerName("Unknown")
+                .mobileNumber("6000000000")
+                .linkedOwnerUserId(null)
+                .build();
+        when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.of(registration));
+
+        OwnerContactResponse contact = resolver.resolve(space);
+
+        assertThat(contact.getMobileNumber()).isEqualTo("7722085599");
+        assertThat(resolver.hasShareableContact(contact)).isTrue();
     }
 }

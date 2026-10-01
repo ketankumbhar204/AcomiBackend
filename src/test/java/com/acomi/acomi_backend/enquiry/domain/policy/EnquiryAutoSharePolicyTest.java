@@ -1,19 +1,19 @@
 package com.acomi.acomi_backend.enquiry.domain.policy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
+import com.acomi.acomi_backend.config.discovery.DiscoveryProperties;
 import com.acomi.acomi_backend.enquiry.api.dto.response.OwnerContactResponse;
 import com.acomi.acomi_backend.enquiry.application.service.OwnerContactResolver;
-import com.acomi.acomi_backend.mess.infrastructure.persistence.entity.MessRegistrationEntity;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRegistrationRepository;
-import com.acomi.acomi_backend.property.infrastructure.persistence.entity.PropertyRegistrationEntity;
 import com.acomi.acomi_backend.property.infrastructure.persistence.repository.PropertyRegistrationRepository;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.user.domain.model.SystemRole;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
-import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,18 +34,22 @@ class EnquiryAutoSharePolicyTest {
     private MessRegistrationRepository messRegistrationRepository;
 
     private EnquiryAutoSharePolicy policy;
-    private UUID spaceId;
-    private UUID ownerId;
+    private DiscoveryProperties discoveryProperties;
     private UserEntity owner;
     private SpaceEntity space;
     private OwnerContactResponse shareableContact;
 
     @BeforeEach
     void setUp() {
+        discoveryProperties = new DiscoveryProperties();
         policy = new EnquiryAutoSharePolicy(
-                ownerContactResolver, propertyRegistrationRepository, messRegistrationRepository, true);
-        spaceId = UUID.randomUUID();
-        ownerId = UUID.randomUUID();
+                ownerContactResolver,
+                propertyRegistrationRepository,
+                messRegistrationRepository,
+                true,
+                discoveryProperties);
+        UUID spaceId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
         owner = UserEntity.builder().fullName("Rahul").isActive(true).systemRole(SystemRole.USER).build();
         owner.setId(ownerId);
         space = SpaceEntity.builder()
@@ -64,30 +68,14 @@ class EnquiryAutoSharePolicyTest {
     }
 
     @Test
-    void allowsActiveDiscoverableOwnerCreatedSpaceWithShareableContact() {
-        stubNoRegistrations();
+    void allowsActiveDiscoverableListingWithShareableContact() {
         when(ownerContactResolver.resolve(space)).thenReturn(shareableContact);
-        when(ownerContactResolver.hasShareableContact(shareableContact)).thenReturn(true);
 
         EnquiryAutoShareDecision decision = policy.evaluate(space, "ketan@example.com");
 
         assertThat(decision.isAllowed()).isTrue();
         assertThat(decision.reason()).isEqualTo(EnquiryAutoShareReason.ALLOWED);
         assertThat(decision.contact().getMobileNumber()).isEqualTo("9991110001");
-    }
-
-    @Test
-    void allowsConvertedListingWhenLinkedOwnerMatchesSpaceOwner() {
-        PropertyRegistrationEntity registration = PropertyRegistrationEntity.builder()
-                .testLead(false)
-                .linkedOwnerUserId(ownerId)
-                .build();
-        when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.of(registration));
-        when(messRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.empty());
-        when(ownerContactResolver.resolve(space)).thenReturn(shareableContact);
-        when(ownerContactResolver.hasShareableContact(shareableContact)).thenReturn(true);
-
-        assertThat(policy.evaluate(space, "ketan@example.com").isAllowed()).isTrue();
     }
 
     @Test
@@ -105,132 +93,72 @@ class EnquiryAutoSharePolicyTest {
     }
 
     @Test
-    void deniesTestLeadEvenIfDiscoverable() {
-        PropertyRegistrationEntity registration = PropertyRegistrationEntity.builder()
-                .testLead(true)
-                .linkedOwnerUserId(ownerId)
-                .build();
-        when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.of(registration));
-        when(messRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.empty());
-
-        assertThat(policy.evaluate(space, "ketan@example.com").reason())
-                .isEqualTo(EnquiryAutoShareReason.TEST_LISTING);
-    }
-
-    @Test
-    void deniesConvertedListingWithoutLinkedOwner() {
-        PropertyRegistrationEntity registration = PropertyRegistrationEntity.builder()
-                .testLead(false)
-                .linkedOwnerUserId(null)
-                .build();
-        when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.of(registration));
-        when(messRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.empty());
-
-        assertThat(policy.evaluate(space, "ketan@example.com").reason())
-                .isEqualTo(EnquiryAutoShareReason.OWNER_NOT_LINKED);
-    }
-
-    @Test
-    void deniesWhenLinkedOwnerDoesNotMatchSpaceOwner() {
-        PropertyRegistrationEntity registration = PropertyRegistrationEntity.builder()
-                .testLead(false)
-                .linkedOwnerUserId(UUID.randomUUID())
-                .build();
-        when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.of(registration));
-        when(messRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.empty());
-
-        assertThat(policy.evaluate(space, "ketan@example.com").reason())
-                .isEqualTo(EnquiryAutoShareReason.OWNER_NOT_LINKED);
-    }
-
-    @Test
     void deniesInactiveOwner() {
         owner.setActive(false);
-        stubNoRegistrations();
         assertThat(policy.evaluate(space, "ketan@example.com").reason())
                 .isEqualTo(EnquiryAutoShareReason.OWNER_INACTIVE);
     }
 
     @Test
-    void deniesMissingOwnerAssociation() {
-        space.setOwner(null);
-        stubNoRegistrations();
-        assertThat(policy.evaluate(space, "ketan@example.com").reason())
-                .isEqualTo(EnquiryAutoShareReason.OWNER_NOT_LINKED);
+    void allowsInactivePlatformAdminOwnerWhenContactIsShareable() {
+        owner.setSystemRole(SystemRole.ADMIN);
+        owner.setActive(false);
+        when(ownerContactResolver.resolve(space)).thenReturn(shareableContact);
+
+        assertThat(policy.evaluate(space, "ketan@example.com").isAllowed()).isTrue();
     }
 
     @Test
-    void deniesWhenOwnerContactIsNotShareable() {
-        stubNoRegistrations();
+    void allowsMissingOwnerWhenContactIsShareable() {
+        space.setOwner(null);
+        when(ownerContactResolver.resolve(space)).thenReturn(shareableContact);
+
+        assertThat(policy.evaluate(space, "ketan@example.com").isAllowed()).isTrue();
+    }
+
+    @Test
+    void allowsWhenOwnerContactIsNotShareable() {
         OwnerContactResponse empty = OwnerContactResponse.builder().available(false).build();
         when(ownerContactResolver.resolve(space)).thenReturn(empty);
-        when(ownerContactResolver.hasShareableContact(empty)).thenReturn(false);
 
-        assertThat(policy.evaluate(space, "ketan@example.com").reason())
-                .isEqualTo(EnquiryAutoShareReason.OWNER_CONTACT_UNAVAILABLE);
+        EnquiryAutoShareDecision decision = policy.evaluate(space, "ketan@example.com");
+
+        assertThat(decision.isAllowed()).isTrue();
+        assertThat(decision.contact().isAvailable()).isFalse();
     }
 
     @Test
-    void deniesMissingRequesterEmail() {
-        stubNoRegistrations();
-        assertThat(policy.evaluate(space, "  ").reason())
-                .isEqualTo(EnquiryAutoShareReason.REQUESTER_EMAIL_UNAVAILABLE);
+    void allowsMissingRequesterEmail() {
+        when(ownerContactResolver.resolve(space)).thenReturn(shareableContact);
+
+        assertThat(policy.evaluate(space, null).isAllowed()).isTrue();
+        assertThat(policy.evaluate(space, "  ").isAllowed()).isTrue();
     }
 
     @Test
     void deniesWhenAutoShareDisabled() {
         policy = new EnquiryAutoSharePolicy(
-                ownerContactResolver, propertyRegistrationRepository, messRegistrationRepository, false);
+                ownerContactResolver,
+                propertyRegistrationRepository,
+                messRegistrationRepository,
+                false,
+                discoveryProperties);
         assertThat(policy.evaluate(space, "ketan@example.com").reason())
                 .isEqualTo(EnquiryAutoShareReason.AUTO_SHARE_DISABLED);
     }
 
     @Test
-    void deniesMessTestLead() {
-        space.setType(SpaceType.MESS);
-        MessRegistrationEntity registration = MessRegistrationEntity.builder()
-                .testLead(true)
-                .linkedOwnerUserId(ownerId)
-                .build();
-        when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.empty());
-        when(messRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.of(registration));
-
-        assertThat(policy.evaluate(space, "ketan@example.com").reason())
-                .isEqualTo(EnquiryAutoShareReason.TEST_LISTING);
-    }
-
-    @Test
-    void evaluateListing_usesListingPlaceholderEmailAndStillDeniesUnlinkedConvertedListing() {
-        PropertyRegistrationEntity registration = PropertyRegistrationEntity.builder()
-                .testLead(false)
-                .linkedOwnerUserId(null)
-                .build();
-        when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.of(registration));
-        when(messRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.empty());
-
-        assertThat(policy.evaluateListing(space).reason()).isEqualTo(EnquiryAutoShareReason.OWNER_NOT_LINKED);
-    }
-
-    @Test
-    void deniesPlatformAdminOwnerEvenWithoutConvertedRegistration() {
-        owner.setSystemRole(SystemRole.ADMIN);
-        stubNoRegistrations();
-
-        assertThat(policy.evaluate(space, "ketan@example.com").reason())
-                .isEqualTo(EnquiryAutoShareReason.OWNER_NOT_LINKED);
-    }
-
-    @Test
-    void allowsAdminHeldConvertedListingWhenListingContactIsShareable() {
-        owner.setSystemRole(SystemRole.ADMIN);
-        PropertyRegistrationEntity registration = PropertyRegistrationEntity.builder()
-                .testLead(false)
-                .linkedOwnerUserId(null)
-                .build();
-        when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.of(registration));
-        when(messRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.empty());
+    void evaluateListing_matchesEvaluateWithoutEmail() {
         when(ownerContactResolver.resolve(space)).thenReturn(shareableContact);
-        when(ownerContactResolver.hasShareableContact(shareableContact)).thenReturn(true);
+
+        assertThat(policy.evaluateListing(space).isAllowed()).isTrue();
+        assertThat(policy.evaluate(space, null).isAllowed()).isTrue();
+    }
+
+    @Test
+    void allowsAdminHeldListingWhenListingContactIsShareable() {
+        owner.setSystemRole(SystemRole.ADMIN);
+        when(ownerContactResolver.resolve(space)).thenReturn(shareableContact);
 
         EnquiryAutoShareDecision decision = policy.evaluate(space, "ketan@example.com");
 
@@ -239,24 +167,44 @@ class EnquiryAutoSharePolicyTest {
     }
 
     @Test
-    void deniesConvertedListingLinkedToAdminAccountUntilListingContactExists() {
+    void allowsAdminHeldListingWithoutListingContact() {
         owner.setSystemRole(SystemRole.ADMIN);
-        PropertyRegistrationEntity registration = PropertyRegistrationEntity.builder()
-                .testLead(false)
-                .linkedOwnerUserId(ownerId)
-                .build();
-        when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.of(registration));
-        when(messRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.empty());
         OwnerContactResponse empty = OwnerContactResponse.builder().available(false).build();
         when(ownerContactResolver.resolve(space)).thenReturn(empty);
-        when(ownerContactResolver.hasShareableContact(empty)).thenReturn(false);
 
-        assertThat(policy.evaluate(space, "ketan@example.com").reason())
-                .isEqualTo(EnquiryAutoShareReason.OWNER_CONTACT_UNAVAILABLE);
+        assertThat(policy.evaluate(space, "ketan@example.com").isAllowed()).isTrue();
     }
 
-    private void stubNoRegistrations() {
-        when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.empty());
-        when(messRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.empty());
+    @Test
+    void allowsNonDiscoverableTestListingWhenIncludeTestSpaces() {
+        discoveryProperties.setIncludeTestSpaces(true);
+        space.setDiscoverable(false);
+        when(propertyRegistrationRepository.findTestLeadConvertedSpaceIds(any()))
+                .thenReturn(List.of(space.getId()));
+        when(ownerContactResolver.resolve(space)).thenReturn(shareableContact);
+
+        EnquiryAutoShareDecision decision = policy.evaluate(space, "ketan@example.com");
+
+        assertThat(decision.isAllowed()).isTrue();
+        assertThat(decision.reason()).isEqualTo(EnquiryAutoShareReason.ALLOWED);
+    }
+
+    @Test
+    void deniesNonDiscoverableNonTestListingEvenWhenIncludeTestSpaces() {
+        discoveryProperties.setIncludeTestSpaces(true);
+        space.setDiscoverable(false);
+        when(propertyRegistrationRepository.findTestLeadConvertedSpaceIds(any())).thenReturn(List.of());
+        when(messRegistrationRepository.findTestLeadConvertedSpaceIds(any())).thenReturn(List.of());
+
+        assertThat(policy.evaluate(space, "ketan@example.com").reason())
+                .isEqualTo(EnquiryAutoShareReason.SPACE_NOT_DISCOVERABLE);
+    }
+
+    @Test
+    void deniesNonDiscoverableTestListingWhenIncludeTestSpacesIsOff() {
+        space.setDiscoverable(false);
+
+        assertThat(policy.evaluate(space, "ketan@example.com").reason())
+                .isEqualTo(EnquiryAutoShareReason.SPACE_NOT_DISCOVERABLE);
     }
 }

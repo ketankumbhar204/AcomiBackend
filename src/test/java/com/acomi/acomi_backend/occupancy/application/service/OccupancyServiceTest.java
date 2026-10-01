@@ -34,6 +34,8 @@ import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyHistoryRepository;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
+import com.acomi.acomi_backend.payment.application.service.PaymentMonthSnapshotService;
+import com.acomi.acomi_backend.payment.application.service.SpacePaymentGenerationService;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
@@ -90,6 +92,12 @@ class OccupancyServiceTest {
 
     @Mock
     private OccupancyNotificationSyncService occupancyNotificationSyncService;
+
+    @Mock
+    private SpacePaymentGenerationService paymentGenerationService;
+
+    @Mock
+    private PaymentMonthSnapshotService paymentMonthSnapshotService;
 
     @InjectMocks
     private OccupancyService occupancyService;
@@ -200,6 +208,7 @@ class OccupancyServiceTest {
         assertThat(member.getOccupancyStatus()).isEqualTo(MemberOccupancyStatus.ALLOCATED);
         verify(occupancyHistoryRepository).save(any());
         verify(genderPolicyValidator).validate(space, member);
+        verify(paymentGenerationService).createActivationPayments(any(), eq(callerId));
         verify(occupancyNotificationSyncService).onAllocationCreated(any());
     }
 
@@ -236,6 +245,7 @@ class OccupancyServiceTest {
 
         verify(accommodationStatusSyncService).markReserved(target);
         assertThat(member.getOccupancyStatus()).isEqualTo(MemberOccupancyStatus.RESERVED);
+        verify(paymentGenerationService, never()).createActivationPayments(any(), any());
     }
 
     @Test
@@ -291,6 +301,7 @@ class OccupancyServiceTest {
         assertThat(occupancy.getActualMoveInAt()).isNotNull();
         assertThat(member.getOccupancyStatus()).isEqualTo(MemberOccupancyStatus.ALLOCATED);
         verify(accommodationStatusSyncService).markOccupied(any());
+        verify(paymentGenerationService).createActivationPayments(occupancy, callerId);
     }
 
     @Test

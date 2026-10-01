@@ -27,6 +27,7 @@ import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
@@ -86,7 +87,12 @@ public class SpacePaymentGenerationService {
                     continue;
                 }
                 if (OccupancyBillingCalculator.isBillableInMonth(occupancy, month)) {
-                    syncRentPayment(space, occupancy, month, monthKey);
+                    syncRentPayment(space, occupancy, month, monthKey, null);
+                    LocalDate occupancyStart =
+                            OccupancyBillingCalculator.resolveOccupancyStartDate(occupancy);
+                    if (occupancyStart != null && YearMonth.from(occupancyStart).equals(month)) {
+                        syncDepositPayment(space, occupancy, month, monthKey);
+                    }
                 }
             }
         }
@@ -107,7 +113,11 @@ public class SpacePaymentGenerationService {
     }
 
     private void syncRentPayment(
-            SpaceEntity space, OccupancyEntity occupancy, YearMonth month, String monthKey) {
+            SpaceEntity space,
+            OccupancyEntity occupancy,
+            YearMonth month,
+            String monthKey,
+            String createRemarks) {
         BillingAmountResult billing =
                 OccupancyBillingCalculator.computeBilling(occupancy, month, space);
         if (billing == null
@@ -127,7 +137,59 @@ public class SpacePaymentGenerationService {
                 billing,
                 DEFAULT_CURRENCY,
                 monthKey,
-                buildTargetLabel(occupancy));
+                buildTargetLabel(occupancy),
+                createRemarks);
+    }
+
+    /**
+     * First-month rent plus one-time security deposit for allocate / move-in.
+     * Meal dues stay on the monthly generator. Idempotent via existing upsert.
+     */
+    @Transactional
+    public void createActivationPayments(OccupancyEntity occupancy, UUID callerId) {
+        if (occupancy == null || occupancy.getSpace() == null || occupancy.getMember() == null) {
+            return;
+        }
+        SpaceEntity space = occupancy.getSpace();
+        if (!isAccommodationApplicable(space.getType())) {
+            return;
+        }
+        LocalDate start = OccupancyBillingCalculator.resolveOccupancyStartDate(occupancy);
+        YearMonth month = YearMonth.from(start);
+        String monthKey = month.toString();
+        if (OccupancyBillingCalculator.isBillableInMonth(occupancy, month)) {
+            syncRentPayment(
+                    space, occupancy, month, monthKey, "Created at occupancy activation");
+        }
+        syncDepositPayment(space, occupancy, month, monthKey);
+    }
+
+    private void syncDepositPayment(
+            SpaceEntity space, OccupancyEntity occupancy, YearMonth month, String monthKey) {
+        java.math.BigDecimal deposit = occupancy.getDepositSnapshot();
+        if (deposit == null || deposit.compareTo(java.math.BigDecimal.ZERO) <= 0) {
+            return;
+        }
+
+        int dueDay = space.getBillingDueDay() > 0 ? space.getBillingDueDay() : 1;
+        BillingAmountResult billing = BillingAmountCalculator.calculateFixedPeriodAmount(
+                deposit,
+                BillingAmountCalculator.fullMonthPeriod(month),
+                TaxInput.none(),
+                dueDay);
+
+        upsertPayment(
+                space,
+                occupancy.getMember(),
+                occupancy,
+                SpacePaymentType.DEPOSIT,
+                SpacePaymentCategory.SECURITY,
+                "Security deposit",
+                billing,
+                DEFAULT_CURRENCY,
+                monthKey,
+                buildTargetLabel(occupancy),
+                "Created at move-in");
     }
 
     private String buildTargetLabel(OccupancyEntity occupancy) {
@@ -182,7 +244,8 @@ public class SpacePaymentGenerationService {
                 billing,
                 currency,
                 monthKey,
-                targetLabel);
+                targetLabel,
+                null);
     }
 
     private void upsertPayment(
@@ -195,7 +258,8 @@ public class SpacePaymentGenerationService {
             BillingAmountResult billing,
             String currencyCode,
             String monthKey,
-            String targetLabel) {
+            String targetLabel,
+            String createRemarks) {
         SpacePaymentEntity payment = paymentRepository
                 .findBySpaceIdAndMemberIdAndMonthAndPaymentTypeAndPaymentCategory(
                         space.getId(), member.getId(), monthKey, paymentType, paymentCategory)
@@ -215,10 +279,11 @@ public class SpacePaymentGenerationService {
                     .month(monthKey)
                     .paymentStatus(SpacePaymentStatus.PENDING)
                     .targetLabel(targetLabel)
+                    .remarks(createRemarks)
                     .build();
             applyBillingSnapshot(payment, billing);
             paymentRepository.save(payment);
-            timelineService.record(payment, PaymentTimelineEventType.CREATED, null, null);
+            timelineService.record(payment, PaymentTimelineEventType.CREATED, createRemarks, null);
             return;
         }
 

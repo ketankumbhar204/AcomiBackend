@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.admin.application.service;
 
 import com.acomi.acomi_backend.admin.api.dto.request.AdminCreateRegisteredUserRequest;
+import com.acomi.acomi_backend.admin.api.dto.request.AdminUpdateRegisteredUserRequest;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUserResponse;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUserSpaceResponse;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUsersSummaryResponse;
@@ -101,18 +102,29 @@ public class AdminRegisteredUsersService {
             return Page.empty(safe);
         }
         hasSpace = fromOnboarding != null ? fromOnboarding : fromSpace;
-        LocalDateTime fromAt = from == null ? null : from.atStartOfDay();
-        LocalDateTime toAt = to == null ? null : to.plusDays(1).atStartOfDay();
+        int hasSpaceFlag = hasSpace == null ? -1 : (Boolean.TRUE.equals(hasSpace) ? 1 : 0);
+        LocalDateTime fromAt = from == null ? LocalDateTime.of(1970, 1, 1, 0, 0) : from.atStartOfDay();
+        LocalDateTime toAt = to == null ? LocalDateTime.of(1970, 1, 1, 0, 0) : to.plusDays(1).atStartOfDay();
+        String roleParam = roleFilter == null ? "" : roleFilter;
+        String queryParam = query == null ? "" : query;
 
         boolean filtered = query != null
                 || roleFilter != null
                 || hasSpace != null
-                || fromAt != null
-                || toAt != null;
+                || from != null
+                || to != null;
 
         Page<UserEntity> users = filtered
                 ? userRepository.searchVerifiedUsersFiltered(
-                        SystemRole.USER, query, fromAt, toAt, hasSpace, roleFilter, safe)
+                        SystemRole.USER,
+                        queryParam,
+                        from != null,
+                        fromAt,
+                        to != null,
+                        toAt,
+                        hasSpaceFlag,
+                        roleParam,
+                        safe)
                 : userRepository.findByMobileVerifiedAtIsNotNullAndIsActiveTrueAndSystemRole(
                         SystemRole.USER, safe);
         return mapUsers(users);
@@ -201,7 +213,7 @@ public class AdminRegisteredUsersService {
 
         if (spaceRole == MembershipRole.OWNER) {
             createOwnerSpaceForTestUser(user, request);
-        } else {
+        } else if (request.getSpaceId() != null) {
             attachNonOwnerMembership(user, request.getSpaceId(), spaceRole);
         }
 
@@ -218,13 +230,12 @@ public class AdminRegisteredUsersService {
             }
             return;
         }
-        if (request.getSpaceId() == null) {
-            throw new BusinessException(
-                    "Space is required for " + spaceRole.name() + " test users", HttpStatus.BAD_REQUEST);
+        // Non-OWNER: space is optional — users may exist with no space membership (same as normal register).
+        if (request.getSpaceId() != null) {
+            spaceRepository
+                    .findByIdAndIsActiveTrue(request.getSpaceId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Space", "id", request.getSpaceId()));
         }
-        spaceRepository
-                .findByIdAndIsActiveTrue(request.getSpaceId())
-                .orElseThrow(() -> new ResourceNotFoundException("Space", "id", request.getSpaceId()));
     }
 
     /**
@@ -286,6 +297,56 @@ public class AdminRegisteredUsersService {
     @Transactional
     public void delete(UUID id) {
         accountDeletionService.deleteAccountByAdmin(id);
+    }
+
+    @Transactional
+    public AdminRegisteredUserResponse update(UUID id, AdminUpdateRegisteredUserRequest request) {
+        UserEntity user = userRepository
+                .findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", id));
+        if (!user.isActive() || user.getSystemRole() != SystemRole.USER) {
+            throw new ResourceNotFoundException("User", "id", id);
+        }
+
+        String password = blankToNull(request.getPassword());
+        String confirmPassword = blankToNull(request.getConfirmPassword());
+        if (password != null || confirmPassword != null) {
+            if (password == null || confirmPassword == null) {
+                throw new BusinessException("Password and confirm password are required together");
+            }
+            if (!password.equals(confirmPassword)) {
+                throw new BusinessException("Passwords do not match");
+            }
+            if (password.length() < 8 || password.length() > 72) {
+                throw new BusinessException("Password must be 8 to 72 characters");
+            }
+            user.setPasswordHash(passwordEncoder.encode(password));
+        }
+
+        String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
+        if (!mobileNumber.equals(user.getMobileNumber())) {
+            if (userRepository.findByMobileNumberAndIsActiveTrue(mobileNumber).isPresent()) {
+                throw new BusinessException("This mobile number is already registered.", HttpStatus.CONFLICT);
+            }
+            user.setMobileNumber(mobileNumber);
+            // Admin-set mobile is treated as verified (same as create-test-user; no OTP path).
+            user.setMobileVerifiedAt(LocalDateTime.now());
+        }
+
+        user.setFullName(request.getFullName().trim());
+        String email = blankToNull(request.getEmail());
+        user.setEmail(email == null ? null : email.toLowerCase());
+
+        try {
+            userRepository.save(user);
+            userRepository.flush();
+        } catch (DataIntegrityViolationException ex) {
+            throw new BusinessException("This mobile number is already registered.", HttpStatus.CONFLICT);
+        }
+
+        List<SpaceMembershipEntity> memberships =
+                spaceMembershipRepository.findActiveByUserIdsWithSpace(List.of(id));
+        return toResponse(user, memberships);
     }
 
     @Transactional

@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.enquiry.api.dto.response;
 import com.acomi.acomi_backend.enquiry.domain.model.EnquiryRequesterType;
 import com.acomi.acomi_backend.enquiry.domain.model.SpaceEnquiryStatus;
 import com.acomi.acomi_backend.enquiry.infrastructure.persistence.entity.SpaceEnquiryEntity;
+import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -35,6 +36,7 @@ public class AdminSpaceEnquiryDetailResponse {
     private LocalDateTime rejectedAt;
     private String rejectionReason;
     private OwnerContactResponse ownerContact;
+    private InquiryClientChannel clientChannel;
     /** True when the listing was converted from a test property/mess lead. */
     private boolean testLead;
 
@@ -91,6 +93,7 @@ public class AdminSpaceEnquiryDetailResponse {
                 .rejectedAt(entity.getRejectedAt())
                 .rejectionReason(entity.getRejectionReason())
                 .ownerContact(ownerContact)
+                .clientChannel(entity.getClientChannel())
                 .testLead(testLead)
                 .build();
     }

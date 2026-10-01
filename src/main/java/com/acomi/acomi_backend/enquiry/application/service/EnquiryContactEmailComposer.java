@@ -12,6 +12,8 @@ import com.acomi.acomi_backend.space.domain.model.SpaceType;
  */
 public final class EnquiryContactEmailComposer {
 
+    static final String NOT_AVAILABLE = "Not available";
+
     private EnquiryContactEmailComposer() {}
 
     public static String subject(EnquiryMailMessage message) {
@@ -27,10 +29,14 @@ public final class EnquiryContactEmailComposer {
         body.append("Your enquiry has been reviewed by ACOMI.\n\n");
         appendPlain(body, "Property", display(message.spaceName()));
         appendPlain(body, "Type", display(typeLabel(message.spaceType())));
+        appendAlways(body, "Contact number", contactNumber(message.ownerContact()));
+        appendAlways(body, "Address", addressValue(message));
+        appendAlways(body, "Map link", mapLink(message));
         appendListingPlain(body, message);
         body.append('\n');
         body.append("Owner contact\n");
-        appendOwnerPlain(body, message.ownerContact());
+        appendAlways(body, "Contact number", contactNumber(message.ownerContact()));
+        appendOwnerExtras(body, message.ownerContact());
         body.append('\n');
         body.append("Please use these details only for the purpose of your enquiry.\n");
         return body.toString();
@@ -43,14 +49,6 @@ public final class EnquiryContactEmailComposer {
     private static void appendListingPlain(StringBuilder body, EnquiryMailMessage message) {
         EnquiryListingDetails listing = message.listingOrEmpty();
         appendPlain(body, "Description", display(listing.description()));
-        boolean structuredAddress = appendPlain(body, "Address", display(listing.addressLine()))
-                | appendPlain(body, "City", display(listing.city()))
-                | appendPlain(body, "State", display(listing.state()))
-                | appendPlain(body, "Pincode", display(listing.pincode()));
-        if (!structuredAddress) {
-            appendPlain(body, "Location", locationValue(listing.location(), message.spaceAddress()));
-        }
-        appendPlain(body, "Map link", display(listing.mapUrl()));
         appendPlain(body, "Gender", display(listing.genderPolicy()));
         appendPlain(body, "Food included in rent", display(listing.foodIncluded()));
         if (message.spaceType() == SpaceType.MESS) {
@@ -70,12 +68,22 @@ public final class EnquiryContactEmailComposer {
         appendPlain(body, "Amenities", display(listing.amenities()));
     }
 
-    private static void appendOwnerPlain(StringBuilder body, OwnerContactResponse contact) {
+    private static void appendOwnerExtras(StringBuilder body, OwnerContactResponse contact) {
         appendPlain(body, "Name", display(contact != null ? contact.getOwnerName() : null));
-        appendPlain(body, "Mobile", displayMobile(contact != null ? contact.getMobileNumber() : null));
-        appendPlain(body, "Alternate mobile", displayMobile(contact != null ? contact.getAlternateMobileNumber() : null));
-        appendPlain(body, "Additional contact", displayMobile(contact != null ? contact.getAdditionalMobileNumber() : null));
+        String primary = contactNumber(contact);
+        String alternate = displayMobile(contact != null ? contact.getAlternateMobileNumber() : null);
+        String additional = displayMobile(contact != null ? contact.getAdditionalMobileNumber() : null);
+        if (alternate != null && !alternate.equals(primary)) {
+            appendPlain(body, "Alternate mobile", alternate);
+        }
+        if (additional != null && !additional.equals(primary) && !additional.equals(alternate)) {
+            appendPlain(body, "Additional contact", additional);
+        }
         appendPlain(body, "Email", display(contact != null ? contact.getEmail() : null));
+    }
+
+    private static void appendAlways(StringBuilder body, String label, String value) {
+        body.append(label).append(": ").append(value != null ? value : NOT_AVAILABLE).append('\n');
     }
 
     private static boolean appendPlain(StringBuilder body, String label, String value) {
@@ -84,6 +92,51 @@ public final class EnquiryContactEmailComposer {
         }
         body.append(label).append(": ").append(value).append('\n');
         return true;
+    }
+
+    static String contactNumber(OwnerContactResponse contact) {
+        if (contact == null) {
+            return null;
+        }
+        String primary = displayMobile(contact.getMobileNumber());
+        if (primary != null) {
+            return primary;
+        }
+        String alternate = displayMobile(contact.getAlternateMobileNumber());
+        if (alternate != null) {
+            return alternate;
+        }
+        return displayMobile(contact.getAdditionalMobileNumber());
+    }
+
+    static String addressValue(EnquiryMailMessage message) {
+        EnquiryListingDetails listing = message == null ? EnquiryListingDetails.empty() : message.listingOrEmpty();
+        StringBuilder parts = new StringBuilder();
+        appendPart(parts, display(listing.addressLine()));
+        appendPart(parts, display(listing.city()));
+        appendPart(parts, display(listing.state()));
+        if (parts.length() > 0) {
+            appendPart(parts, display(listing.pincode()));
+            return parts.toString();
+        }
+        return locationValue(listing.location(), message == null ? null : message.spaceAddress());
+    }
+
+    static String mapLink(EnquiryMailMessage message) {
+        if (message == null) {
+            return null;
+        }
+        return display(message.listingOrEmpty().mapUrl());
+    }
+
+    private static void appendPart(StringBuilder parts, String value) {
+        if (value == null) {
+            return;
+        }
+        if (parts.length() > 0) {
+            parts.append(", ");
+        }
+        parts.append(value);
     }
 
     static String display(String value) {

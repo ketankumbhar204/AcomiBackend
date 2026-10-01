@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.admin.api.controller;
 
 import com.acomi.acomi_backend.admin.api.dto.request.AdminCreateRegisteredUserRequest;
+import com.acomi.acomi_backend.admin.api.dto.request.AdminUpdateRegisteredUserRequest;
 import com.acomi.acomi_backend.admin.api.dto.request.AdminUpdateTestUserRequest;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUserResponse;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUsersSummaryResponse;
@@ -69,6 +70,14 @@ public class AdminRegisteredUsersController {
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<AdminRegisteredUserResponse>> getById(@PathVariable UUID id) {
         return ResponseEntity.ok(ApiResponse.success(adminRegisteredUsersService.getById(id)));
+    }
+
+    @PutMapping("/{id}")
+    @Operation(summary = "Update a registered USER profile (name, mobile, email; optional password)")
+    public ResponseEntity<ApiResponse<AdminRegisteredUserResponse>> update(
+            @PathVariable UUID id, @Valid @RequestBody AdminUpdateRegisteredUserRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "User updated", adminRegisteredUsersService.update(id, request)));
     }
 
     @PutMapping("/{id}/test-user")

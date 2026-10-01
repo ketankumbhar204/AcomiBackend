@@ -9,6 +9,7 @@ public class DashboardAccommodationOperationsResponse {
 
     private int occupiedBeds;
     private int vacantBeds;
+    private int reservedBeds;
     private int moveInsThisMonth;
     private int pendingPaymentsCount;
 }

@@ -129,6 +129,25 @@ class PropertyBulkImportRowProcessorTest {
         assertThat(processed.valuesSnapshot().get("TEST_LEAD")).isEqualTo("true");
     }
 
+    @Test
+    void fieldOverride_isUsedForParse_originalStaysInSnapshot() {
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Property Type", "PG");
+        excelRow.put("Property Name", "Sunrise PG");
+        excelRow.put("Food", "xyz food plan");
+
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Property Type",
+                "PROPERTY_NAME", "Property Name",
+                "FOOD_INCLUDED", "Food");
+
+        var processed = PropertyBulkImportRowProcessor.process(
+                excelRow, mapping, validator, false, Map.of("FOOD_INCLUDED", "No"));
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.VALID);
+        assertThat(processed.request().getFoodIncludedListing()).isFalse();
+        assertThat(processed.valuesSnapshot().get("FOOD_INCLUDED")).isEqualTo("xyz food plan");
+    }
+
     private static Map<String, String> identityMapping(String... keyHeaderPairs) {
         Map<String, String> mapping = new LinkedHashMap<>();
         for (PropertyBulkImportField field : PropertyBulkImportField.values()) {

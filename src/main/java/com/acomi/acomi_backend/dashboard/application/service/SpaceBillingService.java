@@ -170,6 +170,13 @@ public class SpaceBillingService {
             }
         }
 
+        BigDecimal extraObligations =
+                spacePaymentLedgerSupport.sumNonRecurringObligationAmount(memberPayments);
+        if (extraObligations.compareTo(BigDecimal.ZERO) > 0) {
+            expectedCharges = expectedCharges.add(extraObligations);
+            hasExpected = true;
+        }
+
         BigDecimal paymentCollected = spacePaymentLedgerSupport.sumPaidAmount(memberPayments);
         if (paymentCollected.compareTo(BigDecimal.ZERO) > 0) {
             collected = collected.add(paymentCollected);

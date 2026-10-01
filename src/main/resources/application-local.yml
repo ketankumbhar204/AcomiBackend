@@ -51,6 +51,17 @@ acomi:
   discovery:
     # Local member Search includes converted test-lead Spaces (still hidden in prod).
     include-test-spaces: ${ACOMI_DISCOVERY_INCLUDE_TEST_SPACES:true}
+  storage:
+    # Keep local uploads in memory. Location search still reads R2 when .env has keys.
+    provider: memory
+    logical-name: memory
+  location:
+    allow-classpath-fallback: false
+  inquiry:
+    allow-quota-reset: true
+    enable-purchases: true
+    whatsapp-number: ${ACOMI_INQUIRY_WHATSAPP:}
+    upi-id: ${ACOMI_INQUIRY_UPI:}
   mail:
     # Local E2E uses GoDaddy Titan SMTP. Password stays in SPRING_MAIL_PASSWORD (never commit it).
     enabled: ${ACOMI_MAIL_ENABLED:true}

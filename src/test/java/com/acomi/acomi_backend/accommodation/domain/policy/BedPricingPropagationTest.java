@@ -126,6 +126,36 @@ class BedPricingPropagationTest {
         assertThat(other.getDefaultDeposit()).isNull();
     }
 
+    @Test
+    void matchingTargetsDoesNotMutateCandidates() {
+        BuildingEntity building = corridorBuilding();
+        BedEntity source = corridorBed(building, "101", "A", "5000", "10000");
+        BedEntity target = corridorBed(building, "102", "A", null, null);
+
+        List<BedEntity> matches =
+                BedPricingPropagation.matchingTargets(PropertyLayoutMode.CORRIDOR_PG, source, List.of(target));
+
+        assertThat(matches).containsExactly(target);
+        assertThat(target.getDefaultRent()).isNull();
+        assertThat(target.getDefaultDeposit()).isNull();
+    }
+
+    @Test
+    void matchingTargetsCountIncludesOnlyFillableBeds() {
+        BuildingEntity building = corridorBuilding();
+        BedEntity source = corridorBed(building, "101", "A", "250", "3000");
+        BedEntity emptyMatch = corridorBed(building, "102", "A", null, null);
+        BedEntity pricedMatch = corridorBed(building, "103", "A", "6000", "3000");
+        BedEntity otherBed = corridorBed(building, "102", "B", null, null);
+
+        List<BedEntity> matches = BedPricingPropagation.matchingTargets(
+                PropertyLayoutMode.CORRIDOR_PG, source, List.of(emptyMatch, pricedMatch, otherBed));
+
+        assertThat(matches).containsExactly(emptyMatch);
+        assertThat(BedPricingPropagation.locationLabels(building, List.of(source, emptyMatch)))
+                .containsExactly("B1", "Floor 1");
+    }
+
     private static BuildingEntity corridorBuilding() {
         return BuildingEntity.builder().name("B1").layoutMode(PropertyLayoutMode.CORRIDOR_PG).build();
     }

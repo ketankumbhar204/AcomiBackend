@@ -115,4 +115,13 @@ public interface SpaceEnquiryDeliveryRepository extends JpaRepository<SpaceEnqui
             @Param("spaceId") UUID spaceId,
             @Param("requesterUserId") UUID requesterUserId,
             @Param("now") LocalDateTime now);
+
+    @Query("""
+            SELECT d
+            FROM SpaceEnquiryDeliveryEntity d
+            WHERE d.requesterUserId = :requesterUserId
+              AND d.expiresAt > :now
+            """)
+    java.util.List<SpaceEnquiryDeliveryEntity> findActiveByRequester(
+            @Param("requesterUserId") UUID requesterUserId, @Param("now") LocalDateTime now);
 }

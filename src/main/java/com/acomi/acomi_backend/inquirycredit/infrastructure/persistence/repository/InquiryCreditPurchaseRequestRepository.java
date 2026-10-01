@@ -36,4 +36,17 @@ public interface InquiryCreditPurchaseRequestRepository
     @Query("SELECT r FROM InquiryCreditPurchaseRequestEntity r WHERE r.id = :id AND r.status = :status")
     Optional<InquiryCreditPurchaseRequestEntity> findByIdAndStatusForUpdate(
             @Param("id") UUID id, @Param("status") InquiryCreditPurchaseStatus status);
+
+    @Query(
+            value =
+                    """
+                    SELECT CAST(r.requested_at AS date) AS day, COUNT(*) AS cnt
+                    FROM inquiry_credit_purchase_requests r
+                    WHERE r.requested_at >= :fromAt AND r.requested_at < :toAt
+                    GROUP BY CAST(r.requested_at AS date)
+                    ORDER BY day ASC
+                    """,
+            nativeQuery = true)
+    List<Object[]> countDailyRequestedBetween(
+            @Param("fromAt") java.time.LocalDateTime fromAt, @Param("toAt") java.time.LocalDateTime toAt);
 }

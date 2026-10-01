@@ -222,13 +222,21 @@ class AdminCreateTestUserServiceTest {
     }
 
     @Test
-    void createTestUser_nonOwnerWithoutSpace_isRejected() {
-        assertThatThrownBy(() -> adminUsersService.createTestUser(
-                        createRequest("QA", "9876500031", null, "Secret12", "Secret12",
-                                MembershipRole.TENANT, null, null, null)))
-                .isInstanceOf(BusinessException.class)
-                .hasMessageContaining("Space is required");
-        verify(userRepository, never()).save(any());
+    void createTestUser_nonOwnerWithoutSpace_createsUserOnly() {
+        UUID userId = UUID.randomUUID();
+        stubUserSave(userId);
+        when(spaceMembershipRepository.findActiveByUserIdsWithSpace(List.of(userId))).thenReturn(List.of());
+
+        AdminRegisteredUserResponse response = adminUsersService.createTestUser(
+                createRequest("Tenant QA", "9876500031", null, "Secret12", "Secret12",
+                        MembershipRole.TENANT, null, null, null));
+
+        verify(spaceService, never()).createSpace(any());
+        verify(invitationService, never()).acceptInvitation(any(), any());
+        assertThat(response.isTestUser()).isTrue();
+        assertThat(response.getSystemRole()).isEqualTo("USER");
+        assertThat(response.getSpaces()).isEmpty();
+        assertThat(response.getSelectedRole()).isEqualTo(AdminRegisteredUsersService.ROLE_NOT_SELECTED);
     }
 
     @Test

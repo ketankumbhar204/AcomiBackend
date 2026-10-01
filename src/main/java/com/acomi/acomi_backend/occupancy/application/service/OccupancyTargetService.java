@@ -17,6 +17,7 @@ import java.util.UUID;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.Hibernate;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -164,6 +165,7 @@ public class OccupancyTargetService {
             throw new BusinessException("Bed is not linked to a valid accommodation structure");
         }
 
+        initializeFloor(floor);
         assertBuildingInSpace(building, spaceId);
 
         return ResolvedTarget.builder()
@@ -201,6 +203,7 @@ public class OccupancyTargetService {
             throw new BusinessException("Room is not linked to a valid accommodation structure");
         }
 
+        initializeFloor(floor);
         assertBuildingInSpace(building, spaceId);
 
         return ResolvedTarget.builder()
@@ -220,12 +223,14 @@ public class OccupancyTargetService {
             throw new BusinessException("Unit is not active");
         }
         validateStatus(unit.getStatus(), "Unit", validation, reservedForSameMember);
+        FloorEntity floor = unit.getFloor();
+        initializeFloor(floor);
         assertBuildingInSpace(unit.getBuilding(), spaceId);
 
         return ResolvedTarget.builder()
                 .targetType(AllocationTargetType.UNIT)
                 .building(unit.getBuilding())
-                .floor(unit.getFloor())
+                .floor(floor)
                 .unit(unit)
                 .build();
     }
@@ -233,6 +238,17 @@ public class OccupancyTargetService {
     private void assertBuildingInSpace(BuildingEntity building, UUID spaceId) {
         if (building == null || !building.isActive() || !building.getSpace().getId().equals(spaceId)) {
             throw new BusinessException("Target does not belong to this space");
+        }
+    }
+
+    /**
+     * Apartment rooms hang off units, so {@code unit.floor} is often an uninitialized lazy
+     * proxy. Payment labels and occupancy responses call {@code FloorEntity.getName()} later,
+     * after nested work may have left that proxy without a session ({@code open-in-view: false}).
+     */
+    private static void initializeFloor(FloorEntity floor) {
+        if (floor != null) {
+            Hibernate.initialize(floor);
         }
     }
 

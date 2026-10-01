@@ -134,6 +134,7 @@ public interface RoomRepository extends JpaRepository<RoomEntity, UUID> {
             LEFT JOIN FETCH f.building
             LEFT JOIN FETCH r.unit u
             LEFT JOIN FETCH u.building
+            LEFT JOIN FETCH u.floor
             WHERE r.id = :id
               AND (
                   (r.floor IS NOT NULL AND r.floor.building.space.id = :spaceId)

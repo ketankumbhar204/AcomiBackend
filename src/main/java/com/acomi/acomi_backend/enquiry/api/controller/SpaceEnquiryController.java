@@ -5,6 +5,7 @@ import com.acomi.acomi_backend.common.web.ApiResponse;
 import com.acomi.acomi_backend.common.web.PagedResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.request.CreateSpaceEnquiryRequest;
 import com.acomi.acomi_backend.enquiry.api.dto.request.DeliverEnquiryEmailRequest;
+import com.acomi.acomi_backend.enquiry.api.dto.response.MyInquiredListingIdsResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.response.SpaceEnquiryResponse;
 import com.acomi.acomi_backend.enquiry.application.service.SpaceEnquiryService;
 import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
@@ -50,6 +51,13 @@ public class SpaceEnquiryController {
         SpaceEnquiryResponse response = spaceEnquiryService.create(callerId, spaceId, payload, channel);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("Enquiry sent", response));
+    }
+
+    @GetMapping("/enquiries/me/listing-ids")
+    @Operation(summary = "Listing ids the current user has already enquired about")
+    public ResponseEntity<ApiResponse<MyInquiredListingIdsResponse>> listInquiredListingIds() {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(spaceEnquiryService.listInquiredListingIds(callerId)));
     }
 
     @GetMapping("/enquiries/me")

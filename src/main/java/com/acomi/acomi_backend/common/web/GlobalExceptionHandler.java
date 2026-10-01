@@ -37,7 +37,14 @@ public class GlobalExceptionHandler {
         log.warn("Resource not found: {}", ex.getMessage());
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
-                .body(ApiResponse.error(ex.getMessage()));
+                .body(ApiResponse.error(publicNotFoundMessage(ex.getMessage())));
+    }
+
+    private static String publicNotFoundMessage(String message) {
+        if (message != null && message.regionMatches(true, 0, "Space not found", 0, "Space not found".length())) {
+            return "This listing is not available for contact enquiry.";
+        }
+        return message;
     }
 
     @ExceptionHandler(AccessDeniedException.class)

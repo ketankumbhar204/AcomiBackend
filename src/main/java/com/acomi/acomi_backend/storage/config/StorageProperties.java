@@ -50,6 +50,25 @@ public class StorageProperties {
         return "s3compatible".equalsIgnoreCase(provider);
     }
 
+    /**
+     * True when R2/S3 connection settings are present, even if {@link #provider} is
+     * still {@code memory}. Location search can read {@code reference/locations.json}
+     * from object storage without sending local uploads to that bucket.
+     */
+    public boolean hasS3Credentials() {
+        if (s3 == null) {
+            return false;
+        }
+        return hasText(s3.getEndpoint())
+                && hasText(s3.getAccessKey())
+                && hasText(s3.getSecretKey())
+                && hasText(bucket);
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
     @Getter
     @Setter
     public static class S3 {

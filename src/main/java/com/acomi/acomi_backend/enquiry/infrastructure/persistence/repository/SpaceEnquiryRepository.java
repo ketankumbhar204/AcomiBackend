@@ -28,6 +28,25 @@ public interface SpaceEnquiryRepository
 
     Page<SpaceEnquiryEntity> findByRequesterUserIdOrderByRequestedAtDesc(UUID requesterUserId, Pageable pageable);
 
+    /**
+     * Listing ids the requester has already enquired about.
+     * A row counts only while it is still PENDING or SHARED and its expiry is still in the future.
+     * EXPIRED, REJECTED, CANCELLED, and any PENDING/SHARED row past expiresAt are omitted
+     * so the user can enquire again.
+     */
+    @Query("""
+            SELECT e
+            FROM SpaceEnquiryEntity e
+            WHERE e.requesterUserId = :requesterId
+              AND e.status IN (
+                    com.acomi.acomi_backend.enquiry.domain.model.SpaceEnquiryStatus.PENDING,
+                    com.acomi.acomi_backend.enquiry.domain.model.SpaceEnquiryStatus.SHARED
+                  )
+              AND e.expiresAt > :now
+            """)
+    List<SpaceEnquiryEntity> findActiveByRequester(
+            @Param("requesterId") UUID requesterId, @Param("now") LocalDateTime now);
+
     Page<SpaceEnquiryEntity> findAllByOrderByRequestedAtDesc(Pageable pageable);
 
     Page<SpaceEnquiryEntity> findByStatusOrderByRequestedAtDesc(SpaceEnquiryStatus status, Pageable pageable);

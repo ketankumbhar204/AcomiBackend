@@ -13,6 +13,10 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface InquiryDailyUsageRepository extends JpaRepository<InquiryDailyUsageEntity, UUID> {
 
+    /** Unlocked read for quota display. */
+    Optional<InquiryDailyUsageEntity> findOneByUserIdAndUsageDateAndChannel(
+            UUID userId, LocalDate usageDate, InquiryClientChannel channel);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     Optional<InquiryDailyUsageEntity> findByUserIdAndUsageDateAndChannel(
             UUID userId, LocalDate usageDate, InquiryClientChannel channel);

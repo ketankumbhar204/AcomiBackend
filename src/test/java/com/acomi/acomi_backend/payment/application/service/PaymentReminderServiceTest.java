@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,6 +45,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.http.HttpStatus;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -240,6 +242,18 @@ class PaymentReminderServiceTest {
         assertThatThrownBy(() -> service.processPayment(spaceId, paymentId, callerId))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("not reminder-eligible");
+        verify(whatsAppProvider, never()).deliver(any());
+    }
+
+    @Test
+    void processPayment_forbiddenForNonManagers() {
+        doThrow(new BusinessException("Only OWNER or MANAGER can review payments", HttpStatus.FORBIDDEN))
+                .when(accessService)
+                .requireManagePayments(spaceId, callerId);
+
+        assertThatThrownBy(() -> service.processPayment(spaceId, paymentId, callerId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("OWNER or MANAGER");
         verify(whatsAppProvider, never()).deliver(any());
     }
 

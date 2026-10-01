@@ -97,6 +97,7 @@ public interface BedRepository extends JpaRepository<BedEntity, UUID> {
             LEFT JOIN FETCH f.building
             LEFT JOIN FETCH r.unit u
             LEFT JOIN FETCH u.building
+            LEFT JOIN FETCH u.floor
             WHERE b.id = :id
               AND (
                   (r.floor IS NOT NULL AND r.floor.building.space.id = :spaceId)
@@ -113,6 +114,7 @@ public interface BedRepository extends JpaRepository<BedEntity, UUID> {
             LEFT JOIN FETCH f.building
             LEFT JOIN FETCH r.unit u
             LEFT JOIN FETCH u.building
+            LEFT JOIN FETCH u.floor
             WHERE b.isActive = true
               AND (
                   (r.floor IS NOT NULL AND r.floor.building.id = :buildingId)

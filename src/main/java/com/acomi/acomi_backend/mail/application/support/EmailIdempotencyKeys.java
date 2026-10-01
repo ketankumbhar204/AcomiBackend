@@ -29,6 +29,18 @@ public final class EmailIdempotencyKeys {
         return key(EmailEventType.ENQUIRY_REJECTED, enquiryId);
     }
 
+    public static String inquiryCreditPending(UUID purchaseRequestId, UUID adminUserId) {
+        return EmailEventType.INQUIRY_CREDIT_PAYMENT_PENDING.name()
+                + ":"
+                + purchaseRequestId
+                + ":"
+                + adminUserId;
+    }
+
+    public static String inquiryCreditDecision(EmailEventType eventType, UUID purchaseRequestId) {
+        return eventType.name() + ":" + purchaseRequestId;
+    }
+
     private static String key(EmailEventType eventType, UUID enquiryId) {
         return eventType.name() + ":" + enquiryId;
     }

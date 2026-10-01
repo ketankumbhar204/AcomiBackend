@@ -46,7 +46,7 @@ public class AdminCreateRegisteredUserRequest {
     @NotNull(message = "Space role is required")
     private MembershipRole spaceRole;
 
-    /** Required when spaceRole is not OWNER — existing active space to join. */
+    /** Optional when spaceRole is not OWNER — omit to create a user with no space membership. */
     private UUID spaceId;
 
     /** Optional display name for the new space when spaceRole is OWNER. */

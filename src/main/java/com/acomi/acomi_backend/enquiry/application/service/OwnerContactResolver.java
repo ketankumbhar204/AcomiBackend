@@ -43,6 +43,10 @@ public class OwnerContactResolver {
             applyAdminHeldSpace(space, owner, draft);
         }
 
+        if (draft.mobile == null) {
+            assignMobiles(draft, adminMobiles(owner), space.getContactNumber());
+        }
+
         stripAdminIdentity(draft, owner);
 
         boolean available = draft.ownerName != null

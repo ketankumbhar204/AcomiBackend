@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.space.api.dto.response;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import io.swagger.v3.oas.annotations.media.Schema;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 import lombok.Builder;
@@ -23,6 +24,24 @@ public class DiscoverSpaceCardResponse {
 
     @Schema(description = "Full address when available")
     private String address;
+
+    @Schema(description = "Starting monthly rent when known")
+    private BigDecimal startingPrice;
+
+    @Schema(description = "Mess monthly price when known")
+    private BigDecimal monthlyPrice;
+
+    @Schema(description = "Mess per-meal price when known")
+    private BigDecimal mealPrice;
+
+    @Schema(description = "Sanitized Google Maps URL when the listing stored one")
+    private String mapUrl;
+
+    @Schema(description = "True when at least one stored contact value is usable. Never includes the raw contact.")
+    private boolean hasContact;
+
+    @Schema(description = "True when a usable Indian mobile number is stored. Never includes the number.")
+    private boolean hasMobileContact;
 
     @Schema(description = "Amenity codes for filtering/icons")
     private List<String> amenityCodes;

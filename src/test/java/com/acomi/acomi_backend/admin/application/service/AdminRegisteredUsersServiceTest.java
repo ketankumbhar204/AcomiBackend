@@ -177,10 +177,12 @@ class AdminRegisteredUsersServiceTest {
         when(userRepository.searchVerifiedUsersFiltered(
                         eq(SystemRole.USER),
                         eq("rahul@example.com"),
-                        eq(null),
-                        eq(null),
-                        eq(null),
-                        eq(null),
+                        eq(false),
+                        any(LocalDateTime.class),
+                        eq(false),
+                        any(LocalDateTime.class),
+                        eq(-1),
+                        eq(""),
                         any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(user), PageRequest.of(0, 10), 1));
         when(spaceMembershipRepository.findActiveByUserIdsWithSpace(List.of(user.getId()))).thenReturn(List.of());
@@ -212,6 +214,37 @@ class AdminRegisteredUsersServiceTest {
         assertThat(service.countRegisteredUsers()).isZero();
         verify(userRepository)
                 .countByMobileVerifiedAtIsNotNullAndIsActiveTrueAndSystemRole(SystemRole.USER);
+    }
+
+    @Test
+    void update_changesProfileFieldsAndOptionalPassword() {
+        UserEntity user = verifiedUser("Old Name", "9876500099");
+        user.setEmail("old@example.com");
+        user.setPasswordHash(passwordEncoder.encode("OldSecret1"));
+        when(userRepository.findById(user.getId())).thenReturn(java.util.Optional.of(user));
+        when(userRepository.findByMobileNumberAndIsActiveTrue("9876500088")).thenReturn(java.util.Optional.empty());
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(spaceMembershipRepository.findActiveByUserIdsWithSpace(List.of(user.getId())))
+                .thenReturn(List.of());
+
+        com.acomi.acomi_backend.admin.api.dto.request.AdminUpdateRegisteredUserRequest request =
+                new com.acomi.acomi_backend.admin.api.dto.request.AdminUpdateRegisteredUserRequest();
+        request.setFullName("New Name");
+        request.setMobileNumber("9876500088");
+        request.setEmail("new@example.com");
+        request.setPassword("NewSecret1");
+        request.setConfirmPassword("NewSecret1");
+
+        AdminRegisteredUserResponse response = service.update(user.getId(), request);
+
+        assertThat(user.getFullName()).isEqualTo("New Name");
+        assertThat(user.getMobileNumber()).isEqualTo("9876500088");
+        assertThat(user.getEmail()).isEqualTo("new@example.com");
+        assertThat(user.getSystemRole()).isEqualTo(SystemRole.USER);
+        assertThat(passwordEncoder.matches("NewSecret1", user.getPasswordHash())).isTrue();
+        assertThat(response.getFullName()).isEqualTo("New Name");
+        assertThat(response.getMobileNumber()).isEqualTo("9876500088");
+        verify(userRepository).save(user);
     }
 
     private void stubList(List<UserEntity> users, List<SpaceMembershipEntity> memberships) {

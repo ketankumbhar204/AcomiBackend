@@ -77,6 +77,7 @@ public interface UnitRepository extends JpaRepository<UnitEntity, UUID> {
     @Query("""
             SELECT u FROM UnitEntity u
             JOIN FETCH u.building
+            LEFT JOIN FETCH u.floor
             WHERE u.id = :id
               AND u.building.space.id = :spaceId
             """)

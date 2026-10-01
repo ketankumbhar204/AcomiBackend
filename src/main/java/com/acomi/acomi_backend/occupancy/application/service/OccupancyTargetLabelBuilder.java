@@ -12,6 +12,7 @@ import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEnti
 import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.Hibernate;
 import org.springframework.stereotype.Service;
 
 /**
@@ -120,7 +121,11 @@ public class OccupancyTargetLabelBuilder {
     }
 
     private String formatFloorLabel(FloorEntity floor) {
-        if (floor == null || floor.getName() == null) {
+        if (floor == null) {
+            return null;
+        }
+        Hibernate.initialize(floor);
+        if (floor.getName() == null) {
             return null;
         }
         String trimmed = floor.getName().trim();

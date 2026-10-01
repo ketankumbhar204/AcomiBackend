@@ -5,6 +5,8 @@ import com.acomi.acomi_backend.common.web.ApiResponse;
 import com.acomi.acomi_backend.dashboard.api.dto.response.MemberPaymentLedgerResponse;
 import com.acomi.acomi_backend.dashboard.application.service.DashboardAccessService;
 import com.acomi.acomi_backend.dashboard.application.service.SpaceBillingService;
+import com.acomi.acomi_backend.payment.api.dto.request.CreateSpacePaymentRequest;
+import com.acomi.acomi_backend.payment.api.dto.request.MarkPaymentReceivedRequest;
 import com.acomi.acomi_backend.payment.api.dto.request.ReviewSpacePaymentRequest;
 import com.acomi.acomi_backend.payment.api.dto.request.SubmitSpacePaymentProofRequest;
 import com.acomi.acomi_backend.payment.api.dto.response.OverduePaymentResponse;
@@ -238,6 +240,16 @@ public class PaymentController {
                 paymentReminderService.processPayment(spaceId, paymentId, callerId)));
     }
 
+    @PostMapping
+    @Operation(summary = "Create a manual payment obligation (OWNER/MANAGER)")
+    public ResponseEntity<ApiResponse<SpacePaymentResponse>> createPayment(
+            @PathVariable UUID spaceId, @RequestBody @Valid CreateSpacePaymentRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Payment created successfully",
+                spacePaymentService.createManualPayment(spaceId, callerId, request)));
+    }
+
     @GetMapping("/{paymentId}")
     @Operation(summary = "Get payment details")
     public ResponseEntity<ApiResponse<SpacePaymentResponse>> getPayment(
@@ -269,6 +281,25 @@ public class PaymentController {
         return ResponseEntity.ok(ApiResponse.success(
                 "Payment reviewed successfully",
                 spacePaymentService.reviewPayment(spaceId, paymentId, callerId, request)));
+    }
+
+    @PostMapping("/{paymentId}/received")
+    @Operation(
+            summary = "Mark a payment as received",
+            description = "OWNER/MANAGER only. PENDING or UNDER_REVIEW → PAID without requiring "
+                    + "tenant proof approval. Does not delete submitted proof or change tenant permissions.")
+    public ResponseEntity<ApiResponse<SpacePaymentResponse>> markReceived(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID paymentId,
+            @RequestBody(required = false) MarkPaymentReceivedRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Payment marked as received",
+                spacePaymentService.markReceived(
+                        spaceId,
+                        paymentId,
+                        callerId,
+                        request != null ? request : new MarkPaymentReceivedRequest())));
     }
 
     @GetMapping("/{paymentId}/timeline")

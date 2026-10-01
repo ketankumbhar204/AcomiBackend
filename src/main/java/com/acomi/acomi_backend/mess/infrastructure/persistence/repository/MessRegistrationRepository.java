@@ -20,6 +20,8 @@ public interface MessRegistrationRepository extends JpaRepository<MessRegistrati
 
     Optional<MessRegistrationEntity> findByReference(String reference);
 
+    List<MessRegistrationEntity> findByConvertedSpaceIdIn(Collection<UUID> convertedSpaceIds);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT m FROM MessRegistrationEntity m WHERE m.id = :id")
     Optional<MessRegistrationEntity> lockById(@Param("id") UUID id);

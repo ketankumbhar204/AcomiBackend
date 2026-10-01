@@ -4,6 +4,8 @@ import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.inquirycredit.api.dto.request.UpdatePaymentConfigRequest;
 import com.acomi.acomi_backend.inquirycredit.api.dto.response.InquiryCreditPackageResponse;
 import com.acomi.acomi_backend.inquirycredit.api.dto.response.InquiryPaymentConfigResponse;
+import com.acomi.acomi_backend.inquirycredit.domain.model.AndroidInquiryBillingMode;
+import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.entity.InquiryPaymentConfigEntity;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.repository.InquiryCreditPackageRepository;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.repository.InquiryPaymentConfigRepository;
@@ -27,31 +29,26 @@ public class InquiryPaymentConfigService {
     private final StoredFileService storedFileService;
 
     @Transactional(readOnly = true)
-    public InquiryPaymentConfigResponse getPublicConfig(UUID callerId) {
+    public InquiryPaymentConfigResponse getPublicConfig(UUID callerId, InquiryClientChannel channel) {
         InquiryPaymentConfigEntity config = requireConfig();
+        InquiryClientChannel safeChannel = channel != null ? channel : InquiryClientChannel.WEB;
         List<InquiryCreditPackageResponse> packages = packageRepository
-                .findByEnabledTrueOrderByDisplayOrderAsc()
+                .findByEnabledTrueAndClientChannelOrderByDisplayOrderAsc(safeChannel)
                 .stream()
                 .map(InquiryCreditPackageResponse::from)
                 .toList();
 
-        String qrUrl = resolveQrUrl(callerId, config.getQrFileId());
-
-        return InquiryPaymentConfigResponse.builder()
-                .configId(config.getId())
-                .enabled(config.isEnabled())
-                .upiId(config.getUpiId())
-                .qrFileId(config.getQrFileId())
-                .qrUrl(qrUrl)
-                .whatsappNumber(config.getWhatsappNumber())
-                .instructions(config.getInstructions())
-                .packages(packages)
-                .build();
+        return toResponse(config, packages, resolveQrUrl(callerId, config.getQrFileId()));
     }
 
     @Transactional(readOnly = true)
     public InquiryPaymentConfigResponse adminGet(UUID callerId) {
-        return getPublicConfig(callerId);
+        InquiryPaymentConfigEntity config = requireConfig();
+        List<InquiryCreditPackageResponse> packages = packageRepository.findAll().stream()
+                .sorted((a, b) -> Integer.compare(a.getDisplayOrder(), b.getDisplayOrder()))
+                .map(InquiryCreditPackageResponse::from)
+                .toList();
+        return toResponse(config, packages, resolveQrUrl(callerId, config.getQrFileId()));
     }
 
     @Transactional
@@ -75,20 +72,73 @@ public class InquiryPaymentConfigService {
         if (request.getEnabled() != null) {
             config.setEnabled(request.getEnabled());
         }
+        if (request.getWebFreeDailyLimit() != null) {
+            if (request.getWebFreeDailyLimit() < 0) {
+                throw new BusinessException(
+                        "INVALID_WEB_FREE_DAILY_LIMIT",
+                        "Web free daily limit must be 0 or greater.",
+                        HttpStatus.BAD_REQUEST);
+            }
+            config.setWebFreeDailyLimit(request.getWebFreeDailyLimit());
+        }
+        if (request.getAndroidBillingMode() != null) {
+            AndroidInquiryBillingMode mode =
+                    AndroidInquiryBillingMode.fromDb(request.getAndroidBillingMode());
+            config.setAndroidBillingMode(mode.name());
+        }
+        if (request.getAndroidFreeDailyLimit() != null) {
+            if (request.getAndroidFreeDailyLimit() < 0) {
+                throw new BusinessException(
+                        "INVALID_ANDROID_FREE_DAILY_LIMIT",
+                        "Android free daily limit must be 0 or greater.",
+                        HttpStatus.BAD_REQUEST);
+            }
+            config.setAndroidFreeDailyLimit(request.getAndroidFreeDailyLimit());
+        }
+        if (request.getAndroidHourlyRateLimit() != null) {
+            if (request.getAndroidHourlyRateLimit() < 1) {
+                throw new BusinessException(
+                        "INVALID_ANDROID_HOURLY_RATE_LIMIT",
+                        "Android hourly rate limit must be at least 1.",
+                        HttpStatus.BAD_REQUEST);
+            }
+            config.setAndroidHourlyRateLimit(request.getAndroidHourlyRateLimit());
+        }
         config.setUpdatedByUserId(adminId);
         configRepository.save(config);
 
         log.info("inquiry_payment_config_updated adminId={}", adminId);
-        return getPublicConfig(adminId);
+        return adminGet(adminId);
     }
 
-    private InquiryPaymentConfigEntity requireConfig() {
+    @Transactional(readOnly = true)
+    public InquiryPaymentConfigEntity requireConfig() {
         return configRepository
                 .findFirstByOrderByCreatedAtAsc()
                 .orElseThrow(() -> new BusinessException(
                         "INQUIRY_PAYMENT_CONFIG_MISSING",
                         "Inquiry payment configuration has not been initialized.",
                         HttpStatus.INTERNAL_SERVER_ERROR));
+    }
+
+    private InquiryPaymentConfigResponse toResponse(
+            InquiryPaymentConfigEntity config,
+            List<InquiryCreditPackageResponse> packages,
+            String qrUrl) {
+        return InquiryPaymentConfigResponse.builder()
+                .configId(config.getId())
+                .enabled(config.isEnabled())
+                .upiId(config.getUpiId())
+                .qrFileId(config.getQrFileId())
+                .qrUrl(qrUrl)
+                .whatsappNumber(config.getWhatsappNumber())
+                .instructions(config.getInstructions())
+                .webFreeDailyLimit(config.getWebFreeDailyLimit())
+                .androidBillingMode(AndroidInquiryBillingMode.fromDb(config.getAndroidBillingMode()))
+                .androidFreeDailyLimit(config.getAndroidFreeDailyLimit())
+                .androidHourlyRateLimit(config.getAndroidHourlyRateLimit())
+                .packages(packages)
+                .build();
     }
 
     private String resolveQrUrl(UUID callerId, UUID qrFileId) {

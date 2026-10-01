@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
+import com.acomi.acomi_backend.config.discovery.DiscoveryProperties;
 import com.acomi.acomi_backend.enquiry.api.dto.request.CreateSpaceEnquiryRequest;
 import com.acomi.acomi_backend.enquiry.api.dto.response.SpaceEnquiryResponse;
 import com.acomi.acomi_backend.enquiry.domain.model.EnquiryRequesterType;
@@ -92,6 +93,7 @@ class ConvertedListingEnquiryFlowTest {
 
     private SpaceEnquiryService service;
     private EnquiryAutoSharePolicy policy;
+    private DiscoveryProperties discoveryProperties;
 
     private final Clock clock = Clock.fixed(Instant.parse("2026-09-08T06:00:00Z"), ZoneId.of("Asia/Kolkata"));
 
@@ -110,8 +112,13 @@ class ConvertedListingEnquiryFlowTest {
                 new OwnerContactResolver(propertyRegistrationRepository, messRegistrationRepository);
         EnquiryListingDetailsResolver listingDetailsResolver = new EnquiryListingDetailsResolver(
                 propertyRegistrationRepository, messRegistrationRepository, spaceAmenityService);
+        discoveryProperties = new DiscoveryProperties();
         policy = new EnquiryAutoSharePolicy(
-                resolver, propertyRegistrationRepository, messRegistrationRepository, true);
+                resolver,
+                propertyRegistrationRepository,
+                messRegistrationRepository,
+                true,
+                discoveryProperties);
         MailProperties mailProperties = new MailProperties();
         mailProperties.setFrom("support@acomi.in");
         mailProperties.setFromName("ACOMI Support");
@@ -132,7 +139,8 @@ class ConvertedListingEnquiryFlowTest {
                 mailProperties,
                 clock,
                 30,
-                inquiryAccessService);
+                inquiryAccessService,
+                discoveryProperties);
         lenient().when(inquiryAccessService.authorizeNewEnquiry(any(), any()))
                 .thenReturn(com.acomi.acomi_backend.inquirycredit.domain.model.InquiryAccessGrant.FREE_WEB);
         lenient().when(deliveryRepository.findActiveAppDelivery(any(), any(), any()))
@@ -183,11 +191,7 @@ class ConvertedListingEnquiryFlowTest {
         assertThat(response.isDetailsShared()).isTrue();
         assertThat(policy.evaluate(space, "ketan@example.com").isAllowed()).isTrue();
 
-        ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
-        // WEB auto-share defers owner-contact ENQUIRY_SHARED until explicit deliverContactByEmail.
-        verify(emailService, times(1)).send(mailCaptor.capture());
-        assertThat(mailCaptor.getValue().getEventType()).isEqualTo(EmailEventType.ENQUIRY_SUBMITTED_SUPPORT);
-        assertThat(mailCaptor.getValue().getPlainBody()).contains("shared automatically");
+        verifySupportAndSharedEmails();
         verify(userRepository, never()).findBySystemRoleAndIsActiveTrue(SystemRole.ADMIN);
     }
 
@@ -207,19 +211,21 @@ class ConvertedListingEnquiryFlowTest {
         assertThat(response.getSharedAt()).isNotNull();
 
         ArgumentCaptor<SpaceEnquiryEntity> saved = ArgumentCaptor.forClass(SpaceEnquiryEntity.class);
-        verify(enquiryRepository).save(saved.capture());
-        assertThat(saved.getValue().getSharedByAdminId()).isNull();
-        assertThat(saved.getValue().getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
+        verify(enquiryRepository, times(2)).save(saved.capture());
+        SpaceEnquiryEntity lastSaved = saved.getAllValues().get(saved.getAllValues().size() - 1);
+        assertThat(lastSaved.getSharedByAdminId()).isNull();
+        assertThat(lastSaved.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
+        assertThat(lastSaved.getContactEmailSentAt()).isNotNull();
 
         ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
-        // WEB: owner-contact email deferred; only support submission mail on create/auto-share.
-        verify(emailService, times(1)).send(mailCaptor.capture());
-        SendEmailCommand support = mailCaptor.getValue();
-        assertThat(support.getEventType()).isEqualTo(EmailEventType.ENQUIRY_SUBMITTED_SUPPORT);
+        verify(emailService, times(2)).send(mailCaptor.capture());
+        SendEmailCommand support = mailOf(mailCaptor, EmailEventType.ENQUIRY_SUBMITTED_SUPPORT);
         assertThat(support.getRecipientEmail()).isEqualTo("support@acomi.in");
         assertThat(support.getPlainBody()).contains("shared automatically");
         assertThat(support.getPlainBody()).doesNotContain("9000000008");
         assertThat(support.getPlainBody()).doesNotContain("Owner contact");
+        SendEmailCommand sharedMail = mailOf(mailCaptor, EmailEventType.ENQUIRY_SHARED);
+        assertThat(sharedMail.getRecipientEmail()).isEqualTo("ketan@example.com");
 
         ArgumentCaptor<PublishNotificationCommand> notes =
                 ArgumentCaptor.forClass(PublishNotificationCommand.class);
@@ -283,8 +289,10 @@ class ConvertedListingEnquiryFlowTest {
         assertThat(policy.evaluate(space, "ketan@example.com").isAllowed()).isTrue();
         assertThat(response.getEnquiryId()).isEqualTo(pending.getId());
         assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
-        // WEB auto-share of an existing PENDING enquiry does not send owner-contact email yet.
-        verify(emailService, never()).send(any());
+        ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
+        verify(emailService, times(1)).send(mailCaptor.capture());
+        assertThat(mailCaptor.getValue().getEventType()).isEqualTo(EmailEventType.ENQUIRY_SHARED);
+        assertThat(mailCaptor.getValue().getRecipientEmail()).isEqualTo("ketan@example.com");
     }
 
     @Test
@@ -305,7 +313,7 @@ class ConvertedListingEnquiryFlowTest {
     }
 
     @Test
-    void linkedOwnerWithoutShareableMobileEnquiryStaysPending() {
+    void linkedOwnerWithoutShareableMobileStillEmailsListingDetails() {
         owner.setMobileNumber(null);
         owner.setEmail("rahul@example.com");
         space.setOwner(owner);
@@ -313,32 +321,86 @@ class ConvertedListingEnquiryFlowTest {
         PropertyRegistrationEntity registration = linkedRegistration(null);
         stubCreateLookup(space);
         stubRegistration(registration, null);
-        when(userRepository.findBySystemRoleAndIsActiveTrue(SystemRole.ADMIN)).thenReturn(List.of(admin));
         stubPersist();
+        when(enquiryRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         SpaceEnquiryResponse response = service.create(requesterId, spaceId, new CreateSpaceEnquiryRequest());
 
-        assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.PENDING);
-        assertThat(policy.evaluate(space, "ketan@example.com").reason().name())
-                .isEqualTo("OWNER_CONTACT_UNAVAILABLE");
-        verifyNoSharedEmail();
+        assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
+        assertThat(policy.evaluate(space, "ketan@example.com").isAllowed()).isTrue();
+        verifySupportAndSharedEmails();
     }
 
     @Test
-    void discoverableTestLeadCannotAutoShare() {
+    void discoverableTestLeadAutoSharesWhenContactIsShareable() {
         space.setOwner(owner);
         PropertyRegistrationEntity registration = linkedRegistration("9000000008");
         registration.setTestLead(true);
         stubCreateLookup(space);
         stubRegistration(registration, null);
-        when(userRepository.findBySystemRoleAndIsActiveTrue(SystemRole.ADMIN)).thenReturn(List.of(admin));
         stubPersist();
+        when(enquiryRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         SpaceEnquiryResponse response = service.create(requesterId, spaceId, new CreateSpaceEnquiryRequest());
 
-        assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.PENDING);
-        assertThat(policy.evaluate(space, "ketan@example.com").reason().name()).isEqualTo("TEST_LISTING");
-        verifyNoSharedEmail();
+        assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
+        assertThat(policy.evaluate(space, "ketan@example.com").isAllowed()).isTrue();
+        verifySupportAndSharedEmails();
+    }
+
+    @Test
+    void localNonDiscoverableTestLeadListingAutoShares() {
+        discoveryProperties.setIncludeTestSpaces(true);
+        space.setDiscoverable(false);
+        space.setOwner(owner);
+        PropertyRegistrationEntity registration = linkedRegistration("9000000008");
+        registration.setTestLead(true);
+        when(userRepository.findByIdAndIsActiveTrue(requesterId)).thenReturn(Optional.of(requester));
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceRepository.existsByIdAndOwnerIdAndIsActiveTrue(spaceId, requesterId)).thenReturn(false);
+        when(enquiryRepository.findBySpaceIdAndRequesterUserIdAndStatus(
+                        eq(spaceId), eq(requesterId), eq(SpaceEnquiryStatus.PENDING)))
+                .thenReturn(Optional.empty());
+        when(enquiryRepository.findBySpaceIdAndRequesterUserIdAndStatus(
+                        eq(spaceId), eq(requesterId), eq(SpaceEnquiryStatus.SHARED)))
+                .thenReturn(Optional.empty());
+        when(spaceRepository.existsByOwnerIdAndIsActiveTrue(requesterId)).thenReturn(false);
+        when(propertyRegistrationRepository.findTestLeadConvertedSpaceIds(any())).thenReturn(List.of(spaceId));
+        when(messRegistrationRepository.findTestLeadConvertedSpaceIds(any())).thenReturn(List.of());
+        stubRegistration(registration, null);
+        stubPersist();
+        when(enquiryRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        SpaceEnquiryResponse response = service.create(requesterId, spaceId, new CreateSpaceEnquiryRequest());
+
+        assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
+        assertThat(policy.evaluate(space, "ketan@example.com").isAllowed()).isTrue();
+        verifySupportAndSharedEmails();
+    }
+
+    @Test
+    void localPendingTestLeadEnquirySharesOnRetry() {
+        discoveryProperties.setIncludeTestSpaces(true);
+        space.setDiscoverable(false);
+        space.setOwner(owner);
+        PropertyRegistrationEntity registration = linkedRegistration("9000000008");
+        registration.setTestLead(true);
+        SpaceEnquiryEntity pending = pendingEnquiry();
+        when(userRepository.findByIdAndIsActiveTrue(requesterId)).thenReturn(Optional.of(requester));
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceRepository.existsByIdAndOwnerIdAndIsActiveTrue(spaceId, requesterId)).thenReturn(false);
+        when(enquiryRepository.findBySpaceIdAndRequesterUserIdAndStatus(
+                        eq(spaceId), eq(requesterId), eq(SpaceEnquiryStatus.PENDING)))
+                .thenReturn(Optional.of(pending));
+        when(propertyRegistrationRepository.findTestLeadConvertedSpaceIds(any())).thenReturn(List.of(spaceId));
+        when(messRegistrationRepository.findTestLeadConvertedSpaceIds(any())).thenReturn(List.of());
+        stubRegistration(registration, null);
+        when(enquiryRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        SpaceEnquiryResponse response = service.create(requesterId, spaceId, new CreateSpaceEnquiryRequest());
+
+        assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
+        assertThat(response.isDetailsShared()).isTrue();
     }
 
     @Test
@@ -357,18 +419,19 @@ class ConvertedListingEnquiryFlowTest {
     }
 
     @Test
-    void requesterEmailMissingIsRejectedBeforePersist() {
+    void requesterEmailMissingIsAllowedAndPersists() {
         requester.setEmail(null);
-        when(userRepository.findByIdAndIsActiveTrue(requesterId)).thenReturn(Optional.of(requester));
-        when(spaceRepository.findByIdAndIsActiveTrueAndDiscoverableTrue(spaceId)).thenReturn(Optional.of(space));
-        when(spaceRepository.existsByIdAndOwnerIdAndIsActiveTrue(spaceId, requesterId)).thenReturn(false);
+        stubCreateLookup(space);
+        stubRegistration(null, null);
+        stubPersist();
+        when(enquiryRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
-        assertThatThrownBy(() -> service.create(requesterId, spaceId, new CreateSpaceEnquiryRequest()))
-                .isInstanceOf(BusinessException.class)
-                .extracting("errorCode")
-                .isEqualTo("REQUESTER_EMAIL_REQUIRED");
-        verify(enquiryRepository, never()).saveAndFlush(any());
-        verify(emailService, never()).send(any());
+        SpaceEnquiryResponse response = service.create(requesterId, spaceId, new CreateSpaceEnquiryRequest());
+
+        assertThat(response.getRequesterEmail()).isNull();
+        ArgumentCaptor<SpaceEnquiryEntity> saved = ArgumentCaptor.forClass(SpaceEnquiryEntity.class);
+        verify(enquiryRepository).saveAndFlush(saved.capture());
+        assertThat(saved.getValue().getRequesterEmail()).isNull();
     }
 
     @Test
@@ -392,10 +455,7 @@ class ConvertedListingEnquiryFlowTest {
         SpaceEnquiryResponse response = service.create(requesterId, spaceId, new CreateSpaceEnquiryRequest());
 
         assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
-        ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
-        verify(emailService, times(1)).send(mailCaptor.capture());
-        assertThat(mailCaptor.getValue().getEventType()).isEqualTo(EmailEventType.ENQUIRY_SUBMITTED_SUPPORT);
-        verifyNoSharedEmail();
+        verifySupportAndSharedEmails();
     }
 
     @Test
@@ -439,24 +499,25 @@ class ConvertedListingEnquiryFlowTest {
 
         assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
         ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
-        verify(emailService, times(1)).send(mailCaptor.capture());
-        assertThat(mailCaptor.getValue().getEventType()).isEqualTo(EmailEventType.ENQUIRY_SUBMITTED_SUPPORT);
-        assertThat(mailCaptor.getValue().getPlainBody()).contains("shared automatically");
-        verifyNoSharedEmail();
+        verify(emailService, times(2)).send(mailCaptor.capture());
+        assertThat(mailOf(mailCaptor, EmailEventType.ENQUIRY_SUBMITTED_SUPPORT).getPlainBody())
+                .contains("shared automatically");
+        assertThat(mailOf(mailCaptor, EmailEventType.ENQUIRY_SHARED).getRecipientEmail())
+                .isEqualTo("ketan@example.com");
     }
 
     @Test
-    void adminOwnerWithoutConvertedRegistrationDoesNotAutoShare() {
+    void adminOwnerWithoutConvertedRegistrationStillEmailsListingDetails() {
         stubCreateLookup(space);
         stubRegistration(null, null);
-        when(userRepository.findBySystemRoleAndIsActiveTrue(SystemRole.ADMIN)).thenReturn(List.of(admin));
         stubPersist();
+        when(enquiryRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         SpaceEnquiryResponse response = service.create(requesterId, spaceId, new CreateSpaceEnquiryRequest());
 
-        assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.PENDING);
-        assertThat(policy.evaluate(space, "ketan@example.com").reason().name()).isEqualTo("OWNER_NOT_LINKED");
-        verifyNoSharedEmail();
+        assertThat(response.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
+        assertThat(policy.evaluate(space, "ketan@example.com").isAllowed()).isTrue();
+        verifySupportAndSharedEmails();
     }
 
     private void stubCreateLookup(SpaceEntity listing) {
@@ -473,9 +534,12 @@ class ConvertedListingEnquiryFlowTest {
     }
 
     private void stubRegistration(PropertyRegistrationEntity property, MessRegistrationEntity mess) {
-        when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId))
+        lenient()
+                .when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId))
                 .thenReturn(Optional.ofNullable(property));
-        when(messRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.ofNullable(mess));
+        lenient()
+                .when(messRegistrationRepository.findByConvertedSpaceId(spaceId))
+                .thenReturn(Optional.ofNullable(mess));
     }
 
     private void stubPersist() {
@@ -494,6 +558,18 @@ class ConvertedListingEnquiryFlowTest {
         assertThat(mailCaptor.getAllValues())
                 .extracting(SendEmailCommand::getEventType)
                 .doesNotContain(EmailEventType.ENQUIRY_SHARED);
+    }
+
+    private void verifySupportAndSharedEmails() {
+        ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
+        verify(emailService, times(2)).send(mailCaptor.capture());
+        assertThat(mailCaptor.getAllValues())
+                .extracting(SendEmailCommand::getEventType)
+                .containsExactlyInAnyOrder(EmailEventType.ENQUIRY_SHARED, EmailEventType.ENQUIRY_SUBMITTED_SUPPORT);
+        assertThat(mailOf(mailCaptor, EmailEventType.ENQUIRY_SHARED).getRecipientEmail())
+                .isEqualTo("ketan@example.com");
+        assertThat(mailOf(mailCaptor, EmailEventType.ENQUIRY_SUBMITTED_SUPPORT).getPlainBody())
+                .contains("shared automatically");
     }
 
     private PropertyRegistrationEntity unlinkedRegistration(String contactOne) {

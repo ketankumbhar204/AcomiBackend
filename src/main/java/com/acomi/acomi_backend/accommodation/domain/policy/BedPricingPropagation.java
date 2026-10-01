@@ -6,6 +6,7 @@ import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.B
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.RoomEntity;
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -67,39 +68,97 @@ public final class BedPricingPropagation {
         return true;
     }
 
+    public static boolean wouldReceivePricing(BedEntity source, BedEntity candidate) {
+        if (source == null || candidate == null) {
+            return false;
+        }
+        return (!isEmpty(source.getDefaultRent()) && isEmpty(candidate.getDefaultRent()))
+                || (!isEmpty(source.getDefaultDeposit()) && isEmpty(candidate.getDefaultDeposit()));
+    }
+
+    /**
+     * Equivalent beds that would receive a fill-empty copy. Does not mutate candidates.
+     */
+    public static List<BedEntity> matchingTargets(
+            PropertyLayoutMode layoutMode, BedEntity source, List<BedEntity> candidates) {
+        List<BedEntity> matches = new ArrayList<>();
+        if (source == null || candidates == null || candidates.isEmpty()) {
+            return matches;
+        }
+        if (isEmpty(source.getDefaultRent()) && isEmpty(source.getDefaultDeposit())) {
+            return matches;
+        }
+        for (BedEntity candidate : candidates) {
+            if (!isEquivalent(layoutMode, source, candidate)) {
+                continue;
+            }
+            if (wouldReceivePricing(source, candidate)) {
+                matches.add(candidate);
+            }
+        }
+        return matches;
+    }
+
+    public static String floorLabel(BedEntity bed) {
+        if (bed == null || bed.getRoom() == null) {
+            return "";
+        }
+        RoomEntity room = bed.getRoom();
+        if (room.getFloor() != null && hasText(room.getFloor().getName())) {
+            return room.getFloor().getName().trim();
+        }
+        if (room.getUnit() != null) {
+            if (room.getUnit().getFloor() != null && hasText(room.getUnit().getFloor().getName())) {
+                return room.getUnit().getFloor().getName().trim();
+            }
+            if (hasText(room.getUnit().getName())) {
+                return room.getUnit().getName().trim();
+            }
+        }
+        return "";
+    }
+
+    public static List<String> locationLabels(BuildingEntity building, List<BedEntity> beds) {
+        LinkedHashSet<String> labels = new LinkedHashSet<>();
+        if (building != null && hasText(building.getName())) {
+            labels.add(building.getName().trim());
+        }
+        if (beds != null) {
+            for (BedEntity bed : beds) {
+                String floor = floorLabel(bed);
+                if (hasText(floor)) {
+                    labels.add(floor);
+                }
+            }
+        }
+        return List.copyOf(labels);
+    }
+
     /**
      * Copies non-empty source rent/deposit into equivalent beds whose matching field is empty.
      *
      * @return beds that were changed (caller should persist them)
      */
     public static List<BedEntity> apply(PropertyLayoutMode layoutMode, BedEntity source, List<BedEntity> candidates) {
-        List<BedEntity> changed = new ArrayList<>();
-        if (source == null || candidates == null || candidates.isEmpty()) {
+        List<BedEntity> changed = matchingTargets(layoutMode, source, candidates);
+        if (changed.isEmpty()) {
             return changed;
         }
         BigDecimal rent = source.getDefaultRent();
         BigDecimal deposit = source.getDefaultDeposit();
-        if (isEmpty(rent) && isEmpty(deposit)) {
-            return changed;
-        }
-        for (BedEntity candidate : candidates) {
-            if (!isEquivalent(layoutMode, source, candidate)) {
-                continue;
-            }
-            boolean updated = false;
+        for (BedEntity candidate : changed) {
             if (!isEmpty(rent) && isEmpty(candidate.getDefaultRent())) {
                 candidate.setDefaultRent(rent);
-                updated = true;
             }
             if (!isEmpty(deposit) && isEmpty(candidate.getDefaultDeposit())) {
                 candidate.setDefaultDeposit(deposit);
-                updated = true;
-            }
-            if (updated) {
-                changed.add(candidate);
             }
         }
         return changed;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private static String stripPrefix(String raw, String prefix) {

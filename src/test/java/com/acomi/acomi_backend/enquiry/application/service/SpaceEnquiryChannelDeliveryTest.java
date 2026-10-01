@@ -120,7 +120,8 @@ class SpaceEnquiryChannelDeliveryTest {
                 mailProperties,
                 clock,
                 30,
-                inquiryAccessService);
+                inquiryAccessService,
+                new com.acomi.acomi_backend.config.discovery.DiscoveryProperties());
 
         memberId = UUID.randomUUID();
         spaceId = UUID.randomUUID();
@@ -198,9 +199,15 @@ class SpaceEnquiryChannelDeliveryTest {
                         eq(memberId), eq(InquiryClientChannel.WEB), any(), eq(response.getEnquiryId()));
         ArgumentCaptor<SpaceEnquiryDeliveryEntity> captor =
                 ArgumentCaptor.forClass(SpaceEnquiryDeliveryEntity.class);
-        verify(deliveryRepository).saveAndFlush(captor.capture());
-        assertThat(captor.getValue().getDeliveryChannel()).isEqualTo(EnquiryDeliveryChannel.APP);
-        assertThat(captor.getValue().getRecipientEmail()).isNull();
+        verify(deliveryRepository, times(2)).saveAndFlush(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(SpaceEnquiryDeliveryEntity::getDeliveryChannel)
+                .contains(EnquiryDeliveryChannel.APP, EnquiryDeliveryChannel.EMAIL);
+        SpaceEnquiryDeliveryEntity app = captor.getAllValues().stream()
+                .filter(d -> d.getDeliveryChannel() == EnquiryDeliveryChannel.APP)
+                .findFirst()
+                .orElseThrow();
+        assertThat(app.getRecipientEmail()).isNull();
     }
 
     @Test
@@ -242,8 +249,7 @@ class SpaceEnquiryChannelDeliveryTest {
                 .thenReturn(Optional.of(shared));
         when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
         OwnerContactResponse contact = shareableContact();
-        when(ownerContactResolver.resolve(space)).thenReturn(contact);
-        when(ownerContactResolver.hasShareableContact(contact)).thenReturn(true);
+        when(ownerContactResolver.resolveOrEmpty(space)).thenReturn(contact);
 
         SpaceEnquiryDeliveryEntity app = SpaceEnquiryDeliveryEntity.builder()
                 .enquiryId(shared.getId())
@@ -308,8 +314,7 @@ class SpaceEnquiryChannelDeliveryTest {
                 .thenReturn(Optional.of(shared));
         when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
         OwnerContactResponse contact = shareableContact();
-        when(ownerContactResolver.resolve(space)).thenReturn(contact);
-        when(ownerContactResolver.hasShareableContact(contact)).thenReturn(true);
+        when(ownerContactResolver.resolveOrEmpty(space)).thenReturn(contact);
         when(deliveryRepository.existsBySpaceIdAndRequesterUserIdAndDeliveryChannel(
                         spaceId, memberId, EnquiryDeliveryChannel.EMAIL))
                 .thenReturn(true);

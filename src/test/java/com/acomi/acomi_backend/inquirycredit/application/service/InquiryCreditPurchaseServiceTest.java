@@ -18,6 +18,7 @@ import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.entity.I
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.repository.InquiryCreditPackageRepository;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.repository.InquiryCreditPurchaseRequestRepository;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.repository.InquiryPaymentConfigRepository;
+import com.acomi.acomi_backend.mail.application.service.EmailService;
 import com.acomi.acomi_backend.notification.application.port.in.PublishNotificationCommand;
 import com.acomi.acomi_backend.notification.application.service.NotificationService;
 import com.acomi.acomi_backend.notification.domain.model.NotificationEntityType;
@@ -60,6 +61,9 @@ class InquiryCreditPurchaseServiceTest {
     private NotificationService notificationService;
 
     @Mock
+    private EmailService emailService;
+
+    @Mock
     private UserRepository userRepository;
 
     private InquiryCreditPurchaseService purchaseService;
@@ -80,6 +84,7 @@ class InquiryCreditPurchaseServiceTest {
                 paymentConfigRepository,
                 walletService,
                 notificationService,
+                emailService,
                 userRepository,
                 fixedClock);
         userId = UUID.randomUUID();
@@ -267,6 +272,7 @@ class InquiryCreditPurchaseServiceTest {
                 .credits(credits)
                 .enabled(true)
                 .displayOrder(0)
+                .clientChannel(com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel.WEB)
                 .build();
         pkg.setId(id);
         return pkg;

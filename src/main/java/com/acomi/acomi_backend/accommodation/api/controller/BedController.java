@@ -2,8 +2,10 @@ package com.acomi.acomi_backend.accommodation.api.controller;
 
 import com.acomi.acomi_backend.accommodation.api.dto.request.BulkCreateBedsRequest;
 import com.acomi.acomi_backend.accommodation.api.dto.request.CreateBedRequest;
+import com.acomi.acomi_backend.accommodation.api.dto.request.PreviewBedPricingRequest;
 import com.acomi.acomi_backend.accommodation.api.dto.request.UpdateBedRequest;
 import com.acomi.acomi_backend.accommodation.api.dto.response.BedListItemResponse;
+import com.acomi.acomi_backend.accommodation.api.dto.response.BedPricingPreviewResponse;
 import com.acomi.acomi_backend.accommodation.api.dto.response.BedResponse;
 import com.acomi.acomi_backend.accommodation.api.dto.response.BulkCreateBedsResponse;
 import com.acomi.acomi_backend.accommodation.application.service.AccommodationBulkService;
@@ -117,6 +119,21 @@ public class BedController {
         UUID callerId = SecurityUtils.getCurrentUserId();
         BedResponse response = bedService.updateBed(spaceId, roomId, bedId, callerId, request);
         return ResponseEntity.ok(ApiResponse.success("Bed updated successfully", response));
+    }
+
+    @PostMapping("/{bedId}/pricing-preview")
+    @Operation(
+            summary = "Preview bed pricing propagation",
+            description = "Returns how many matching empty beds would be filled. Does not persist changes.")
+    public ResponseEntity<ApiResponse<BedPricingPreviewResponse>> previewPricing(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID roomId,
+            @PathVariable UUID bedId,
+            @RequestBody @Valid PreviewBedPricingRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        BedPricingPreviewResponse response =
+                bedService.previewPricing(spaceId, roomId, bedId, callerId, request);
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
 
     @PostMapping("/{bedId}/deactivate")

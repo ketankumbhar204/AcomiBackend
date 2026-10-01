@@ -54,11 +54,10 @@ class EnquiryContactEmailComposerTest {
                 EnquiryListingDetails.empty()));
 
         assertThat(body).contains("Property: Lovely Home's PG 3");
-        assertThat(body).contains("Mobile: +919175465599");
-        assertThat(body).contains("Alternate mobile: +917722085599");
-        assertThat(body).doesNotContain("Not available");
+        assertThat(body).contains("Contact number: +919175465599");
+        assertThat(body).contains("Address: Not available");
+        assertThat(body).contains("Map link: Not available");
         assertThat(body).doesNotContain("Description:");
-        assertThat(body).doesNotContain("Address:");
         assertThat(body).doesNotContain("Location:");
         assertThat(body).doesNotContain("Coordinates:");
         assertThat(body).doesNotContain("Name:");
@@ -99,10 +98,9 @@ class EnquiryContactEmailComposerTest {
         String html = EnquiryContactEmailComposer.htmlBody(message);
 
         assertThat(body).contains("Description: Close to metro");
-        assertThat(body).contains("Address: 12 MG Road");
-        assertThat(body).contains("City: New Delhi");
-        assertThat(body).contains("Pincode: 110001");
+        assertThat(body).contains("Address: 12 MG Road, New Delhi, Delhi, 110001");
         assertThat(body).contains("Map link: https://maps.google.com/?q=28.61,77.20");
+        assertThat(body).contains("Contact number: +919991110001");
         assertThat(body).contains("Starting price: INR 8500");
         assertThat(body).contains("Price basis: Per bed");
         assertThat(body).contains("Amenities: WiFi, Parking");
@@ -119,9 +117,9 @@ class EnquiryContactEmailComposerTest {
         assertThat(html).contains("ACOMI Support Team");
         assertThat(html).contains("Open map");
         assertThat(html).contains("img.icons8.com/ios/50/0F6B4C/marker.png");
-        assertThat(html).contains("12 MG Road");
+        assertThat(html).contains("12 MG Road, New Delhi, Delhi, 110001");
+        assertThat(html).contains("Contact number");
         assertThat(html).doesNotContain("Coordinates");
-        assertThat(html).doesNotContain("Not available");
         assertThat(html).doesNotContain("28.61, 77.20");
     }
 
@@ -164,15 +162,41 @@ class EnquiryContactEmailComposerTest {
         assertThat(html).contains("Power Backup");
         assertThat(html).contains("Mixed");
         assertThat(html).contains("Open map");
+        assertThat(html).contains("Contact number");
+        assertThat(html).contains("Address");
+        assertThat(html).contains("Map link");
+        assertThat(html).contains("Not available");
         assertThat(html).contains("img.icons8.com/color/48/whatsapp--v1.png");
         assertThat(html).contains("img.icons8.com/ios/50/6B7280/conference-call.png");
         assertThat(html).contains("img.icons8.com/ios/50/6B7280/star--v1.png");
-        assertThat(html).doesNotContain("Not available");
         assertThat(html).doesNotContain("Description");
         assertThat(html).doesNotContain("Coordinates");
         assertThat(html).doesNotContain("Starting price");
         assertThat(html).doesNotContain("Price basis");
         assertThat(html).doesNotContain("18.6052262, 73.7236231");
+    }
+
+    @Test
+    void missingContactAddressAndMapAreShownAsNotAvailable() {
+        EnquiryMailMessage message = new EnquiryMailMessage(
+                "ketan@example.com",
+                "Ketan",
+                "VibeStayZ Kedar Hinjewadi",
+                SpaceType.RENTAL,
+                "Hinjewadi area, approximately 3.3 km from Hinjewadi Rajiv Gandhi Infotech Park",
+                OwnerContactResponse.builder().available(false).build(),
+                EnquiryListingDetails.empty());
+        String body = EnquiryContactEmailComposer.body(message);
+        String html = EnquiryContactEmailComposer.htmlBody(message);
+
+        assertThat(body).contains("Contact number: Not available");
+        assertThat(body).contains("Address: Hinjewadi area, approximately 3.3 km from Hinjewadi Rajiv Gandhi Infotech Park");
+        assertThat(body).contains("Map link: Not available");
+        assertThat(html).contains("OWNER CONTACT");
+        assertThat(html).contains("Contact number");
+        assertThat(html).contains("Not available");
+        assertThat(html).contains("Hinjewadi area");
+        assertThat(html).contains("Map link");
     }
 
     private static OwnerContactResponse shareableContact() {

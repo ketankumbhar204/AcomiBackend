@@ -69,21 +69,13 @@ public final class PropertyBulkImportExcelReader {
             }
 
             List<Map<String, String>> dataRows = new ArrayList<>();
-            int lastRow = sheet.getLastRowNum();
+            int lastRow = lastNonEmptyRow(sheet, headers);
             for (int r = 1; r <= lastRow; r++) {
                 Row row = sheet.getRow(r);
-                Map<String, String> values = new LinkedHashMap<>();
-                for (int c = 0; c < headers.size(); c++) {
-                    String header = headers.get(c);
-                    if (header == null || header.isBlank()) {
-                        continue;
-                    }
-                    String cellValue = row == null ? "" : cellAsString(row.getCell(c));
-                    values.put(header, cellValue);
-                }
-                dataRows.add(values);
+                dataRows.add(readDataRow(row, headers));
             }
-            if (dataRows.size() > MAX_DATA_ROWS) {
+            long filledRows = dataRows.stream().filter(row -> !isEmptyRow(row)).count();
+            if (filledRows > MAX_DATA_ROWS) {
                 throw new BusinessException(
                         "File exceeds maximum of " + MAX_DATA_ROWS + " data rows",
                         HttpStatus.BAD_REQUEST);
@@ -97,6 +89,30 @@ public final class PropertyBulkImportExcelReader {
             throw new BusinessException(
                     "Invalid or corrupt .xlsx file: " + ex.getMessage(), HttpStatus.BAD_REQUEST);
         }
+    }
+
+    private static int lastNonEmptyRow(Sheet sheet, List<String> headers) {
+        int last = sheet.getLastRowNum();
+        while (last >= 1 && isEmptyRow(readDataRow(sheet.getRow(last), headers))) {
+            last--;
+        }
+        return last;
+    }
+
+    private static Map<String, String> readDataRow(Row row, List<String> headers) {
+        Map<String, String> values = new LinkedHashMap<>();
+        for (int c = 0; c < headers.size(); c++) {
+            String header = headers.get(c);
+            if (header == null || header.isBlank()) {
+                continue;
+            }
+            values.put(header, row == null ? "" : cellAsString(row.getCell(c)));
+        }
+        return values;
+    }
+
+    private static boolean isEmptyRow(Map<String, String> values) {
+        return values.values().stream().allMatch(value -> value == null || value.isBlank());
     }
 
     private static List<String> readHeaderCells(Row headerRow) {

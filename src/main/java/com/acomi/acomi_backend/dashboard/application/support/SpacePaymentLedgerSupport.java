@@ -24,6 +24,23 @@ public class SpacePaymentLedgerSupport {
                 .collect(Collectors.groupingBy(payment -> payment.getMember().getId()));
     }
 
+    /**
+     * One-time / manual dues that are not already in occupancy rent or meal expected.
+     * Includes DEPOSIT, MAINTENANCE, and OTHER (electricity, water, etc.).
+     */
+    public BigDecimal sumNonRecurringObligationAmount(List<SpacePaymentEntity> payments) {
+        if (payments == null || payments.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        return payments.stream()
+                .filter(payment -> payment.getPaymentType() == SpacePaymentType.DEPOSIT
+                        || payment.getPaymentType() == SpacePaymentType.MAINTENANCE
+                        || payment.getPaymentType() == SpacePaymentType.OTHER)
+                .map(SpacePaymentEntity::getAmount)
+                .filter(amount -> amount != null)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
     public BigDecimal sumPaidAmount(List<SpacePaymentEntity> payments) {
         return sumByStatuses(payments, SpacePaymentStatus.PAID);
     }

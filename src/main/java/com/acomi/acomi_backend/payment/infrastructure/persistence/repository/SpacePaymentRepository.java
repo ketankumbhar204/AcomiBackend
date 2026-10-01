@@ -187,4 +187,10 @@ public interface SpacePaymentRepository extends JpaRepository<SpacePaymentEntity
     List<SpacePaymentEntity> findAllByIdInWithMemberAndSpace(@Param("ids") Collection<UUID> ids);
 
     List<SpacePaymentEntity> findByProofFileId(UUID proofFileId);
+
+    List<SpacePaymentEntity> findBySpaceIdAndMemberIdAndPaymentTypeAndPaymentCategory(
+            UUID spaceId,
+            UUID memberId,
+            SpacePaymentType paymentType,
+            SpacePaymentCategory paymentCategory);
 }
