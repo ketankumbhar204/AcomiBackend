@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.acomi.acomi_backend.enquiry.application.service.EnquiryInboxAccess;
+
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.notification.api.dto.response.NotificationListResponse;
 import com.acomi.acomi_backend.notification.api.dto.response.UserNotificationListResponse;
@@ -38,6 +40,9 @@ class NotificationServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    @Mock
+    private EnquiryInboxAccess enquiryInboxAccess;
+
     private NotificationService service;
     private UUID userA;
     private UUID userB;
@@ -45,7 +50,7 @@ class NotificationServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new NotificationService(notificationRepository, eventPublisher);
+        service = new NotificationService(notificationRepository, eventPublisher, enquiryInboxAccess);
         userA = UUID.randomUUID();
         userB = UUID.randomUUID();
         spaceId = UUID.randomUUID();
@@ -83,6 +88,28 @@ class NotificationServiceTest {
                 .isEqualTo(NotificationType.CONTACT_ENQUIRY_SHARED);
         assertThat(response.getUnreadCount()).isEqualTo(1);
         assertThat(response.getNotifications().get(0).getMessage()).doesNotContain("999111");
+    }
+
+    @Test
+    void listingManagerInboxCountsReceivedEnquiriesOnly() {
+        when(enquiryInboxAccess.managesListings(userA)).thenReturn(true);
+        SpaceNotificationEntity received = notification(
+                userA, NotificationType.CONTACT_ENQUIRY_RECEIVED, NotificationStatus.UNREAD);
+        when(notificationRepository.findByUserIdAndNotificationTypeInAndStatusIn(
+                        userA,
+                        NotificationService.RECEIVED_ENQUIRY_TYPES,
+                        EnumSet.of(NotificationStatus.UNREAD, NotificationStatus.READ),
+                        PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(received), PageRequest.of(0, 20), 1));
+        when(notificationRepository.countByUserIdAndNotificationTypeInAndStatus(
+                        userA, NotificationService.RECEIVED_ENQUIRY_TYPES, NotificationStatus.UNREAD))
+                .thenReturn(1L);
+
+        UserNotificationListResponse response = service.listForCurrentUser(userA, PageRequest.of(0, 20));
+
+        assertThat(response.getUnreadCount()).isEqualTo(1);
+        assertThat(response.getNotifications().get(0).getNotificationType())
+                .isEqualTo(NotificationType.CONTACT_ENQUIRY_RECEIVED);
     }
 
     @Test

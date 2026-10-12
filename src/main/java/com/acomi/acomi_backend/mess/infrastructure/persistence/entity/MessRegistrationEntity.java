@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.mess.infrastructure.persistence.entity;
 import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationSource;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationStatus;
+import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import jakarta.persistence.Column;
@@ -40,6 +41,10 @@ public class MessRegistrationEntity extends BaseEntity {
     @Column(name = "mess_name", nullable = false, length = 150)
     private String messName;
 
+    /** Physical building or apartment name. May differ from the mess or business name. */
+    @Column(name = "building_name", length = 150)
+    private String buildingName;
+
     @Column(name = "owner_name", nullable = false, length = 120)
     private String ownerName;
 
@@ -61,13 +66,13 @@ public class MessRegistrationEntity extends BaseEntity {
     @Column(name = "address_line", nullable = false, length = 255)
     private String addressLine;
 
-    @Column(name = "city", nullable = false, length = 80)
+    @Column(name = "city", length = 80)
     private String city;
 
-    @Column(name = "state", nullable = false, length = 80)
+    @Column(name = "state", length = 80)
     private String state;
 
-    @Column(name = "pincode", nullable = false, length = 6)
+    @Column(name = "pincode", length = 6)
     private String pincode;
 
     @Column(name = "latitude", precision = 10, scale = 7)
@@ -81,6 +86,11 @@ public class MessRegistrationEntity extends BaseEntity {
 
     @Column(name = "monthly_price", nullable = false, precision = 12, scale = 2)
     private BigDecimal monthlyPrice;
+
+    /** Null on rows created before the unit was stored. Readers treat that as per month. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "monthly_price_basis", length = 12)
+    private PriceBasis monthlyPriceBasis;
 
     @Column(name = "meal_price", nullable = false, precision = 12, scale = 2)
     private BigDecimal mealPrice;

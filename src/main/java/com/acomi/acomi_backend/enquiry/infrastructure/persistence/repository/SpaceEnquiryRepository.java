@@ -85,6 +85,21 @@ public interface SpaceEnquiryRepository
     List<Object[]> countDailyRequestedBetween(
             @Param("fromAt") LocalDateTime fromAt, @Param("toAt") LocalDateTime toAt);
 
+    @Query("""
+            SELECT e FROM SpaceEnquiryEntity e
+            WHERE e.spaceId IN :spaceIds
+              AND (:status IS NULL OR e.status = :status)
+              AND (:fromAt IS NULL OR e.requestedAt >= :fromAt)
+              AND (:toAt IS NULL OR e.requestedAt < :toAt)
+            ORDER BY e.requestedAt DESC
+            """)
+    Page<SpaceEnquiryEntity> searchReceived(
+            @Param("spaceIds") java.util.Collection<UUID> spaceIds,
+            @Param("status") SpaceEnquiryStatus status,
+            @Param("fromAt") LocalDateTime fromAt,
+            @Param("toAt") LocalDateTime toAt,
+            Pageable pageable);
+
     @Query(
             """
             SELECT e FROM SpaceEnquiryEntity e

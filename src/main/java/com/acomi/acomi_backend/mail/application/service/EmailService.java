@@ -20,7 +20,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.TransactionDefinition;
@@ -47,6 +49,7 @@ public class EmailService {
     private final TransactionTemplate transactionTemplate;
     private final Clock clock;
     private final List<EmailPayloadComposer> composers;
+    private final Executor mailExecutor;
     private final Map<UUID, OutboundEmail> pendingPayloads = new ConcurrentHashMap<>();
 
     public EmailService(
@@ -55,13 +58,15 @@ public class EmailService {
             MailProperties mailProperties,
             TransactionTemplate transactionTemplate,
             Clock clock,
-            List<EmailPayloadComposer> composers) {
+            List<EmailPayloadComposer> composers,
+            @Qualifier("mailExecutor") Executor mailExecutor) {
         this.sendLogRepository = sendLogRepository;
         this.mailTransport = mailTransport;
         this.mailProperties = mailProperties;
         this.transactionTemplate = requiresNew(transactionTemplate);
         this.clock = clock;
         this.composers = composers == null ? List.of() : composers;
+        this.mailExecutor = mailExecutor;
     }
 
     /**
@@ -303,19 +308,21 @@ public class EmailService {
                 command.getHtmlBody());
     }
 
+    /**
+     * SMTP runs off the request thread. The HTTP response returns after the
+     * email intent is committed, without waiting for the mail server.
+     */
     private void runAfterCommit(Runnable action) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
-                public void afterCompletion(int status) {
-                    if (status == STATUS_COMMITTED) {
-                        action.run();
-                    }
+                public void afterCommit() {
+                    mailExecutor.execute(action);
                 }
             });
             return;
         }
-        action.run();
+        mailExecutor.execute(action);
     }
 
     private static TransactionTemplate requiresNew(TransactionTemplate source) {

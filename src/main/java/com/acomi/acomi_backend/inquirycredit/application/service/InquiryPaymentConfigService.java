@@ -81,6 +81,30 @@ public class InquiryPaymentConfigService {
             }
             config.setWebFreeDailyLimit(request.getWebFreeDailyLimit());
         }
+        if (request.getViewHereDailyLimit() != null) {
+            if (request.getViewHereDailyLimit() < 0) {
+                throw new BusinessException(
+                        "INVALID_VIEW_HERE_DAILY_LIMIT",
+                        "View here daily limit must be 0 or greater.",
+                        HttpStatus.BAD_REQUEST);
+            }
+            config.setViewHereDailyLimit(request.getViewHereDailyLimit());
+        }
+        if (request.getWebViewHereEnabled() != null) {
+            config.setWebViewHereEnabled(request.getWebViewHereEnabled());
+        }
+        if (request.getAndroidViewHereEnabled() != null) {
+            config.setAndroidViewHereEnabled(request.getAndroidViewHereEnabled());
+        }
+        if (request.getAndroidViewHereDailyLimit() != null) {
+            if (request.getAndroidViewHereDailyLimit() < 0) {
+                throw new BusinessException(
+                        "INVALID_ANDROID_VIEW_HERE_DAILY_LIMIT",
+                        "Mobile contact-view daily limit must be 0 or greater.",
+                        HttpStatus.BAD_REQUEST);
+            }
+            config.setAndroidViewHereDailyLimit(request.getAndroidViewHereDailyLimit());
+        }
         if (request.getAndroidBillingMode() != null) {
             AndroidInquiryBillingMode mode =
                     AndroidInquiryBillingMode.fromDb(request.getAndroidBillingMode());
@@ -134,6 +158,10 @@ public class InquiryPaymentConfigService {
                 .whatsappNumber(config.getWhatsappNumber())
                 .instructions(config.getInstructions())
                 .webFreeDailyLimit(config.getWebFreeDailyLimit())
+                .viewHereDailyLimit(config.getViewHereDailyLimit())
+                .webViewHereEnabled(config.isWebViewHereEnabled())
+                .androidViewHereEnabled(config.isAndroidViewHereEnabled())
+                .androidViewHereDailyLimit(config.getAndroidViewHereDailyLimit())
                 .androidBillingMode(AndroidInquiryBillingMode.fromDb(config.getAndroidBillingMode()))
                 .androidFreeDailyLimit(config.getAndroidFreeDailyLimit())
                 .androidHourlyRateLimit(config.getAndroidHourlyRateLimit())

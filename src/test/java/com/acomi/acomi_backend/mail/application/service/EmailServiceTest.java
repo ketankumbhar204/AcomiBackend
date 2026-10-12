@@ -119,7 +119,8 @@ class EmailServiceTest {
                 mailProperties,
                 new TransactionTemplate(new NoopTransactionManager()),
                 clock,
-                List.of(composer));
+                List.of(composer),
+                Runnable::run);
     }
 
     @Test

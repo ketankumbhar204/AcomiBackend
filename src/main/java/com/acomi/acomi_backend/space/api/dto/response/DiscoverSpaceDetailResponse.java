@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.space.api.dto.response;
 
 import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
+import com.acomi.acomi_backend.space.application.support.FoodAvailability;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -83,6 +84,9 @@ public class DiscoverSpaceDetailResponse {
 
     @Schema(description = "When true, food is included in rent")
     private boolean foodIncludedInRent;
+
+    @Schema(description = "Food status when the listing actually recorded one. Null when unknown.", implementation = FoodAvailability.class)
+    private FoodAvailability foodAvailability;
 
     @Schema(description = "Gender policy when set", implementation = GenderPolicy.class)
     private GenderPolicy genderPolicy;

@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.acomi.acomi_backend.admin.api.dto.request.AdminCreateRegisteredUserRequest;
+import com.acomi.acomi_backend.admin.application.AdminSecurityAudit;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUserResponse;
 import com.acomi.acomi_backend.auth.api.dto.request.LoginRequest;
 import com.acomi.acomi_backend.auth.api.dto.request.RegisterRequest;
@@ -79,6 +80,9 @@ class AdminCreateTestUserServiceTest {
     private InvitationService invitationService;
 
     @Mock
+    private AdminSecurityAudit adminSecurityAudit;
+
+    @Mock
     private OtpService otpService;
 
     @Mock
@@ -112,7 +116,8 @@ class AdminCreateTestUserServiceTest {
                 spaceService,
                 spaceRepository,
                 invitationProvisioner,
-                invitationService);
+                invitationService,
+                adminSecurityAudit);
         authService = new AuthService(
                 otpService,
                 otpProperties,

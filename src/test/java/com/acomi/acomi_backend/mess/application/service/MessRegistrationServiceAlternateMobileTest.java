@@ -45,12 +45,19 @@ class MessRegistrationServiceAlternateMobileTest {
     @Mock
     private SpaceService spaceService;
 
+    @Mock
+    private com.acomi.acomi_backend.registration.application.RegistrationPhotoService registrationPhotoService;
+
     private MessRegistrationService service;
 
     @BeforeEach
     void setUp() {
         service = new MessRegistrationService(
-                messRegistrationRepository, otpService, userRepository, spaceService);
+                messRegistrationRepository,
+                otpService,
+                userRepository,
+                spaceService,
+                registrationPhotoService);
     }
 
     @Test

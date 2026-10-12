@@ -14,6 +14,8 @@ public class Space {
     private String name;
     private SpaceType type;
     private String address;
+    private BigDecimal latitude;
+    private BigDecimal longitude;
     private String contactNumber;
     private UUID ownerId;
     private boolean active;

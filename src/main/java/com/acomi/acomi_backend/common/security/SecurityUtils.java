@@ -22,13 +22,18 @@ public final class SecurityUtils {
      * AnonymousAuthenticationToken is treated as unsigned-in.
      */
     public static UUID getCurrentUserIdOrNull() {
+        UserPrincipal principal = getCurrentPrincipalOrNull();
+        return principal == null ? null : principal.getId();
+    }
+
+    public static UserPrincipal getCurrentPrincipalOrNull() {
         var authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null) {
             return null;
         }
         Object principal = authentication.getPrincipal();
         if (principal instanceof UserPrincipal userPrincipal) {
-            return userPrincipal.getId();
+            return userPrincipal;
         }
         return null;
     }

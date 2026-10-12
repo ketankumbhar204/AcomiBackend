@@ -6,8 +6,13 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.acomi.acomi_backend.admin.api.dto.request.AdminResetPasswordRequest;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUserResponse;
+import com.acomi.acomi_backend.admin.application.AdminSecurityAudit;
+import com.acomi.acomi_backend.admin.application.LoggingAdminSecurityAudit;
+import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.auth.application.service.AccountDeletionService;
 import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
@@ -20,6 +25,7 @@ import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,6 +36,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
@@ -44,6 +51,9 @@ class AdminRegisteredUsersServiceTest {
 
     @Mock
     private AccountDeletionService accountDeletionService;
+
+    @Mock
+    private AdminSecurityAudit adminSecurityAudit;
 
     private final PasswordEncoder passwordEncoder =
             PasswordEncoderFactories.createDelegatingPasswordEncoder();
@@ -65,7 +75,8 @@ class AdminRegisteredUsersServiceTest {
                 org.mockito.Mockito.mock(
                         com.acomi.acomi_backend.member.application.service.InvitationProvisioner.class),
                 org.mockito.Mockito.mock(
-                        com.acomi.acomi_backend.member.application.service.InvitationService.class));
+                        com.acomi.acomi_backend.member.application.service.InvitationService.class),
+                adminSecurityAudit);
     }
 
     @Test
@@ -255,6 +266,58 @@ class AdminRegisteredUsersServiceTest {
             when(spaceMembershipRepository.findActiveByUserIdsWithSpace(users.stream().map(UserEntity::getId).toList()))
                     .thenReturn(memberships);
         }
+    }
+
+    @Test
+    void resetPassword_setsNewHashInvalidatesSessionsAndKeepsRole() {
+        UserEntity user = verifiedUser("Member", "9876543210");
+        String previous = passwordEncoder.encode("OldSecret1");
+        user.setPasswordHash(previous);
+        when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+        when(userRepository.save(any(UserEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        AdminResetPasswordRequest request = new AdminResetPasswordRequest();
+        request.setPassword("NewSecret1");
+        request.setConfirmPassword("NewSecret1");
+        UUID actorId = UUID.randomUUID();
+
+        service.resetPassword(actorId, user.getId(), request);
+
+        assertThat(passwordEncoder.matches("NewSecret1", user.getPasswordHash())).isTrue();
+        assertThat(passwordEncoder.matches("OldSecret1", user.getPasswordHash())).isFalse();
+        assertThat(user.getPasswordHash()).doesNotContain("NewSecret1").doesNotContain("OldSecret1");
+        assertThat(user.getCredentialsChangedAt()).isNotNull();
+        assertThat(user.getSystemRole()).isEqualTo(SystemRole.USER);
+        assertThat(user.isActive()).isTrue();
+        verify(spaceMembershipRepository, never()).save(any());
+        verify(adminSecurityAudit)
+                .record(actorId, user.getId(), LoggingAdminSecurityAudit.PASSWORD_RESET, "SUCCESS");
+    }
+
+    @Test
+    void resetPassword_rejectsSelfAndMismatchWithoutWritingPassword() {
+        UserEntity user = verifiedUser("Admin", "9876543211");
+        user.setPasswordHash(passwordEncoder.encode("OldSecret1"));
+
+        AdminResetPasswordRequest self = new AdminResetPasswordRequest();
+        self.setPassword("NewSecret1");
+        self.setConfirmPassword("NewSecret1");
+        assertThatThrownBy(() -> service.resetPassword(user.getId(), user.getId(), self))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Use account recovery to change your own password.")
+                .extracting(ex -> ((BusinessException) ex).getStatus())
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+        verify(adminSecurityAudit)
+                .record(user.getId(), user.getId(), LoggingAdminSecurityAudit.PASSWORD_RESET, "REJECTED_SELF");
+        verify(userRepository, never()).save(any());
+
+        AdminResetPasswordRequest mismatch = new AdminResetPasswordRequest();
+        mismatch.setPassword("NewSecret1");
+        mismatch.setConfirmPassword("OtherSecret");
+        assertThatThrownBy(() -> service.resetPassword(UUID.randomUUID(), user.getId(), mismatch))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Passwords do not match");
+        assertThat(passwordEncoder.matches("OldSecret1", user.getPasswordHash())).isTrue();
     }
 
     private static UserEntity verifiedUser(String name, String mobile) {

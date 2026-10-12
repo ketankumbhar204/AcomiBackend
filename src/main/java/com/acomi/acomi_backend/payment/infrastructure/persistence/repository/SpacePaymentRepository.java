@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.payment.infrastructure.persistence.repository;
 
+import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentType;
@@ -58,6 +59,26 @@ public interface SpacePaymentRepository extends JpaRepository<SpacePaymentEntity
             @Param("status") SpacePaymentStatus status,
             @Param("paymentType") SpacePaymentType paymentType,
             @Param("paymentCategory") SpacePaymentCategory paymentCategory);
+
+    /**
+     * Read-only charges for beds that are currently occupied.
+     * Current-month rows plus security-deposit rows from the move-in month.
+     * Does not create payments.
+     */
+    @Query("""
+            SELECT DISTINCT p FROM SpacePaymentEntity p
+            JOIN FETCH p.member
+            JOIN FETCH p.space
+            JOIN FETCH p.occupancy o
+            WHERE p.space.id = :spaceId
+              AND o.status = :activeStatus
+              AND (p.month = :month OR p.paymentType = :depositType)
+            """)
+    List<SpacePaymentEntity> findActiveStayCharges(
+            @Param("spaceId") UUID spaceId,
+            @Param("month") String month,
+            @Param("activeStatus") OccupancyStatus activeStatus,
+            @Param("depositType") SpacePaymentType depositType);
 
     @Query(
             value = """
@@ -193,4 +214,18 @@ public interface SpacePaymentRepository extends JpaRepository<SpacePaymentEntity
             UUID memberId,
             SpacePaymentType paymentType,
             SpacePaymentCategory paymentCategory);
+
+    /**
+     * Security-deposit charges and any recorded deposit refunds for one member.
+     * Used to build the member deposit summary without loading the full ledger.
+     */
+    @Query("""
+            SELECT p FROM SpacePaymentEntity p
+            WHERE p.space.id = :spaceId
+              AND p.member.id = :memberId
+              AND (p.paymentType = com.acomi.acomi_backend.payment.domain.model.SpacePaymentType.DEPOSIT
+                   OR p.paymentCategory = com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory.REFUND)
+            """)
+    List<SpacePaymentEntity> findDepositLedgerRows(
+            @Param("spaceId") UUID spaceId, @Param("memberId") UUID memberId);
 }

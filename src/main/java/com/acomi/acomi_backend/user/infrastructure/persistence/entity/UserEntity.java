@@ -115,6 +115,10 @@ public class UserEntity extends BaseEntity {
     @Column(name = "password_hash", length = 255)
     private String passwordHash;
 
+    /** When set, access tokens issued before this instant are no longer accepted. */
+    @Column(name = "credentials_changed_at")
+    private LocalDateTime credentialsChangedAt;
+
     @Column(name = "mobile_verified_at")
     private LocalDateTime mobileVerifiedAt;
 

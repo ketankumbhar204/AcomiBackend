@@ -2,6 +2,8 @@ package com.acomi.acomi_backend.space.application.service;
 
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
+import com.acomi.acomi_backend.common.security.SecurityUtils;
+import com.acomi.acomi_backend.config.security.UserPrincipal;
 import com.acomi.acomi_backend.inventory.application.service.InventorySeedService;
 import com.acomi.acomi_backend.meal.application.service.MealPlanService;
 import com.acomi.acomi_backend.meal.application.service.MealSpaceSetupService;
@@ -21,6 +23,7 @@ import com.acomi.acomi_backend.space.api.dto.response.SpaceResponse;
 import com.acomi.acomi_backend.space.api.dto.response.UserSpaceResponse;
 import com.acomi.acomi_backend.space.application.mapper.SpaceMapper;
 import com.acomi.acomi_backend.space.domain.model.Space;
+import com.acomi.acomi_backend.space.domain.model.SpaceCreationPolicy;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
@@ -56,6 +59,8 @@ public class SpaceService {
     public SpaceResponse createSpace(CreateSpaceRequest request) {
         log.info("Creating space: name={}, type={}, ownerId={}",
                 request.getName(), request.getType(), request.getOwnerId());
+
+        assertMayCreateSpace(request.getOwnerId());
 
         UserEntity owner = userRepository.findByIdAndIsActiveTrue(request.getOwnerId())
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.getOwnerId()));
@@ -100,6 +105,34 @@ public class SpaceService {
         inventorySeedService.seedDefaults(space);
 
         return SpaceMapper.toCreateResponse(space);
+    }
+
+    /**
+     * The caller may create a space only for their own account, unless they are a platform admin.
+     * An existing owner may create another space. An account with no membership may create the first.
+     * Tenant and customer memberships do not grant creation.
+     */
+    private void assertMayCreateSpace(UUID ownerId) {
+        UserPrincipal caller = SecurityUtils.getCurrentPrincipalOrNull();
+        if (caller != null && caller.isAdmin()) {
+            return;
+        }
+        if (caller != null && !caller.getId().equals(ownerId)) {
+            throw new BusinessException(
+                    "SPACE_CREATE_FORBIDDEN",
+                    "You can only create a space for your own account",
+                    HttpStatus.FORBIDDEN);
+        }
+        boolean hasMembership =
+                spaceMembershipRepository.existsByUserIdAndStatus(ownerId, MembershipStatus.ACTIVE);
+        boolean isOwner = spaceMembershipRepository.existsByUserIdAndStatusAndRole(
+                ownerId, MembershipStatus.ACTIVE, MembershipRole.OWNER);
+        if (!SpaceCreationPolicy.mayCreateSpace(hasMembership, isOwner)) {
+            throw new BusinessException(
+                    "SPACE_CREATE_FORBIDDEN",
+                    "Members, tenants, and customers cannot create a space",
+                    HttpStatus.FORBIDDEN);
+        }
     }
 
     @Transactional(readOnly = true)

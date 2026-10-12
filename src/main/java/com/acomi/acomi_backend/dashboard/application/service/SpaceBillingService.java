@@ -75,11 +75,12 @@ public class SpaceBillingService {
                 ? loadBillableOccupancies(spaceId, month)
                 : List.of();
 
-        Set<UUID> memberIds = collectRelevantMemberIds(space.getType(), participations, activeOccupancies);
-        Map<UUID, MemberEntity> membersById = loadMembers(spaceId, memberIds);
-        Map<UUID, OccupancyEntity> occupancyByMember = mapOccupancyByMember(activeOccupancies);
         Map<UUID, List<SpacePaymentEntity>> paymentsByMember =
                 spacePaymentLedgerSupport.loadPaymentsByMember(spaceId, month.toString());
+        Set<UUID> memberIds = collectRelevantMemberIds(space.getType(), participations, activeOccupancies);
+        memberIds.addAll(paymentsByMember.keySet());
+        Map<UUID, MemberEntity> membersById = loadMembers(spaceId, memberIds);
+        Map<UUID, OccupancyEntity> occupancyByMember = mapOccupancyByMember(activeOccupancies);
 
         List<MemberPaymentLedgerRowResponse> rows = new ArrayList<>();
         for (UUID memberId : memberIds) {
@@ -161,11 +162,22 @@ public class SpaceBillingService {
             }
         }
 
+        boolean rentFromOccupancy = false;
         if (occupancy != null && accommodationApplicable) {
             var occupancyBilling =
                     OccupancyBillingCalculator.computeBilling(occupancy, month, space);
-            if (occupancyBilling != null && occupancyBilling.getTotalAmount() != null) {
+            if (occupancyBilling != null
+                    && occupancyBilling.getTotalAmount() != null
+                    && occupancyBilling.getTotalAmount().signum() > 0) {
                 expectedCharges = expectedCharges.add(occupancyBilling.getTotalAmount());
+                hasExpected = true;
+                rentFromOccupancy = true;
+            }
+        }
+        if (!rentFromOccupancy) {
+            BigDecimal rentFromPayments = spacePaymentLedgerSupport.sumRecurringRentAmount(memberPayments);
+            if (rentFromPayments.signum() > 0) {
+                expectedCharges = expectedCharges.add(rentFromPayments);
                 hasExpected = true;
             }
         }

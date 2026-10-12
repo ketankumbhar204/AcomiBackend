@@ -5,5 +5,8 @@ public enum SpacePaymentType {
     RENT,
     DEPOSIT,
     MAINTENANCE,
+    UTILITY,
+    SERVICE,
+    PENALTY,
     OTHER
 }

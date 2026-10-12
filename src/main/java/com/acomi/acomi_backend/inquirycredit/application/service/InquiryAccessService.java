@@ -40,16 +40,18 @@ public class InquiryAccessService {
         InquiryClientChannel safe = channel != null ? channel : InquiryClientChannel.WEB;
         InquiryPaymentConfigEntity config = paymentConfigService.requireConfig();
         LocalDate today = LocalDate.now(clock);
-        int freeUsed = dailyUsageRepository
+        InquiryDailyUsageEntity todayUsage = dailyUsageRepository
                 .findOneByUserIdAndUsageDateAndChannel(userId, today, safe)
-                .map(InquiryDailyUsageEntity::getFreeUsed)
-                .orElse(0);
+                .orElse(null);
+        int freeUsed = todayUsage != null ? todayUsage.getFreeUsed() : 0;
+        int viewHereUsed = todayUsage != null ? todayUsage.getViewHereUsed() : 0;
 
         if (safe == InquiryClientChannel.ANDROID) {
             AndroidInquiryBillingMode mode =
                     AndroidInquiryBillingMode.fromDb(config.getAndroidBillingMode());
             boolean unlimited = !androidCreditsEnforced(config);
             int limit = unlimited ? 0 : Math.max(0, config.getAndroidFreeDailyLimit());
+            int viewHereLimit = viewHereLimit(config, safe);
             return InquiryQuotaResponse.builder()
                     .channel(safe.name())
                     .dailyFreeLimit(limit)
@@ -59,33 +61,56 @@ public class InquiryAccessService {
                     .androidBillingMode(mode.name())
                     .purchasesEnabled(config.isEnabled())
                     .unlimited(unlimited)
+                    .viewHereDailyLimit(viewHereLimit)
+                    .viewHereUsedToday(viewHereUsed)
+                    .viewHereRemainingToday(Math.max(0, viewHereLimit - viewHereUsed))
                     .build();
         }
 
         boolean unlimited = !webLimitsEnforced(config);
         int limit = unlimited ? 0 : Math.max(0, config.getWebFreeDailyLimit());
+        int freeRemaining = unlimited ? 0 : Math.max(0, limit - freeUsed);
+        int viewHereLimit = viewHereLimit(config, safe);
+        int viewHereRemaining = Math.max(0, viewHereLimit - viewHereUsed);
         return InquiryQuotaResponse.builder()
                 .channel(safe.name())
                 .dailyFreeLimit(limit)
                 .freeUsedToday(freeUsed)
-                .freeRemainingToday(unlimited ? 0 : Math.max(0, limit - freeUsed))
+                .freeRemainingToday(freeRemaining)
                 .availableCredits(walletService.getBalance(userId))
                 .purchasesEnabled(config.isEnabled())
                 .unlimited(unlimited)
+                .viewHereDailyLimit(viewHereLimit)
+                .viewHereUsedToday(viewHereUsed)
+                .viewHereRemainingToday(viewHereRemaining)
                 .build();
     }
 
     /**
-     * Local testing only: set today's free usage back to zero for the caller.
+     * Local testing only: set today's email enquiry usage back to zero.
+     * Does not change the view-here counter.
      */
     @Transactional
     public InquiryQuotaResponse resetTodayQuota(UUID userId, InquiryClientChannel channel) {
+        return resetTodayQuota(userId, channel, false);
+    }
+
+    /**
+     * Local testing only. {@code viewHereOnly} resets the website view counter;
+     * otherwise only the email enquiry counter is reset.
+     */
+    @Transactional
+    public InquiryQuotaResponse resetTodayQuota(UUID userId, InquiryClientChannel channel, boolean viewHereOnly) {
         InquiryClientChannel safe = channel != null ? channel : InquiryClientChannel.WEB;
         LocalDate today = LocalDate.now(clock);
         dailyUsageRepository
                 .findOneByUserIdAndUsageDateAndChannel(userId, today, safe)
                 .ifPresent(usage -> {
-                    usage.setFreeUsed(0);
+                    if (viewHereOnly) {
+                        usage.setViewHereUsed(0);
+                    } else {
+                        usage.setFreeUsed(0);
+                    }
                     dailyUsageRepository.save(usage);
                 });
         return getQuota(userId, safe);
@@ -141,6 +166,53 @@ public class InquiryAccessService {
             }
             case PAID_CREDIT -> walletService.consumeUsage(userId, enquiryId);
         }
+    }
+
+    /**
+     * Checks the instant-view allowance for the caller's channel.
+     * This counter is independent of email and in-app enquiry allowances.
+     */
+    @Transactional
+    public void assertViewHereAvailable(UUID userId, InquiryClientChannel channel) {
+        viewHereDecision(userId, channel, false);
+    }
+
+    /** @deprecated Use {@link #assertViewHereAvailable(UUID, InquiryClientChannel)}. */
+    @Transactional
+    public void assertViewHereAvailable(UUID userId) {
+        assertViewHereAvailable(userId, InquiryClientChannel.WEB);
+    }
+
+    /**
+     * Atomically consumes one view-here slot for the channel.
+     * Does not change the email or in-app enquiry counter.
+     */
+    @Transactional
+    public void consumeViewHere(UUID userId, InquiryClientChannel channel) {
+        viewHereDecision(userId, channel, true);
+    }
+
+    /** @deprecated Use {@link #consumeViewHere(UUID, InquiryClientChannel)}. */
+    @Transactional
+    public void consumeViewHere(UUID userId) {
+        consumeViewHere(userId, InquiryClientChannel.WEB);
+    }
+
+    /** Effective instant-view cap. 0 hides the option and rejects the API. */
+    static int viewHereLimit(InquiryPaymentConfigEntity config, InquiryClientChannel channel) {
+        if (config == null) {
+            return 0;
+        }
+        if (channel == InquiryClientChannel.ANDROID) {
+            if (!config.isAndroidViewHereEnabled()) {
+                return 0;
+            }
+            return Math.max(0, config.getAndroidViewHereDailyLimit());
+        }
+        if (!config.isWebViewHereEnabled()) {
+            return 0;
+        }
+        return Math.max(0, config.getViewHereDailyLimit());
     }
 
     // ── Private helpers ────────────────────────────────────────────────────────
@@ -241,6 +313,31 @@ public class InquiryAccessService {
 
     private int webFreeLimit() {
         return Math.max(0, paymentConfigService.requireConfig().getWebFreeDailyLimit());
+    }
+
+    private void viewHereDecision(UUID userId, InquiryClientChannel channel, boolean consume) {
+        InquiryClientChannel safe = channel != null ? channel : InquiryClientChannel.WEB;
+        InquiryPaymentConfigEntity config = paymentConfigService.requireConfig();
+        int viewLimit = viewHereLimit(config, safe);
+        if (viewLimit <= 0) {
+            throw new BusinessException(
+                    "VIEW_HERE_DISABLED",
+                    "Instant contact viewing is not available.",
+                    HttpStatus.CONFLICT);
+        }
+        LocalDate today = LocalDate.now(clock);
+        InquiryDailyUsageEntity usage = getOrCreateUsage(userId, today, safe);
+        if (usage.getViewHereUsed() >= viewLimit) {
+            throw new BusinessException(
+                    "VIEW_HERE_LIMIT_REACHED",
+                    "You have used all instant contact views for today.",
+                    HttpStatus.CONFLICT);
+        }
+        if (!consume) {
+            return;
+        }
+        usage.setViewHereUsed(usage.getViewHereUsed() + 1);
+        dailyUsageRepository.save(usage);
     }
 
     /**

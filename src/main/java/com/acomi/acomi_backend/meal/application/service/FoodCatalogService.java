@@ -9,6 +9,7 @@ import com.acomi.acomi_backend.meal.api.dto.request.UpdateFoodItemExtraRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.UpdateFoodItemRequest;
 import com.acomi.acomi_backend.meal.api.dto.response.FoodCategoryResponse;
 import com.acomi.acomi_backend.meal.api.dto.response.FoodItemResponse;
+import com.acomi.acomi_backend.meal.application.support.MenuExtraClassifier;
 import com.acomi.acomi_backend.meal.domain.model.FoodScope;
 import com.acomi.acomi_backend.meal.domain.model.FoodType;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.FoodCategoryEntity;
@@ -28,6 +29,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -138,6 +140,13 @@ public class FoodCatalogService {
         ensureItemVisibleForSpace(spaceId, item);
         SpaceFoodItemSettingsEntity settings = upsertExtraFlag(spaceId, itemId, request.isExtra());
         return toItemResponse(item, settings);
+    }
+
+    /** Catalog item ids marked as Menu Library extras for this space. */
+    @Transactional(readOnly = true)
+    public Set<UUID> configuredExtraItemIds(UUID spaceId) {
+        return MenuExtraClassifier.catalogExtraIds(
+                spaceFoodItemSettingsRepository.findAllBySpaceId(spaceId));
     }
 
     /** True when this catalog item is marked as a Menu Library extra for the space. */

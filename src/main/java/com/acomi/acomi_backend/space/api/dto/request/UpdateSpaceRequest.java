@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.space.api.dto.request;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import java.math.BigDecimal;
@@ -23,6 +24,14 @@ public class UpdateSpaceRequest {
 
     @Schema(description = "Physical address of the space", example = "Pune")
     private String address;
+
+    @DecimalMin(value = "-90.0", message = "Latitude is out of range")
+    @DecimalMax(value = "90.0", message = "Latitude is out of range")
+    private BigDecimal latitude;
+
+    @DecimalMin(value = "-180.0", message = "Longitude is out of range")
+    @DecimalMax(value = "180.0", message = "Longitude is out of range")
+    private BigDecimal longitude;
 
     @Schema(description = "Public contact number for the space", example = "9876543210")
     private String contactNumber;

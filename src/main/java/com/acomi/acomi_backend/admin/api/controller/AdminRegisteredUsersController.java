@@ -1,11 +1,13 @@
 package com.acomi.acomi_backend.admin.api.controller;
 
 import com.acomi.acomi_backend.admin.api.dto.request.AdminCreateRegisteredUserRequest;
+import com.acomi.acomi_backend.admin.api.dto.request.AdminResetPasswordRequest;
 import com.acomi.acomi_backend.admin.api.dto.request.AdminUpdateRegisteredUserRequest;
 import com.acomi.acomi_backend.admin.api.dto.request.AdminUpdateTestUserRequest;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUserResponse;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUsersSummaryResponse;
 import com.acomi.acomi_backend.admin.application.service.AdminRegisteredUsersService;
+import com.acomi.acomi_backend.common.security.SecurityUtils;
 import com.acomi.acomi_backend.common.web.ApiResponse;
 import com.acomi.acomi_backend.common.web.PagedResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -79,6 +81,14 @@ public class AdminRegisteredUsersController {
             @PathVariable UUID id, @Valid @RequestBody AdminUpdateRegisteredUserRequest request) {
         return ResponseEntity.ok(ApiResponse.success(
                 "User updated", adminRegisteredUsersService.update(id, request)));
+    }
+
+    @PostMapping("/{id}/reset-password")
+    @Operation(summary = "Set a new password for a registered user (admin only; invalidates existing sessions)")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(
+            @PathVariable UUID id, @Valid @RequestBody AdminResetPasswordRequest request) {
+        adminRegisteredUsersService.resetPassword(SecurityUtils.getCurrentUserId(), id, request);
+        return ResponseEntity.ok(ApiResponse.success("Password updated"));
     }
 
     @PutMapping("/{id}/test-user")

@@ -74,6 +74,9 @@ public enum NotificationType {
     // Discovery contact enquiries — Admin inbox
     CONTACT_ENQUIRY,
 
+    // Discovery contact enquiries — listing owner/manager inbox
+    CONTACT_ENQUIRY_RECEIVED,
+
     // Discovery contact enquiries — requester inbox (never includes owner contact)
     CONTACT_ENQUIRY_SUBMITTED,
     CONTACT_ENQUIRY_SHARED,

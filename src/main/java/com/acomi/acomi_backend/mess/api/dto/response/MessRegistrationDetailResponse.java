@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.mess.api.dto.response;
 
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationSource;
+import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationStatus;
 import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
@@ -17,6 +18,7 @@ public class MessRegistrationDetailResponse {
     private UUID id;
     private String reference;
     private String messName;
+    private String buildingName;
     private String ownerName;
     private String mobileNumber;
     private String alternateMobileNumber;
@@ -31,6 +33,7 @@ public class MessRegistrationDetailResponse {
     private BigDecimal longitude;
     private String mapUrl;
     private BigDecimal monthlyPrice;
+    private PriceBasis monthlyPriceBasis;
     private BigDecimal mealPrice;
     private Integer capacityEstimate;
     private MessRegistrationStatus status;

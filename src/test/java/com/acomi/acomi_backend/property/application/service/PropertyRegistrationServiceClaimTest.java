@@ -48,12 +48,19 @@ class PropertyRegistrationServiceClaimTest {
     @Mock
     private SpaceService spaceService;
 
+    @Mock
+    private com.acomi.acomi_backend.registration.application.RegistrationPhotoService registrationPhotoService;
+
     private PropertyRegistrationService service;
 
     @BeforeEach
     void setUp() {
         service = new PropertyRegistrationService(
-                propertyRegistrationRepository, otpService, userRepository, spaceService);
+                propertyRegistrationRepository,
+                otpService,
+                userRepository,
+                spaceService,
+                registrationPhotoService);
     }
 
     @Test

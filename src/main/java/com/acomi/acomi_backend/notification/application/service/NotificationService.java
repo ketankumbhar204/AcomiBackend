@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.notification.application.service;
 
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
+import com.acomi.acomi_backend.enquiry.application.service.EnquiryInboxAccess;
 import com.acomi.acomi_backend.notification.api.dto.response.NotificationListResponse;
 import com.acomi.acomi_backend.notification.api.dto.response.NotificationResponse;
 import com.acomi.acomi_backend.notification.api.dto.response.UserNotificationListResponse;
@@ -47,10 +48,14 @@ public class NotificationService {
 
     public static final Set<NotificationType> ALL_ENQUIRY_TYPES = EnumSet.of(
             NotificationType.CONTACT_ENQUIRY,
+            NotificationType.CONTACT_ENQUIRY_RECEIVED,
             NotificationType.CONTACT_ENQUIRY_SUBMITTED,
             NotificationType.CONTACT_ENQUIRY_SHARED,
             NotificationType.CONTACT_ENQUIRY_REJECTED,
             NotificationType.CONTACT_ENQUIRY_EXPIRED);
+
+    public static final Set<NotificationType> RECEIVED_ENQUIRY_TYPES =
+            EnumSet.of(NotificationType.CONTACT_ENQUIRY_RECEIVED);
 
     /** Inquiry credit notification types visible to the user (seeker). */
     public static final Set<NotificationType> INQUIRY_CREDIT_USER_TYPES = EnumSet.of(
@@ -65,6 +70,7 @@ public class NotificationService {
 
     private final SpaceNotificationRepository notificationRepository;
     private final ApplicationEventPublisher eventPublisher;
+    private final EnquiryInboxAccess enquiryInboxAccess;
 
     @Transactional
     public NotificationResponse publish(PublishNotificationCommand command) {
@@ -286,8 +292,7 @@ public class NotificationService {
     @Transactional(readOnly = true)
     public UserNotificationListResponse listForCurrentUser(UUID userId, Pageable pageable) {
         Pageable safe = safePage(pageable);
-        Set<NotificationType> userTypes = EnumSet.copyOf(REQUESTER_ENQUIRY_TYPES);
-        userTypes.addAll(INQUIRY_CREDIT_USER_TYPES);
+        Set<NotificationType> userTypes = inboxTypes(userId);
         Page<SpaceNotificationEntity> page =
                 notificationRepository.findByUserIdAndNotificationTypeInAndStatusIn(
                         userId,
@@ -328,8 +333,7 @@ public class NotificationService {
         SpaceNotificationEntity entity = notificationRepository
                 .findByIdAndUserId(notificationId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Notification", "id", notificationId));
-        if (!REQUESTER_ENQUIRY_TYPES.contains(entity.getNotificationType())
-                && !INQUIRY_CREDIT_USER_TYPES.contains(entity.getNotificationType())) {
+        if (!inboxTypes(userId).contains(entity.getNotificationType())) {
             throw new ResourceNotFoundException("Notification", "id", notificationId);
         }
         if (entity.getStatus() == NotificationStatus.UNREAD) {
@@ -344,6 +348,15 @@ public class NotificationService {
     public List<SpaceNotificationEntity> listOpenActions(UUID spaceId, UUID userId) {
         return notificationRepository.findActionable(
                 spaceId, userId, NotificationCategory.ACTION_REQUIRED, OPEN_STATUSES);
+    }
+
+    private Set<NotificationType> inboxTypes(UUID userId) {
+        if (enquiryInboxAccess.managesListings(userId)) {
+            return RECEIVED_ENQUIRY_TYPES;
+        }
+        Set<NotificationType> userTypes = EnumSet.copyOf(REQUESTER_ENQUIRY_TYPES);
+        userTypes.addAll(INQUIRY_CREDIT_USER_TYPES);
+        return userTypes;
     }
 
     private SpaceNotificationEntity loadOwned(UUID spaceId, UUID notificationId, UUID userId) {

@@ -125,7 +125,8 @@ public class InventoryService {
                 .findByIdAndSpaceIdAndIsActiveTrue(request.getCategoryId(), spaceId)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "InventoryCategory", "id", request.getCategoryId()));
-        InventorySupplierEntity supplier = resolveSupplier(spaceId, request.getSupplierId());
+        InventorySupplierEntity supplier = resolveSupplierChoice(
+                space, request.getSupplierId(), request.getSupplierName());
 
         BigDecimal opening = nullToZero(request.getOpeningStock());
         InventoryItemEntity item = itemRepository.save(InventoryItemEntity.builder()
@@ -188,8 +189,9 @@ public class InventoryService {
         if (request.getLocation() != null) {
             item.setLocation(trimToNull(request.getLocation()));
         }
-        if (request.getSupplierId() != null) {
-            item.setSupplier(resolveSupplier(spaceId, request.getSupplierId()));
+        if (request.getSupplierId() != null || request.getSupplierName() != null) {
+            item.setSupplier(resolveSupplierChoice(
+                    item.getSpace(), request.getSupplierId(), request.getSupplierName()));
         }
         if (request.getPurchasePrice() != null) {
             item.setPurchasePrice(request.getPurchasePrice());
@@ -399,6 +401,28 @@ public class InventoryService {
         return supplierRepository
                 .findByIdAndSpaceIdAndIsActiveTrue(supplierId, spaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("InventorySupplier", "id", supplierId));
+    }
+
+    /**
+     * A supplier id selects that record. Otherwise a name finds an existing supplier
+     * or creates one. A blank name clears the supplier.
+     */
+    private InventorySupplierEntity resolveSupplierChoice(
+            SpaceEntity space, UUID supplierId, String supplierName) {
+        if (supplierId != null) {
+            return resolveSupplier(space.getId(), supplierId);
+        }
+        String name = trimToNull(supplierName);
+        if (name == null) {
+            return null;
+        }
+        return supplierRepository
+                .findBySpaceIdAndIsActiveTrueAndNameIgnoreCase(space.getId(), name)
+                .orElseGet(() -> supplierRepository.save(InventorySupplierEntity.builder()
+                        .space(space)
+                        .name(name)
+                        .isActive(true)
+                        .build()));
     }
 
     private boolean isOutOfStock(InventoryItemEntity item) {

@@ -67,6 +67,10 @@ class InquiryAccessServiceTest {
                 .androidBillingMode("FREE")
                 .androidFreeDailyLimit(5)
                 .androidHourlyRateLimit(20)
+                .viewHereDailyLimit(5)
+                .webViewHereEnabled(true)
+                .androidViewHereEnabled(true)
+                .androidViewHereDailyLimit(3)
                 .build();
         lenient().when(paymentConfigService.requireConfig()).thenReturn(config);
         lenient()
@@ -346,6 +350,101 @@ class InquiryAccessServiceTest {
                     assertThat(be.getStatus()).isEqualTo(HttpStatus.PAYMENT_REQUIRED);
                     assertThat(be.getErrorCode()).isEqualTo("WEB_FREE_LIMIT_REACHED");
                 });
+    }
+
+    @Test
+    void getQuota_webUsesWebsiteViewAllowance() {
+        LocalDate today = LocalDate.now(fixedClock);
+        InquiryDailyUsageEntity usage = buildUsage(userId, today, InquiryClientChannel.WEB, 4);
+        usage.setViewHereUsed(2);
+        when(dailyUsageRepository.findOneByUserIdAndUsageDateAndChannel(
+                        userId, today, InquiryClientChannel.WEB))
+                .thenReturn(Optional.of(usage));
+        when(walletService.getBalance(userId)).thenReturn(0);
+
+        var quota = accessService.getQuota(userId, InquiryClientChannel.WEB);
+
+        assertThat(quota.getViewHereDailyLimit()).isEqualTo(5);
+        assertThat(quota.getViewHereUsedToday()).isEqualTo(2);
+        assertThat(quota.getViewHereRemainingToday()).isEqualTo(3);
+        assertThat(quota.getFreeUsedToday()).isEqualTo(4);
+    }
+
+    @Test
+    void getQuota_androidUsesItsOwnViewAllowance() {
+        LocalDate today = LocalDate.now(fixedClock);
+        InquiryDailyUsageEntity webUsage = buildUsage(userId, today, InquiryClientChannel.WEB, 0);
+        webUsage.setViewHereUsed(5);
+        InquiryDailyUsageEntity androidUsage = buildUsage(userId, today, InquiryClientChannel.ANDROID, 1);
+        androidUsage.setViewHereUsed(1);
+        when(dailyUsageRepository.findOneByUserIdAndUsageDateAndChannel(
+                        userId, today, InquiryClientChannel.ANDROID))
+                .thenReturn(Optional.of(androidUsage));
+        when(walletService.getBalance(userId)).thenReturn(0);
+
+        var quota = accessService.getQuota(userId, InquiryClientChannel.ANDROID);
+
+        assertThat(quota.getViewHereDailyLimit()).isEqualTo(3);
+        assertThat(quota.getViewHereUsedToday()).isEqualTo(1);
+        assertThat(quota.getViewHereRemainingToday()).isEqualTo(2);
+        assertThat(quota.getFreeUsedToday()).isEqualTo(1);
+    }
+
+    @Test
+    void getQuota_disabledViewHere_reportsZeroLimit() {
+        config.setWebViewHereEnabled(false);
+        config.setAndroidViewHereEnabled(false);
+        when(walletService.getBalance(userId)).thenReturn(0);
+
+        assertThat(accessService.getQuota(userId, InquiryClientChannel.WEB).getViewHereDailyLimit())
+                .isZero();
+        assertThat(accessService.getQuota(userId, InquiryClientChannel.ANDROID).getViewHereDailyLimit())
+                .isZero();
+    }
+
+    @Test
+    void consumeViewHere_incrementsViewCounterOnly() {
+        LocalDate today = LocalDate.now(fixedClock);
+        InquiryDailyUsageEntity usage = buildUsage(userId, today, InquiryClientChannel.ANDROID, 2);
+        usage.setViewHereUsed(1);
+        when(dailyUsageRepository.findByUserIdAndUsageDateAndChannel(
+                        userId, today, InquiryClientChannel.ANDROID))
+                .thenReturn(Optional.of(usage));
+        when(dailyUsageRepository.save(usage)).thenReturn(usage);
+
+        accessService.consumeViewHere(userId, InquiryClientChannel.ANDROID);
+
+        assertThat(usage.getViewHereUsed()).isEqualTo(2);
+        assertThat(usage.getFreeUsed()).isEqualTo(2);
+        verify(walletService, never()).consumeUsage(any(), any());
+    }
+
+    @Test
+    void consumeViewHere_atLimit_doesNotIncrement() {
+        LocalDate today = LocalDate.now(fixedClock);
+        InquiryDailyUsageEntity usage = buildUsage(userId, today, InquiryClientChannel.WEB, 0);
+        usage.setViewHereUsed(5);
+        when(dailyUsageRepository.findByUserIdAndUsageDateAndChannel(
+                        userId, today, InquiryClientChannel.WEB))
+                .thenReturn(Optional.of(usage));
+
+        assertThatThrownBy(() -> accessService.consumeViewHere(userId, InquiryClientChannel.WEB))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo("VIEW_HERE_LIMIT_REACHED"));
+        assertThat(usage.getViewHereUsed()).isEqualTo(5);
+        verify(dailyUsageRepository, never()).save(any());
+    }
+
+    @Test
+    void consumeViewHere_whenDisabled_rejectsWithoutUsage() {
+        config.setAndroidViewHereEnabled(false);
+
+        assertThatThrownBy(() -> accessService.consumeViewHere(userId, InquiryClientChannel.ANDROID))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getErrorCode())
+                        .isEqualTo("VIEW_HERE_DISABLED"));
+        verify(dailyUsageRepository, never()).findByUserIdAndUsageDateAndChannel(any(), any(), any());
     }
 
     private InquiryDailyUsageEntity buildUsage(

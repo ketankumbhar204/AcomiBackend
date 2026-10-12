@@ -10,22 +10,49 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
 import org.springframework.http.HttpStatus;
 
 /**
  * In-process object store for unit tests and local development without R2 credentials.
  * Direct uploads use ACOMI {@code PUT /api/v1/files/{id}/content} rather than a signed provider URL.
+ * A directory, when supplied, keeps the same bytes across process restarts.
  */
 public class InMemoryStorageProvider implements StorageProvider {
 
     private record StoredObject(byte[] bytes, String contentType) {}
 
     private final ConcurrentHashMap<String, StoredObject> objects = new ConcurrentHashMap<>();
+    private final Path directory;
+
+    public InMemoryStorageProvider() {
+        this(null);
+    }
+
+    public InMemoryStorageProvider(Path directory) {
+        this.directory = directory;
+        if (directory != null) {
+            try {
+                Files.createDirectories(directory);
+                loadFromDisk();
+            } catch (IOException ex) {
+                throw new BusinessException(
+                        FileErrorCodes.FILE_STORAGE_ERROR,
+                        "Unable to open local file storage",
+                        HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+        }
+    }
 
     @Override
     public UploadGrant createUploadGrant(
@@ -58,7 +85,9 @@ public class InMemoryStorageProvider implements StorageProvider {
 
     @Override
     public void delete(String bucket, String objectKey) {
-        objects.remove(key(bucket, objectKey));
+        String storageKey = key(bucket, objectKey);
+        objects.remove(storageKey);
+        deleteFromDisk(storageKey);
     }
 
     @Override
@@ -87,7 +116,9 @@ public class InMemoryStorageProvider implements StorageProvider {
             String contentType) {
         try {
             byte[] bytes = readAll(stream, contentLength);
-            objects.put(key(bucket, objectKey), new StoredObject(bytes, contentType));
+            String storageKey = key(bucket, objectKey);
+            objects.put(storageKey, new StoredObject(bytes, contentType));
+            writeToDisk(storageKey, bytes, contentType);
         } catch (IOException ex) {
             throw new BusinessException(
                     FileErrorCodes.FILE_STORAGE_ERROR, "Unable to store file", HttpStatus.INTERNAL_SERVER_ERROR);
@@ -123,5 +154,42 @@ public class InMemoryStorageProvider implements StorageProvider {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         stream.transferTo(buffer);
         return buffer.toByteArray();
+    }
+
+    private void loadFromDisk() throws IOException {
+        try (Stream<Path> files = Files.list(directory)) {
+            for (Path file : files.filter(path -> Files.isRegularFile(path) && !path.getFileName().toString().endsWith(".type")).toList()) {
+                String storageKey = URLDecoder.decode(file.getFileName().toString(), StandardCharsets.UTF_8);
+                byte[] bytes = Files.readAllBytes(file);
+                Path typeFile = directory.resolve(file.getFileName().toString() + ".type");
+                String contentType = Files.isRegularFile(typeFile)
+                        ? Files.readString(typeFile, StandardCharsets.UTF_8)
+                        : "application/octet-stream";
+                objects.put(storageKey, new StoredObject(bytes, contentType));
+            }
+        }
+    }
+
+    private void writeToDisk(String storageKey, byte[] bytes, String contentType) throws IOException {
+        if (directory == null) {
+            return;
+        }
+        String encoded = URLEncoder.encode(storageKey, StandardCharsets.UTF_8);
+        Files.write(directory.resolve(encoded), bytes);
+        Files.writeString(directory.resolve(encoded + ".type"), contentType == null ? "" : contentType, StandardCharsets.UTF_8);
+    }
+
+    private void deleteFromDisk(String storageKey) {
+        if (directory == null) {
+            return;
+        }
+        String encoded = URLEncoder.encode(storageKey, StandardCharsets.UTF_8);
+        try {
+            Files.deleteIfExists(directory.resolve(encoded));
+            Files.deleteIfExists(directory.resolve(encoded + ".type"));
+        } catch (IOException ex) {
+            throw new BusinessException(
+                    FileErrorCodes.FILE_STORAGE_ERROR, "Unable to delete file", HttpStatus.INTERNAL_SERVER_ERROR);
+        }
     }
 }

@@ -3,8 +3,8 @@ package com.acomi.acomi_backend.property.domain.model;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 
 /**
- * What the quoted starting price is measured against. Always derived from the property type
- * so the browser cannot choose a basis that contradicts the accommodation model.
+ * What the quoted starting price is measured against.
+ * {@link #forPropertyType(SpaceType)} is the default. A listing may store a different supported value.
  */
 public enum PriceBasis {
     PER_BED,
@@ -18,5 +18,10 @@ public enum PriceBasis {
             case CO_LIVING -> PER_ROOM;
             case RENTAL, MESS -> PER_UNIT;
         };
+    }
+
+    /** Uses the submitted unit when present, otherwise the type default. */
+    public static PriceBasis resolve(SpaceType propertyType, PriceBasis requested) {
+        return requested != null ? requested : forPropertyType(propertyType);
     }
 }

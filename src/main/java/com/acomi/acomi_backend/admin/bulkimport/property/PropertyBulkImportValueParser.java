@@ -12,7 +12,15 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Stateless parsers for Excel cell values used by property bulk import. */
+/**
+ * Stateless parsers for Excel cell values used by property bulk import.
+ *
+ * <p>Source of truth is the existing domain model, not the import UI labels:
+ * space type {@link SpaceType}, gender {@link GenderPolicy}, food included as boolean,
+ * sharing and amenities as text (known {@link AmenityCode}s are recognized, unknown text is kept).
+ * Safe normalization trims placeholders and formatting. It does not guess meaning
+ * (for example food {@code Available} stays invalid).
+ */
 public final class PropertyBulkImportValueParser {
 
     private static final Pattern MULTI_SPACE = Pattern.compile("\\s+");
@@ -70,48 +78,14 @@ public final class PropertyBulkImportValueParser {
      * is present, so {@code PG / Food Service} stays PG.
      */
     public static PropertyTypeParseResult parsePropertyType(String raw) {
-        String value = blankToNull(raw);
-        if (value == null) {
+        SpaceTypeNormalizer.Result normalized = SpaceTypeNormalizer.normalize(raw);
+        if (normalized.error() != null) {
+            return PropertyTypeParseResult.invalid(normalized.error());
+        }
+        if (normalized.type() == null) {
             return PropertyTypeParseResult.blank();
         }
-        String key = classificationKey(value);
-
-        if (hasPhrase(key, "co living", "coliving")) {
-            return PropertyTypeParseResult.ok(SpaceType.CO_LIVING);
-        }
-        if (hasCoreMessPhrase(key)
-                || (hasCateringFoodServicePhrase(key) && !hasExplicitLodging(key))) {
-            return PropertyTypeParseResult.ok(SpaceType.MESS);
-        }
-        if (hasPhrase(
-                key,
-                "serviced",
-                "corporate apartment",
-                "corporate apartments",
-                "rental",
-                "rentals",
-                "apartment",
-                "apartments",
-                "flat",
-                "flats")
-                || hasWord(key, "rent")) {
-            return PropertyTypeParseResult.ok(SpaceType.RENTAL);
-        }
-        boolean pg = hasWord(key, "pg") || key.contains("paying guest");
-        boolean hostel = hasWord(key, "hostel") || hasWord(key, "hostels");
-        if (pg && hostel) {
-            return PropertyTypeParseResult.ok(SpaceType.PG);
-        }
-        if (pg) {
-            return PropertyTypeParseResult.ok(SpaceType.PG);
-        }
-        if (hostel) {
-            return PropertyTypeParseResult.ok(SpaceType.HOSTEL);
-        }
-        if (isGuestHouseFallback(key)) {
-            return PropertyTypeParseResult.ok(SpaceType.RENTAL);
-        }
-        return PropertyTypeParseResult.invalid("Unknown property type: " + value);
+        return PropertyTypeParseResult.ok(normalized.type());
     }
 
     public static BooleanParseResult parseBoolean(String raw) {
@@ -129,54 +103,19 @@ public final class PropertyBulkImportValueParser {
     }
 
     public static BooleanParseResult parseFoodIncluded(String raw) {
-        String value = blankToNull(raw);
-        if (value == null) {
-            return BooleanParseResult.blank();
+        FoodIncludedNormalizer.Result normalized = FoodIncludedNormalizer.normalize(raw);
+        if (normalized.error() != null) {
+            return BooleanParseResult.invalid(normalized.error());
         }
-        String key = classificationKey(value);
-        return switch (key) {
-            case "true", "yes", "y", "1", "included", "food included", "with food" ->
-                    BooleanParseResult.ok(Boolean.TRUE);
-            case "false",
-                    "no",
-                    "n",
-                    "0",
-                    "not included",
-                    "without food",
-                    "excluded",
-                    "food not included",
-                    "extra charge",
-                    "food charge extra",
-                    "charged extra",
-                    "food extra",
-                    "pay extra",
-                    "paid extra",
-                    "paid separately",
-                    "not included in rent",
-                    "optional",
-                    "optional separate plan",
-                    "separate plan",
-                    "no forced mess fee",
-                    "mess fee extra",
-                    "food optional" -> BooleanParseResult.ok(Boolean.FALSE);
-            default -> BooleanParseResult.invalid(
-                    "Food included must be yes/no or true/false (got: " + value + ")");
-        };
+        return BooleanParseResult.ok(normalized.value());
     }
 
     public static GenderParseResult parseGender(String raw) {
-        String value = blankToNull(raw);
-        if (value == null) {
-            return GenderParseResult.blank();
+        GenderNormalizer.Result normalized = GenderNormalizer.normalize(raw);
+        if (normalized.error() != null) {
+            return GenderParseResult.invalid(normalized.error());
         }
-        String key = value.trim().toLowerCase(Locale.ROOT).replace('_', ' ').replace('-', ' ');
-        key = key.replaceAll("\\s+", " ");
-        return switch (key) {
-            case "male", "m", "gents", "boys", "men", "boy" -> GenderParseResult.ok(GenderPolicy.MALE);
-            case "female", "f", "ladies", "girls", "women", "girl" -> GenderParseResult.ok(GenderPolicy.FEMALE);
-            case "mixed", "both", "unisex", "any", "all" -> GenderParseResult.ok(GenderPolicy.MIXED);
-            default -> GenderParseResult.invalid("Unknown gender policy: " + value);
-        };
+        return GenderParseResult.ok(normalized.value());
     }
 
     public static BigDecimalParseResult parseCoordinate(String raw, String fieldLabel) {
@@ -186,7 +125,18 @@ public final class PropertyBulkImportValueParser {
         }
         try {
             String normalized = value.replace(",", "").trim();
-            return BigDecimalParseResult.ok(new BigDecimal(normalized));
+            BigDecimal number = new BigDecimal(normalized);
+            if ("Latitude".equals(fieldLabel)
+                    && (number.compareTo(new BigDecimal("-90")) < 0
+                            || number.compareTo(new BigDecimal("90")) > 0)) {
+                return BigDecimalParseResult.invalid(fieldLabel + " is out of range (got: " + value + ")");
+            }
+            if ("Longitude".equals(fieldLabel)
+                    && (number.compareTo(new BigDecimal("-180")) < 0
+                            || number.compareTo(new BigDecimal("180")) > 0)) {
+                return BigDecimalParseResult.invalid(fieldLabel + " is out of range (got: " + value + ")");
+            }
+            return BigDecimalParseResult.ok(number);
         } catch (NumberFormatException ex) {
             return BigDecimalParseResult.invalid(fieldLabel + " must be a number (got: " + value + ")");
         }
@@ -323,24 +273,25 @@ public final class PropertyBulkImportValueParser {
         };
     }
 
-    private static String classificationKey(String value) {
+    static String classificationKey(String value) {
         String key = value.toLowerCase(Locale.ROOT);
         key = key.replace('-', ' ').replace('_', ' ').replace('/', ' ').replace('\\', ' ');
         key = key.replace('.', ' ').replace(',', ' ');
+        key = key.replace("'", "").replace("’", "").replace("`", "");
         key = MULTI_SPACE.matcher(key).replaceAll(" ").trim();
         key = key.replaceAll("\\bp\\s+g\\b", "pg");
         return key;
     }
 
-    private static boolean hasCoreMessPhrase(String key) {
+    static boolean hasCoreMessPhrase(String key) {
         return hasPhrase(key, "mess", "tiffin", "meal service", "meal services", "canteen", "food mess");
     }
 
-    private static boolean hasCateringFoodServicePhrase(String key) {
+    static boolean hasCateringFoodServicePhrase(String key) {
         return hasPhrase(key, "catering", "caterer", "food service", "food services");
     }
 
-    private static boolean hasExplicitLodging(String key) {
+    static boolean hasExplicitLodging(String key) {
         return hasPhrase(key, "co living", "coliving")
                 || hasWord(key, "pg")
                 || key.contains("paying guest")
@@ -362,7 +313,7 @@ public final class PropertyBulkImportValueParser {
      * Guest house is not a first-class type. Map to RENTAL only when no stronger
      * lodging/food category is present. Hotel is intentionally not included.
      */
-    private static boolean isGuestHouseFallback(String key) {
+    static boolean isGuestHouseFallback(String key) {
         if (!hasPhrase(key, "guest house", "guesthouse")) {
             return false;
         }
@@ -374,7 +325,7 @@ public final class PropertyBulkImportValueParser {
                 && !hasPhrase(key, "mess", "tiffin");
     }
 
-    private static boolean hasPhrase(String key, String... phrases) {
+    static boolean hasPhrase(String key, String... phrases) {
         for (String phrase : phrases) {
             if (phrase.indexOf(' ') >= 0) {
                 if (key.contains(phrase)) {
@@ -387,7 +338,7 @@ public final class PropertyBulkImportValueParser {
         return false;
     }
 
-    private static boolean hasWord(String key, String word) {
+    static boolean hasWord(String key, String word) {
         int from = 0;
         while (from <= key.length() - word.length()) {
             int at = key.indexOf(word, from);
@@ -439,6 +390,75 @@ public final class PropertyBulkImportValueParser {
         public boolean isInvalid() {
             return error != null;
         }
+
+        /** Reserved for values that parse, but should also be kept as a note. */
+        public String note() {
+            return null;
+        }
+    }
+
+    public static String normalizeFreeText(String raw) {
+        return blankToNull(raw);
+    }
+
+    public static String mergeUnmappedNotes(String existing, String note) {
+        String extra = blankToNull(note);
+        if (extra == null) {
+            return existing;
+        }
+        String current = blankToNull(existing);
+        if (current == null) {
+            return extra;
+        }
+        return current + "\n" + extra;
+    }
+
+    public enum PhoneKind {
+        MOBILE,
+        LANDLINE
+    }
+
+    public record PhoneParseResult(String value, String error, PhoneKind kind) {
+        public static PhoneParseResult blank() {
+            return new PhoneParseResult(null, null, null);
+        }
+
+        public static PhoneParseResult invalid(String message) {
+            return new PhoneParseResult(null, message, null);
+        }
+
+        public boolean isBlank() {
+            return value == null && error == null;
+        }
+
+        public boolean isInvalid() {
+            return error != null;
+        }
+    }
+
+    /**
+     * Indian mobiles become the contact field. Other digit strings are landlines and
+     * stay in notes, because registration validation only accepts {@code [6-9][0-9]{9}}.
+     */
+    public static PhoneParseResult parseContactPhone(String raw) {
+        String value = blankToNull(raw);
+        if (value == null) {
+            return PhoneParseResult.blank();
+        }
+        String digits = value.replaceAll("\\D", "");
+        if (digits.length() == 11 && digits.startsWith("0")) {
+            digits = digits.substring(1);
+        }
+        if (digits.length() > 10 && digits.startsWith("91")) {
+            digits = digits.substring(digits.length() - 10);
+        }
+        if (digits.matches("[6-9]\\d{9}")) {
+            return new PhoneParseResult(digits, null, PhoneKind.MOBILE);
+        }
+        if (digits.length() >= 6 && digits.length() <= 15) {
+            return new PhoneParseResult(digits, null, PhoneKind.LANDLINE);
+        }
+        return PhoneParseResult.invalid("Enter a valid phone number (got: " + value + ")");
     }
 
     public record GenderParseResult(GenderPolicy value, String error) {

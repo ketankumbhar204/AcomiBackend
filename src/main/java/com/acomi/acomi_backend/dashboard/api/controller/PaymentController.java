@@ -79,6 +79,18 @@ public class PaymentController {
         return ResponseEntity.ok(ApiResponse.success("Payments fetched successfully", response));
     }
 
+    @GetMapping("/stay-charges")
+    @Operation(
+            summary = "Active stay charges",
+            description = "Read-only current-month charges and deposit rows for occupied beds. Does not generate payments.")
+    public ResponseEntity<ApiResponse<SpacePaymentListResponse>> listActiveStayCharges(
+            @PathVariable UUID spaceId, @RequestParam(required = false) String month) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Stay charges fetched successfully",
+                spacePaymentService.listActiveStayCharges(spaceId, callerId, month)));
+    }
+
     @GetMapping("/summary")
     @Operation(
             summary = "Payments month summary",
@@ -230,14 +242,16 @@ public class PaymentController {
 
     @PostMapping("/{paymentId}/reminders")
     @Operation(
-            summary = "Send reminder for one payment",
-            description = "OWNER/MANAGER only. Same eligibility rules as batch processing.")
+            summary = "Prepare a payment reminder",
+            description = "OWNER/MANAGER only. Records an in-app reminder for the member when they "
+                    + "have an ACOMI account and returns a WhatsApp click-to-chat link. Does not send "
+                    + "the WhatsApp message and does not change the payment.")
     public ResponseEntity<ApiResponse<PaymentReminderDeliveryResponse>> processPaymentReminder(
             @PathVariable UUID spaceId, @PathVariable UUID paymentId) {
         UUID callerId = SecurityUtils.getCurrentUserId();
         return ResponseEntity.ok(ApiResponse.success(
-                "Payment reminder processed",
-                paymentReminderService.processPayment(spaceId, paymentId, callerId)));
+                "Payment reminder prepared",
+                paymentReminderService.prepareOwnerReminder(spaceId, paymentId, callerId)));
     }
 
     @PostMapping

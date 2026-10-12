@@ -7,11 +7,15 @@ import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.entity.MessRegistrationEntity;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRegistrationRepository;
+import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.property.infrastructure.persistence.entity.PropertyRegistrationEntity;
 import com.acomi.acomi_backend.property.infrastructure.persistence.repository.PropertyRegistrationRepository;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import com.acomi.acomi_backend.space.api.dto.response.DiscoverSpaceCardResponse;
 import com.acomi.acomi_backend.space.api.dto.response.DiscoverSpaceDetailResponse;
+import com.acomi.acomi_backend.space.application.support.DiscoverListingText;
+import com.acomi.acomi_backend.space.application.support.DiscoverPageCache;
+import com.acomi.acomi_backend.space.application.support.FoodAvailability;
 import com.acomi.acomi_backend.space.application.support.ListingInformationCompleteness;
 import com.acomi.acomi_backend.space.application.support.SpaceDiscoverQuery;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
@@ -20,12 +24,14 @@ import com.acomi.acomi_backend.space.infrastructure.persistence.repository.Space
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceDiscoverSpecs;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -48,6 +54,7 @@ public class SpaceDiscoverService {
     private final PropertyRegistrationRepository propertyRegistrationRepository;
     private final MessRegistrationRepository messRegistrationRepository;
     private final DiscoveryProperties discoveryProperties;
+    private final DiscoverPageCache pageCache = new DiscoverPageCache();
 
     @Transactional(readOnly = true)
     public PagedResponse<DiscoverSpaceCardResponse> discover(
@@ -88,8 +95,21 @@ public class SpaceDiscoverService {
                         query.types(),
                         query.minRent(),
                         query.maxRent(),
-                        query.amenityCodes());
+                        query.amenityCodes(),
+                        query.genders(),
+                        query.sharings(),
+                        query.foods(),
+                        query.furnishings(),
+                        query.contactAvailable(),
+                        query.servicedApartment(),
+                        query.mealTypes(),
+                        query.foodTypes());
         boolean includeTest = discoveryProperties.isIncludeTestSpaces();
+        String cacheKey = pageCacheKey(callerId, includeTest, normalized, safePageable);
+        PagedResponse<DiscoverSpaceCardResponse> cached = pageCache.get(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
 
         Specification<SpaceEntity> spec = SpaceDiscoverSpecs.discover(normalized, includeTest);
         Page<SpaceEntity> page = rankedPageQuery.find(spec, safePageable);
@@ -113,7 +133,7 @@ public class SpaceDiscoverService {
                         messesBySpace.get(space.getId())))
                 .toList();
 
-        return PagedResponse.<DiscoverSpaceCardResponse>builder()
+        PagedResponse<DiscoverSpaceCardResponse> response = PagedResponse.<DiscoverSpaceCardResponse>builder()
                 .content(content)
                 .page(page.getNumber())
                 .size(page.getSize())
@@ -122,6 +142,44 @@ public class SpaceDiscoverService {
                 .first(page.isFirst())
                 .last(page.isLast())
                 .build();
+        pageCache.put(cacheKey, response);
+        return response;
+    }
+
+    private static String pageCacheKey(
+            UUID callerId, boolean includeTest, SpaceDiscoverQuery query, Pageable pageable) {
+        String types = query.types().stream()
+                .map(Enum::name)
+                .sorted()
+                .collect(Collectors.joining(","));
+        String amenities = query.amenityCodes().stream()
+                .map(code -> code == null ? "" : code.trim().toUpperCase())
+                .sorted()
+                .collect(Collectors.joining(","));
+        String genders = query.genders().stream().map(Enum::name).sorted().collect(Collectors.joining(","));
+        String sharings = query.sharings().stream().map(Enum::name).sorted().collect(Collectors.joining(","));
+        String foods = query.foods().stream().map(Enum::name).sorted().collect(Collectors.joining(","));
+        String furnishings = query.furnishings().stream().map(Enum::name).sorted().collect(Collectors.joining(","));
+        return String.join(
+                "|",
+                callerId == null ? "" : callerId.toString(),
+                Boolean.toString(includeTest),
+                Integer.toString(pageable.getPageNumber()),
+                Integer.toString(pageable.getPageSize()),
+                query.search() == null ? "" : query.search(),
+                query.location() == null ? "" : query.location(),
+                types,
+                query.minRent() == null ? "" : query.minRent().toPlainString(),
+                query.maxRent() == null ? "" : query.maxRent().toPlainString(),
+                amenities,
+                genders,
+                sharings,
+                foods,
+                furnishings,
+                Boolean.toString(query.contactAvailable()),
+                Boolean.toString(query.servicedApartment()),
+                String.join(",", query.mealTypes().stream().sorted().toList()),
+                String.join(",", query.foodTypes().stream().sorted().toList()));
     }
 
     @Transactional(readOnly = true)
@@ -141,6 +199,58 @@ public class SpaceDiscoverService {
                 && spaceRepository.existsByIdAndOwnerIdAndIsActiveTrue(spaceId, callerId);
 
         return toDetail(space, amenities, alreadyMember, testSpace, ownedByCurrentUser, property, mess);
+    }
+
+    /** Rejects inactive or non-discoverable listings. Test listings follow the discovery flag. */
+    public void requireDiscoverable(UUID spaceId) {
+        findDiscoverableSpace(spaceId);
+    }
+
+    /**
+     * Cards for an ordered id list. Inactive spaces are omitted. Order of the remaining ids is kept.
+     */
+    @Transactional(readOnly = true)
+    public List<DiscoverSpaceCardResponse> cardsFor(UUID callerId, List<UUID> orderedSpaceIds) {
+        if (orderedSpaceIds == null || orderedSpaceIds.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, SpaceEntity> byId = new HashMap<>();
+        for (SpaceEntity space : spaceRepository.findAllById(orderedSpaceIds)) {
+            if (space != null && space.isActive() && space.getId() != null) {
+                byId.putIfAbsent(space.getId(), space);
+            }
+        }
+        List<UUID> visibleIds = new ArrayList<>();
+        List<SpaceEntity> visible = new ArrayList<>();
+        for (UUID spaceId : orderedSpaceIds) {
+            SpaceEntity space = byId.get(spaceId);
+            if (space == null || visibleIds.contains(spaceId)) {
+                continue;
+            }
+            visibleIds.add(spaceId);
+            visible.add(space);
+        }
+        if (visible.isEmpty()) {
+            return List.of();
+        }
+
+        Map<UUID, List<AmenityAssignmentDto>> amenitiesBySpace = spaceAmenityService.getForSpaces(visibleIds);
+        Set<UUID> memberSpaceIds = loadMemberSpaceIds(callerId, visibleIds);
+        Set<UUID> testSpaceIds = loadTestSpaceIds(visibleIds);
+        Map<UUID, PropertyRegistrationEntity> propertiesBySpace = loadPropertiesBySpace(visibleIds);
+        Map<UUID, MessRegistrationEntity> messesBySpace = loadMessesBySpace(visibleIds);
+
+        List<DiscoverSpaceCardResponse> cards = new ArrayList<>();
+        for (SpaceEntity space : visible) {
+            cards.add(toCard(
+                    space,
+                    amenitiesBySpace.getOrDefault(space.getId(), List.of()),
+                    memberSpaceIds.contains(space.getId()),
+                    testSpaceIds.contains(space.getId()),
+                    propertiesBySpace.get(space.getId()),
+                    messesBySpace.get(space.getId())));
+        }
+        return cards;
     }
 
     private SpaceEntity findDiscoverableSpace(UUID spaceId) {
@@ -233,6 +343,7 @@ public class SpaceDiscoverService {
                         property == null ? null : property.getAddressLine(),
                         mess == null ? null : mess.getAddressLine()))
                 .startingPrice(startingPrice)
+                .priceBasis(listedPriceBasis(space, property, mess))
                 .monthlyPrice(mess == null ? null : DiscoverListingSanitizer.positivePrice(mess.getMonthlyPrice()))
                 .mealPrice(mess == null ? null : DiscoverListingSanitizer.positivePrice(mess.getMealPrice()))
                 .mapUrl(propertyMap != null ? propertyMap : messMap)
@@ -241,10 +352,69 @@ public class SpaceDiscoverService {
                 .amenityCodes(amenities.stream().map(AmenityAssignmentDto::getCode).toList())
                 .amenityLabels(amenities.stream().map(AmenityAssignmentDto::getLabel).toList())
                 .foodIncludedInRent(space.isFoodIncludedInRent())
+                .foodAvailability(foodAvailability(space, property, mess, amenities))
+                .sharingNotes(sharingNotes(property, mess))
                 .genderPolicy(space.getGenderPolicy())
                 .alreadyMember(alreadyMember)
                 .testSpace(testSpace)
                 .build();
+    }
+
+    private static PriceBasis listedPriceBasis(
+            SpaceEntity space, PropertyRegistrationEntity property, MessRegistrationEntity mess) {
+        if (property != null) {
+            return property.getPriceBasis() != null
+                    ? property.getPriceBasis()
+                    : PriceBasis.forPropertyType(space.getType());
+        }
+        if (mess != null) {
+            return mess.getMonthlyPriceBasis() != null ? mess.getMonthlyPriceBasis() : PriceBasis.PER_UNIT;
+        }
+        return PriceBasis.forPropertyType(space.getType());
+    }
+
+    private static String sharingNotes(PropertyRegistrationEntity property, MessRegistrationEntity mess) {
+        String notes = property != null ? property.getSharingNotes() : null;
+        if (notes == null && mess != null) {
+            notes = mess.getSharingNotes();
+        }
+        return DiscoverListingSanitizer.text(notes);
+    }
+
+    /**
+     * Included, explicitly unavailable, or explicitly optional. A missing food answer stays null.
+     */
+    private static FoodAvailability foodAvailability(
+            SpaceEntity space,
+            PropertyRegistrationEntity property,
+            MessRegistrationEntity mess,
+            List<AmenityAssignmentDto> amenities) {
+        boolean includedAmenity = amenities.stream()
+                .anyMatch(amenity -> amenity.getCode() != null && "FOOD_INCLUDED".equalsIgnoreCase(amenity.getCode()));
+        boolean includedFlag = (property != null && Boolean.TRUE.equals(property.getFoodIncludedListing()))
+                || (mess != null && Boolean.TRUE.equals(mess.getFoodIncludedListing()));
+        if (space.isFoodIncludedInRent() || includedAmenity || includedFlag) {
+            return FoodAvailability.INCLUDED;
+        }
+        String notes = String.join(
+                " ",
+                textOrEmpty(property == null ? null : property.getUnmappedAmenities()),
+                textOrEmpty(property == null ? null : property.getSharingNotes()),
+                textOrEmpty(property == null ? null : property.getDescription()),
+                textOrEmpty(mess == null ? null : mess.getUnmappedAmenities()),
+                textOrEmpty(mess == null ? null : mess.getSharingNotes()),
+                textOrEmpty(mess == null ? null : mess.getDescription()));
+        if (DiscoverListingText.matchesFoodAvailable(notes)) {
+            return FoodAvailability.AVAILABLE;
+        }
+        boolean explicitNo = (property != null && Boolean.FALSE.equals(property.getFoodIncludedListing()))
+                || (mess != null && Boolean.FALSE.equals(mess.getFoodIncludedListing()));
+        return explicitNo ? FoodAvailability.NONE : null;
+    }
+
+    private static String textOrEmpty(String value) {
+        String text = DiscoverListingSanitizer.text(value);
+        return text == null ? "" : text;
     }
 
     private static DiscoverSpaceDetailResponse toDetail(
@@ -267,6 +437,7 @@ public class SpaceDiscoverService {
                         .amenityLabels(amenities.stream().map(AmenityAssignmentDto::getLabel).toList())
                         .amenities(amenities)
                         .foodIncludedInRent(space.isFoodIncludedInRent())
+                        .foodAvailability(foodAvailability(space, property, mess, amenities))
                         .genderPolicy(space.getGenderPolicy())
                         .alreadyMember(alreadyMember)
                         .testSpace(testSpace)
@@ -313,7 +484,9 @@ public class SpaceDiscoverService {
                 .mapUrl(DiscoverListingSanitizer.mapUrl(mess.getMapUrl()))
                 .description(DiscoverListingSanitizer.text(mess.getDescription()))
                 .monthlyPrice(DiscoverListingSanitizer.positivePrice(mess.getMonthlyPrice()))
-                .mealPrice(DiscoverListingSanitizer.positivePrice(mess.getMealPrice()));
+                .priceBasis(mess.getMonthlyPriceBasis() != null ? mess.getMonthlyPriceBasis() : PriceBasis.PER_UNIT)
+                .mealPrice(DiscoverListingSanitizer.positivePrice(mess.getMealPrice()))
+                .sharingNotes(DiscoverListingSanitizer.text(mess.getSharingNotes()));
     }
 
     private static boolean hasStoredContact(
@@ -377,7 +550,8 @@ public class SpaceDiscoverService {
      * Page and size only. {@link SpaceDiscoverRankedPageQuery} orders the filtered set by
      * information completeness, then createdAt desc, then id desc, and only then applies
      * this offset and limit. {@code sort} stays accepted for the existing "newest" contract;
-     * completeness is always the primary key.
+     * completeness is always the primary key. Repeated identical pages are served from
+     * {@link DiscoverPageCache} for {@link DiscoverPageCache#TTL_MILLIS}.
      */
     private static Pageable toSafePageable(Pageable pageable, String sort) {
         int page = pageable != null ? Math.max(pageable.getPageNumber(), 0) : 0;

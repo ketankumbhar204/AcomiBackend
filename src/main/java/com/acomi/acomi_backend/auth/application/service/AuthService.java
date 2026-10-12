@@ -46,6 +46,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -97,6 +98,7 @@ public class AuthService {
                     .mobileNumber(mobileNumber)
                     .fullName(request.getFullName().trim())
                     .passwordHash(passwordEncoder.encode(request.getPassword()))
+                    .credentialsChangedAt(now)
                     .mobileVerifiedAt(now)
                     .build());
             userRepository.flush();
@@ -110,7 +112,19 @@ public class AuthService {
     @Transactional(readOnly = true)
     public AuthTokenResponse login(LoginRequest request) {
         String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
-        UserEntity user = userRepository.findByMobileNumberAndIsActiveTrue(mobileNumber).orElse(null);
+        UserEntity user = findActiveByMobile(mobileNumber);
+        if (user == null) {
+            UserEntity existing = findAnyByMobile(mobileNumber);
+            if (existing != null && !existing.isActive()) {
+                throw new BusinessException("This account is inactive.", HttpStatus.FORBIDDEN);
+            }
+            throw new BusinessException(INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED);
+        }
+        if (!org.springframework.util.StringUtils.hasText(user.getPasswordHash())) {
+            throw new BusinessException(
+                    "Password sign-in is not set up for this mobile number. Use OTP sign-in, or ask an admin to set a password.",
+                    HttpStatus.UNAUTHORIZED);
+        }
         if (!passwordMatches(request.getPassword(), user)) {
             throw new BusinessException(INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED);
         }
@@ -139,6 +153,7 @@ public class AuthService {
         UserEntity user = userRepository.findByMobileNumberAndIsActiveTrue(mobileNumber)
                 .orElseThrow(() -> new BusinessException(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE));
         user.setPasswordHash(passwordEncoder.encode(request.getPassword()));
+        user.setCredentialsChangedAt(LocalDateTime.now());
         userRepository.save(user);
     }
 
@@ -612,8 +627,74 @@ public class AuthService {
         try {
             return passwordEncoder.matches(rawPassword, hash) && usable;
         } catch (IllegalArgumentException ex) {
+            return usable && rawBcryptMatches(rawPassword, hash);
+        }
+    }
+
+    /**
+     * Older rows may store a raw bcrypt hash without the delegating {@code {bcrypt}} id.
+     * {@link PasswordEncoder#matches} rejects those as malformed; compare them directly.
+     */
+    private static boolean rawBcryptMatches(String rawPassword, String hash) {
+        if (hash == null || hash.startsWith("{") || !hash.startsWith("$2")) {
             return false;
         }
+        try {
+            return new BCryptPasswordEncoder().matches(rawPassword, hash);
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
+    }
+
+    private UserEntity findActiveByMobile(String normalized) {
+        UserEntity direct = unwrap(userRepository.findByMobileNumberAndIsActiveTrue(normalized));
+        if (direct != null) {
+            return direct;
+        }
+        for (String legacy : List.of("+91" + normalized, "91" + normalized)) {
+            UserEntity found = unwrap(userRepository.findByMobileNumberAndIsActiveTrue(legacy));
+            if (found != null) {
+                return found;
+            }
+        }
+        return firstMatching(userRepository.findByNationalMobile(normalized), true);
+    }
+
+    private UserEntity findAnyByMobile(String normalized) {
+        UserEntity direct = unwrap(userRepository.findByMobileNumber(normalized));
+        if (direct != null) {
+            return direct;
+        }
+        for (String legacy : List.of("+91" + normalized, "91" + normalized)) {
+            UserEntity found = unwrap(userRepository.findByMobileNumber(legacy));
+            if (found != null) {
+                return found;
+            }
+        }
+        return firstMatching(userRepository.findByNationalMobile(normalized), false);
+    }
+
+    /** Prefer an exact earlier match. National lookup covers spaced or prefixed stored numbers. */
+    private static UserEntity firstMatching(List<UserEntity> matches, boolean activeOnly) {
+        if (matches == null) {
+            return null;
+        }
+        for (UserEntity user : matches) {
+            if (user == null) {
+                continue;
+            }
+            if (!activeOnly || user.isActive()) {
+                return user;
+            }
+        }
+        return null;
+    }
+
+    private static UserEntity unwrap(Optional<UserEntity> found) {
+        if (found == null || found.isEmpty()) {
+            return null;
+        }
+        return found.get();
     }
 
     private UserPrincipal getAuthenticatedPrincipal() {

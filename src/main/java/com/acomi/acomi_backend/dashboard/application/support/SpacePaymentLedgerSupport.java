@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.dashboard.application.support;
 
 import com.acomi.acomi_backend.dashboard.domain.model.MemberPaymentStatus;
+import com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentType;
 import com.acomi.acomi_backend.payment.infrastructure.persistence.entity.SpacePaymentEntity;
@@ -24,21 +25,52 @@ public class SpacePaymentLedgerSupport {
                 .collect(Collectors.groupingBy(payment -> payment.getMember().getId()));
     }
 
+    /** Monthly rent charge rows. Used only when occupancy billing did not already supply rent. */
+    public BigDecimal sumRecurringRentAmount(List<SpacePaymentEntity> payments) {
+        if (payments == null || payments.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        return payments.stream()
+                .filter(payment -> payment.getPaymentType() == SpacePaymentType.RENT
+                        && payment.getPaymentCategory() == SpacePaymentCategory.MONTHLY)
+                .map(SpacePaymentEntity::getAmount)
+                .filter(amount -> amount != null && amount.signum() > 0)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
     /**
      * One-time / manual dues that are not already in occupancy rent or meal expected.
-     * Includes DEPOSIT, MAINTENANCE, and OTHER (electricity, water, etc.).
+     * Recurring rent (RENT/MONTHLY) and generated meals (MEAL/MONTHLY, MEAL/DAILY) are excluded.
      */
     public BigDecimal sumNonRecurringObligationAmount(List<SpacePaymentEntity> payments) {
         if (payments == null || payments.isEmpty()) {
             return BigDecimal.ZERO;
         }
         return payments.stream()
-                .filter(payment -> payment.getPaymentType() == SpacePaymentType.DEPOSIT
-                        || payment.getPaymentType() == SpacePaymentType.MAINTENANCE
-                        || payment.getPaymentType() == SpacePaymentType.OTHER)
+                .filter(this::countsAsExtraObligation)
                 .map(SpacePaymentEntity::getAmount)
                 .filter(amount -> amount != null)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private boolean countsAsExtraObligation(SpacePaymentEntity payment) {
+        SpacePaymentType type = payment.getPaymentType();
+        SpacePaymentCategory category = payment.getPaymentCategory();
+        if (type == null || payment.getAmount() == null) {
+            return false;
+        }
+        if (type == SpacePaymentType.RENT) {
+            return category != SpacePaymentCategory.MONTHLY;
+        }
+        if (type == SpacePaymentType.MEAL) {
+            return category != SpacePaymentCategory.MONTHLY && category != SpacePaymentCategory.DAILY;
+        }
+        return type == SpacePaymentType.DEPOSIT
+                || type == SpacePaymentType.MAINTENANCE
+                || type == SpacePaymentType.UTILITY
+                || type == SpacePaymentType.SERVICE
+                || type == SpacePaymentType.PENALTY
+                || type == SpacePaymentType.OTHER;
     }
 
     public BigDecimal sumPaidAmount(List<SpacePaymentEntity> payments) {

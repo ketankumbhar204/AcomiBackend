@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.mess.application.service;
 
 import com.acomi.acomi_backend.mess.api.dto.request.AdminCreateMessRegistrationRequest;
 import com.acomi.acomi_backend.mess.api.dto.request.CreateMessRegistrationRequest;
+import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import java.math.BigDecimal;
 import lombok.Builder;
@@ -12,6 +13,7 @@ import lombok.Getter;
 public class MessRegistrationPayload {
 
     private String messName;
+    private String buildingName;
     private String ownerName;
     private String description;
     private String mobileNumber;
@@ -25,6 +27,7 @@ public class MessRegistrationPayload {
     private BigDecimal latitude;
     private BigDecimal longitude;
     private BigDecimal monthlyPrice;
+    private PriceBasis monthlyPriceBasis;
     private BigDecimal mealPrice;
     private Integer capacityEstimate;
     private Boolean testLead;
@@ -32,10 +35,12 @@ public class MessRegistrationPayload {
     private Boolean foodIncludedListing;
     private GenderPolicy genderPolicy;
     private String unmappedAmenities;
+    private java.util.List<String> photos;
 
     public static MessRegistrationPayload fromPublic(CreateMessRegistrationRequest request) {
         return MessRegistrationPayload.builder()
                 .messName(request.getMessName())
+                .buildingName(request.getBuildingName())
                 .ownerName(request.getOwnerName())
                 .description(request.getDescription())
                 .mobileNumber(request.getMobileNumber())
@@ -48,8 +53,10 @@ public class MessRegistrationPayload {
                 .latitude(request.getLatitude())
                 .longitude(request.getLongitude())
                 .monthlyPrice(request.getMonthlyPrice())
+                .monthlyPriceBasis(request.getMonthlyPriceBasis())
                 .mealPrice(request.getMealPrice())
                 .capacityEstimate(request.getCapacityEstimate())
+                .photos(request.getPhotos())
                 .build();
     }
 
@@ -69,6 +76,7 @@ public class MessRegistrationPayload {
                 .latitude(request.getLatitude())
                 .longitude(request.getLongitude())
                 .monthlyPrice(request.getMonthlyPrice())
+                .monthlyPriceBasis(request.getMonthlyPriceBasis())
                 .mealPrice(request.getMealPrice())
                 .capacityEstimate(request.getCapacityEstimate())
                 .testLead(request.getTestLead())

@@ -37,6 +37,13 @@ public class DailyMenuOptionResponse {
 
     public static DailyMenuOptionResponse from(
             DailyMenuEntryEntity entity, List<DailyMenuPackageItemEntity> packageItems) {
+        return from(entity, packageItems, entity.isExtra());
+    }
+
+    public static DailyMenuOptionResponse from(
+            DailyMenuEntryEntity entity,
+            List<DailyMenuPackageItemEntity> packageItems,
+            boolean extra) {
         List<DailyMenuPackageItemResponse> items = packageItems.stream()
                 .map(pi -> DailyMenuPackageItemResponse.builder()
                         .itemId(pi.getItem().getId())
@@ -53,7 +60,7 @@ public class DailyMenuOptionResponse {
                 .price(resolvePrice(entity))
                 .currencyCode(resolveCurrencyCode(entity))
                 .available(entity.isAvailable())
-                .extra(entity.isExtra())
+                .extra(extra)
                 .packageItems(items.isEmpty() ? null : items)
                 .build();
     }

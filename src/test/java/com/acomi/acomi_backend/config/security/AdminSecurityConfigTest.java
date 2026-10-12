@@ -59,7 +59,8 @@ class AdminSecurityConfigTest {
                 .contains("/api/v1/admin/registered-users")
                 .contains("@GetMapping(\"/{id}\")")
                 .contains("@PostMapping")
-                .contains("createTestUser");
+                .contains("createTestUser")
+                .contains("@PostMapping(\"/{id}/reset-password\")");
         assertThat(content).doesNotContain("@PermitAll");
     }
 

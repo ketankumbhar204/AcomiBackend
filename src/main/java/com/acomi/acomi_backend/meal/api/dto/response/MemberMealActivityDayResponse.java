@@ -20,6 +20,10 @@ public class MemberMealActivityDayResponse {
     private boolean hasActivity;
 
     private BigDecimal dayTotal;
+    /**
+     * False when an accepted meal has no catalog or menu price, so the day total must not be shown as zero.
+     */
+    private boolean amountKnown;
     private String currencyCode;
     private MealPollPaymentStatus paymentStatus;
     private String paymentBatchId;

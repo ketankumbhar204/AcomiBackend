@@ -23,6 +23,7 @@ import com.acomi.acomi_backend.member.domain.model.MemberGender;
 import com.acomi.acomi_backend.member.domain.model.MemberHistoryAction;
 import com.acomi.acomi_backend.member.domain.model.MemberStatus;
 import com.acomi.acomi_backend.member.domain.model.MembershipRole;
+import com.acomi.acomi_backend.member.domain.model.MembershipRoleLinkPolicy;
 import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberDocumentEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
@@ -96,6 +97,7 @@ public class MemberMasterService {
     private final FileAuthorizationService fileAuthorizationService;
     private final InvitationNotificationSyncService invitationNotificationSyncService;
     private final MembershipNotificationSyncService membershipNotificationSyncService;
+    private final MemberDepositLedger memberDepositLedger;
 
     @Transactional
     public MemberResponse createMember(UUID spaceId, UUID callerId, CreateMemberRequest request) {
@@ -451,7 +453,7 @@ public class MemberMasterService {
 
         MemberEntity saved = memberRepository.save(member);
         membershipNotificationSyncService.onMemberRoleChanged(saved, previousRole, saved.getRole());
-        return MemberDetailsResponse.from(saved);
+        return toMemberDetails(saved);
     }
 
     @Transactional
@@ -489,7 +491,7 @@ public class MemberMasterService {
         MemberStatus previousStatus = member.getStatus();
 
         if (previousStatus == request.getStatus()) {
-            return MemberDetailsResponse.from(member);
+            return toMemberDetails(member);
         }
 
         member.setStatus(request.getStatus());
@@ -505,7 +507,7 @@ public class MemberMasterService {
         membershipNotificationSyncService.onMemberStatusChanged(
                 saved, previousStatus.name(), request.getStatus().name());
 
-        return MemberDetailsResponse.from(saved);
+        return toMemberDetails(saved);
     }
 
     @Transactional
@@ -532,7 +534,7 @@ public class MemberMasterService {
                 formatEmergencyContact(saved),
                 callerId);
 
-        return MemberDetailsResponse.from(saved);
+        return toMemberDetails(saved);
     }
 
     @Transactional
@@ -546,6 +548,7 @@ public class MemberMasterService {
         validateDeposit(request);
 
         MemberEntity member = loadActiveMember(spaceId, memberId);
+        memberDepositLedger.assertManualPaidAllowed(member, request.getDepositPaid());
         String previousValue = formatDeposit(member);
 
         member.setDepositAmount(request.getDepositAmount());
@@ -553,6 +556,7 @@ public class MemberMasterService {
         member.setDepositRefunded(request.getDepositRefunded());
 
         MemberEntity saved = memberRepository.save(member);
+        memberDepositLedger.syncContractDeposit(saved, request.getDepositAmount());
         recordHistory(
                 saved,
                 MemberHistoryAction.DEPOSIT_UPDATED,
@@ -560,7 +564,7 @@ public class MemberMasterService {
                 formatDeposit(saved),
                 callerId);
 
-        return MemberDetailsResponse.from(saved);
+        return toMemberDetails(saved);
     }
 
     @Transactional
@@ -704,7 +708,10 @@ public class MemberMasterService {
             MemberEntity member = existing.get();
             member.setUser(membership.getUser());
             member.setMembership(membership);
-            member.setRole(membership.getRole());
+            member.setRole(MembershipRoleLinkPolicy.roleAfterLink(
+                    member.getRole(),
+                    membership.getRole(),
+                    membership.getSpace().getType()));
             return memberRepository.save(member);
         }
 
@@ -1015,11 +1022,12 @@ public class MemberMasterService {
 
     private MemberDetailsResponse toMemberDetails(MemberEntity member) {
         UUID spaceId = member.getSpace().getId();
-        return MemberDetailsResponse.from(
+        MemberDetailsResponse response = MemberDetailsResponse.from(
                 member,
                 occupancyService.findCurrentOccupancySummary(spaceId, member.getId()).orElse(null),
                 mealParticipationService.findActiveSummaryForMember(spaceId, member.getId()).orElse(null),
                 occupancyService.findAssignedAmenitiesForMember(spaceId, member.getId()));
+        return memberDepositLedger.apply(member, response);
     }
 
     private UserResponse resolveLinkedUserProfile(

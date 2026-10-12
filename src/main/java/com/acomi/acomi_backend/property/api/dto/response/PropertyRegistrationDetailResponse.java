@@ -21,6 +21,7 @@ public class PropertyRegistrationDetailResponse {
     private String reference;
     private SpaceType propertyType;
     private String propertyName;
+    private String buildingName;
     private String ownerName;
     private String mobileNumber;
     private String alternateMobileNumber;

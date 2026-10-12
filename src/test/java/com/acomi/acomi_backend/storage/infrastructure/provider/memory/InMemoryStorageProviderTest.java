@@ -8,6 +8,8 @@ import com.acomi.acomi_backend.storage.infrastructure.provider.DownloadGrant;
 import com.acomi.acomi_backend.storage.infrastructure.provider.ObjectMetadata;
 import com.acomi.acomi_backend.storage.infrastructure.provider.UploadGrant;
 import java.io.ByteArrayInputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,5 +58,18 @@ class InMemoryStorageProviderTest {
     @Test
     void doesNotSupportDirectBrowserUpload() {
         assertThat(provider.supportsDirectBrowserUpload()).isFalse();
+    }
+
+    @Test
+    void reloadsObjectsAfterRestart() throws Exception {
+        Path dir = Files.createTempDirectory("acomi-storage");
+        byte[] bytes = new byte[] {9, 8, 7};
+        InMemoryStorageProvider first = new InMemoryStorageProvider(dir);
+        first.putStream("bucket", "qr/image", new ByteArrayInputStream(bytes), bytes.length, "image/png");
+
+        InMemoryStorageProvider restarted = new InMemoryStorageProvider(dir);
+        assertThat(restarted.head("bucket", "qr/image").exists()).isTrue();
+        assertThat(restarted.head("bucket", "qr/image").contentType()).isEqualTo("image/png");
+        assertThat(restarted.openStream("bucket", "qr/image").readAllBytes()).isEqualTo(bytes);
     }
 }

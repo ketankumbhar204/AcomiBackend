@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.property.api.dto.request;
 
+import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -90,6 +91,9 @@ public class AdminCreatePropertyRegistrationRequest {
     @DecimalMin(value = "0", message = "Starting price cannot be negative")
     @DecimalMax(value = "9999999999", message = "Starting price is too large")
     private BigDecimal startingPrice;
+
+    @Schema(description = "Optional pricing unit. Defaults from the property type when omitted.", example = "PER_BED")
+    private PriceBasis priceBasis;
 
     @Min(value = 0, message = "Capacity cannot be negative")
     @Max(value = 100000, message = "Capacity is too large")

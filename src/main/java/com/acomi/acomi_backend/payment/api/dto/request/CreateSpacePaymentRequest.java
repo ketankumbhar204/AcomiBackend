@@ -5,6 +5,7 @@ import com.acomi.acomi_backend.payment.domain.model.SpacePaymentType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -35,9 +36,15 @@ public class CreateSpacePaymentRequest {
     @Schema(description = "Due date; defaults to today")
     private LocalDate dueDate;
 
+    @Size(max = 200)
     @Schema(description = "Display title; defaults from type")
     private String title;
 
+    @Size(max = 500)
+    @Schema(description = "Optional charge description")
+    private String description;
+
+    @Size(max = 2000)
     private String remarks;
 
     @Schema(description = "Required when a DEPOSIT/SECURITY row already exists for the member")

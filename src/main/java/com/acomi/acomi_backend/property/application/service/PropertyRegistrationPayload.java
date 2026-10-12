@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.property.application.service;
 
 import com.acomi.acomi_backend.property.api.dto.request.AdminCreatePropertyRegistrationRequest;
 import com.acomi.acomi_backend.property.api.dto.request.CreatePropertyRegistrationRequest;
+import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
@@ -17,6 +18,7 @@ public class PropertyRegistrationPayload {
 
     private SpaceType propertyType;
     private String propertyName;
+    private String buildingName;
     private String ownerName;
     private String description;
     private String mobileNumber;
@@ -30,6 +32,7 @@ public class PropertyRegistrationPayload {
     private BigDecimal latitude;
     private BigDecimal longitude;
     private BigDecimal startingPrice;
+    private PriceBasis priceBasis;
     private Integer capacityEstimate;
     private List<AmenityAssignmentDto> amenities;
     private Boolean testLead;
@@ -37,11 +40,13 @@ public class PropertyRegistrationPayload {
     private Boolean foodIncludedListing;
     private GenderPolicy genderPolicy;
     private String unmappedAmenities;
+    private List<String> photos;
 
     public static PropertyRegistrationPayload fromPublic(CreatePropertyRegistrationRequest request) {
         return PropertyRegistrationPayload.builder()
                 .propertyType(request.getPropertyType())
                 .propertyName(request.getPropertyName())
+                .buildingName(request.getBuildingName())
                 .ownerName(request.getOwnerName())
                 .description(request.getDescription())
                 .mobileNumber(request.getMobileNumber())
@@ -54,8 +59,10 @@ public class PropertyRegistrationPayload {
                 .latitude(request.getLatitude())
                 .longitude(request.getLongitude())
                 .startingPrice(request.getStartingPrice())
+                .priceBasis(request.getPriceBasis())
                 .capacityEstimate(request.getCapacityEstimate())
                 .amenities(request.getAmenities())
+                .photos(request.getPhotos())
                 .build();
     }
 
@@ -76,6 +83,7 @@ public class PropertyRegistrationPayload {
                 .latitude(request.getLatitude())
                 .longitude(request.getLongitude())
                 .startingPrice(request.getStartingPrice())
+                .priceBasis(request.getPriceBasis())
                 .capacityEstimate(request.getCapacityEstimate())
                 .amenities(request.getAmenities())
                 .testLead(request.getTestLead())

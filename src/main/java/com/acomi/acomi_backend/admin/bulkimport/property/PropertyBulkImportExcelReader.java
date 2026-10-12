@@ -4,15 +4,22 @@ import com.acomi.acomi_backend.common.exception.BusinessException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import javax.xml.stream.XMLInputFactory;
+import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamReader;
+import org.apache.poi.openxml4j.opc.OPCPackage;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.DataFormatter;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.eventusermodel.ReadOnlySharedStringsTable;
+import org.apache.poi.xssf.eventusermodel.XSSFReader;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.multipart.MultipartFile;
@@ -21,7 +28,7 @@ import org.springframework.web.multipart.MultipartFile;
 public final class PropertyBulkImportExcelReader {
 
     public static final long MAX_FILE_BYTES = 5L * 1024 * 1024;
-    public static final int MAX_DATA_ROWS = 1000;
+    public static final int MAX_DATA_ROWS = 2000;
 
     private static final DataFormatter FORMATTER = new DataFormatter();
 
@@ -52,8 +59,38 @@ public final class PropertyBulkImportExcelReader {
 
     public record ParsedWorkbook(List<String> headers, List<Map<String, String>> dataRows) {}
 
-    public static ParsedWorkbook parse(MultipartFile file) {
+    public static String dataRowLimitMessage() {
+        return "File exceeds maximum of " + MAX_DATA_ROWS
+                + " data rows. Import stopped. Maximum allowed: " + MAX_DATA_ROWS
+                + ". Please upload a smaller file.";
+    }
+
+    /**
+     * Counts populated data rows from worksheet XML and stops at {@code MAX_DATA_ROWS + 1}.
+     * The header row is ignored. Blank rows are not counted. Does not validate cell values.
+     */
+    public static void assertWithinDataRowLimit(MultipartFile file) {
         validateFile(file);
+        try (InputStream in = file.getInputStream(); OPCPackage pkg = OPCPackage.open(in)) {
+            ReadOnlySharedStringsTable strings = new ReadOnlySharedStringsTable(pkg);
+            XSSFReader reader = new XSSFReader(pkg);
+            Iterator<InputStream> sheets = reader.getSheetsData();
+            if (!sheets.hasNext()) {
+                throw new BusinessException("Workbook has no sheets", HttpStatus.BAD_REQUEST);
+            }
+            try (InputStream sheet = sheets.next()) {
+                countFilledDataRows(sheet, strings);
+            }
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(
+                    "Invalid or corrupt .xlsx file: " + ex.getMessage(), HttpStatus.BAD_REQUEST);
+        }
+    }
+
+    public static ParsedWorkbook parse(MultipartFile file) {
+        assertWithinDataRowLimit(file);
         try (InputStream in = file.getInputStream(); Workbook workbook = new XSSFWorkbook(in)) {
             Sheet sheet = workbook.getSheetAt(0);
             if (sheet == null) {
@@ -76,9 +113,7 @@ public final class PropertyBulkImportExcelReader {
             }
             long filledRows = dataRows.stream().filter(row -> !isEmptyRow(row)).count();
             if (filledRows > MAX_DATA_ROWS) {
-                throw new BusinessException(
-                        "File exceeds maximum of " + MAX_DATA_ROWS + " data rows",
-                        HttpStatus.BAD_REQUEST);
+                throw new BusinessException(dataRowLimitMessage(), HttpStatus.BAD_REQUEST);
             }
             return new ParsedWorkbook(headers, dataRows);
         } catch (BusinessException ex) {
@@ -130,6 +165,93 @@ public final class PropertyBulkImportExcelReader {
             end--;
         }
         return new ArrayList<>(headers.subList(0, end));
+    }
+
+    private static void countFilledDataRows(InputStream sheet, ReadOnlySharedStringsTable strings)
+            throws Exception {
+        XMLInputFactory factory = XMLInputFactory.newFactory();
+        factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
+        factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
+        XMLStreamReader xml = factory.createXMLStreamReader(sheet);
+        try {
+            int filled = 0;
+            int sequentialRow = 0;
+            boolean inRow = false;
+            int rowNumber = 0;
+            boolean rowHasValue = false;
+            boolean inCell = false;
+            String cellType = null;
+            boolean captureText = false;
+            StringBuilder text = new StringBuilder();
+            while (xml.hasNext()) {
+                int event = xml.next();
+                if (event == XMLStreamConstants.START_ELEMENT) {
+                    String name = xml.getLocalName();
+                    if ("row".equals(name)) {
+                        inRow = true;
+                        sequentialRow++;
+                        String r = attribute(xml, "r");
+                        rowNumber = r == null ? sequentialRow : Integer.parseInt(r);
+                        rowHasValue = false;
+                    } else if (inRow && "c".equals(name)) {
+                        inCell = true;
+                        cellType = attribute(xml, "t");
+                        text.setLength(0);
+                    } else if (inCell && ("v".equals(name) || "t".equals(name))) {
+                        captureText = true;
+                        text.setLength(0);
+                    }
+                } else if ((event == XMLStreamConstants.CHARACTERS || event == XMLStreamConstants.CDATA)
+                        && captureText) {
+                    text.append(xml.getText());
+                } else if (event == XMLStreamConstants.END_ELEMENT) {
+                    String name = xml.getLocalName();
+                    if ("v".equals(name) || "t".equals(name)) {
+                        captureText = false;
+                    } else if ("c".equals(name) && inCell) {
+                        if (cellHasText(cellType, text.toString(), strings)) {
+                            rowHasValue = true;
+                        }
+                        inCell = false;
+                        cellType = null;
+                    } else if ("row".equals(name) && inRow) {
+                        if (rowNumber > 1 && rowHasValue) {
+                            filled++;
+                            if (filled > MAX_DATA_ROWS) {
+                                throw new BusinessException(dataRowLimitMessage(), HttpStatus.BAD_REQUEST);
+                            }
+                        }
+                        inRow = false;
+                    }
+                }
+            }
+        } finally {
+            xml.close();
+        }
+    }
+
+    private static String attribute(XMLStreamReader xml, String localName) {
+        for (int i = 0; i < xml.getAttributeCount(); i++) {
+            if (localName.equals(xml.getAttributeLocalName(i))) {
+                return xml.getAttributeValue(i);
+            }
+        }
+        return null;
+    }
+
+    private static boolean cellHasText(String type, String raw, ReadOnlySharedStringsTable strings) {
+        if (raw == null || raw.isBlank()) {
+            return false;
+        }
+        String value = raw;
+        if ("s".equals(type)) {
+            try {
+                value = strings.getItemAt(Integer.parseInt(raw.trim())).getString();
+            } catch (RuntimeException ex) {
+                return true;
+            }
+        }
+        return value != null && !value.isBlank();
     }
 
     static String cellAsString(Cell cell) {

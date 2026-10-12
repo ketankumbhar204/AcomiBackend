@@ -64,7 +64,7 @@ public class MemberDetailsResponse {
     private BigDecimal depositPaid;
     private BigDecimal depositRefunded;
 
-    @Schema(description = "Computed deposit balance: depositPaid minus depositRefunded")
+    @Schema(description = "Money still held: deposit paid minus deposit refunded")
     private BigDecimal depositBalance;
 
     @Schema(description = "Member meal billing override; null inherits the space default")

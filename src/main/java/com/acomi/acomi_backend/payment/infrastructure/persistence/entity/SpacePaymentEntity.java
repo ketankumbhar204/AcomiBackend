@@ -18,7 +18,6 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -30,19 +29,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(
-        name = "space_payments",
-        uniqueConstraints =
-                @UniqueConstraint(
-                        name = "uq_space_payments_period",
-                        columnNames = {
-                            "space_id",
-                            "member_id",
-                            "month",
-                            "payment_type",
-                            "payment_category",
-                            "due_date"
-                        }))
+@Table(name = "space_payments")
 @Getter
 @Setter
 @NoArgsConstructor
@@ -72,6 +59,9 @@ public class SpacePaymentEntity extends BaseEntity {
 
     @Column(name = "title", nullable = false, length = 200)
     private String title;
+
+    @Column(name = "description", length = 500)
+    private String description;
 
     @Column(name = "amount", nullable = false, precision = 12, scale = 2)
     private BigDecimal amount;

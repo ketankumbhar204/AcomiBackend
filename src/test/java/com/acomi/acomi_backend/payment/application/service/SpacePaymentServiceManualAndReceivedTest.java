@@ -296,4 +296,205 @@ class SpacePaymentServiceManualAndReceivedTest {
         verify(paymentRepository).save(captor.capture());
         assertThat(captor.getValue().getAmount()).isEqualByComparingTo("1500");
     }
+
+    @Test
+    void createManualPayment_createsMaintenanceRepair() {
+        stubMember();
+        CreateSpacePaymentRequest request = manualRequest(
+                SpacePaymentType.MAINTENANCE, SpacePaymentCategory.EXTRA, "1500");
+        request.setTitle("Repair");
+        request.setDescription("Bathroom tap replacement");
+        request.setDueDate(LocalDate.of(2026, 10, 5));
+
+        var response = spacePaymentService.createManualPayment(spaceId, callerId, request);
+
+        assertThat(response.getPaymentType()).isEqualTo(SpacePaymentType.MAINTENANCE);
+        assertThat(response.getTitle()).isEqualTo("Repair");
+        assertThat(response.getDescription()).isEqualTo("Bathroom tap replacement");
+        assertThat(response.getPaymentStatus()).isEqualTo(SpacePaymentStatus.PENDING);
+        assertThat(response.getDueDate()).isEqualTo(LocalDate.of(2026, 10, 5));
+    }
+
+    @Test
+    void createManualPayment_createsSecurityDeposit() {
+        stubMember();
+        CreateSpacePaymentRequest request = manualRequest(
+                SpacePaymentType.DEPOSIT, SpacePaymentCategory.SECURITY, "10000");
+        request.setTitle("Security deposit");
+
+        var response = spacePaymentService.createManualPayment(spaceId, callerId, request);
+
+        assertThat(response.getPaymentType()).isEqualTo(SpacePaymentType.DEPOSIT);
+        assertThat(response.getPaymentCategory()).isEqualTo(SpacePaymentCategory.SECURITY);
+        assertThat(response.getPaymentStatus()).isEqualTo(SpacePaymentStatus.PENDING);
+    }
+
+    @Test
+    void createManualPayment_createsElectricityUtility() {
+        stubMember();
+        CreateSpacePaymentRequest request = manualRequest(
+                SpacePaymentType.UTILITY, SpacePaymentCategory.ELECTRICITY, "850");
+        request.setTitle("Electricity");
+
+        var response = spacePaymentService.createManualPayment(spaceId, callerId, request);
+
+        assertThat(response.getPaymentType()).isEqualTo(SpacePaymentType.UTILITY);
+        assertThat(response.getAmount()).isEqualByComparingTo("850");
+        assertThat(response.getPaymentStatus()).isEqualTo(SpacePaymentStatus.PENDING);
+    }
+
+    @Test
+    void createManualPayment_createsMealExtraWithoutTouchingMonthlyMeal() {
+        stubMember();
+        CreateSpacePaymentRequest request = manualRequest(
+                SpacePaymentType.MEAL, SpacePaymentCategory.EXTRA, "400");
+        request.setTitle("Extra meals");
+
+        var response = spacePaymentService.createManualPayment(spaceId, callerId, request);
+
+        assertThat(response.getPaymentType()).isEqualTo(SpacePaymentType.MEAL);
+        assertThat(response.getPaymentCategory()).isEqualTo(SpacePaymentCategory.EXTRA);
+    }
+
+    @Test
+    void createManualPayment_createsPenalty() {
+        stubMember();
+        CreateSpacePaymentRequest request = manualRequest(
+                SpacePaymentType.PENALTY, SpacePaymentCategory.EXTRA, "200");
+        request.setTitle("Late payment fee");
+
+        var response = spacePaymentService.createManualPayment(spaceId, callerId, request);
+
+        assertThat(response.getPaymentType()).isEqualTo(SpacePaymentType.PENALTY);
+        assertThat(response.getTitle()).isEqualTo("Late payment fee");
+    }
+
+    @Test
+    void createManualPayment_createsOtherCharge() {
+        stubMember();
+        CreateSpacePaymentRequest request = manualRequest(
+                SpacePaymentType.OTHER, SpacePaymentCategory.OTHER, "75");
+        request.setTitle("Miscellaneous");
+        request.setRemarks("Gate remote");
+
+        var response = spacePaymentService.createManualPayment(spaceId, callerId, request);
+
+        assertThat(response.getPaymentType()).isEqualTo(SpacePaymentType.OTHER);
+        assertThat(response.getRemarks()).isEqualTo("Gate remote");
+    }
+
+    @Test
+    void createManualPayment_rejectsNonPositiveAmount() {
+        CreateSpacePaymentRequest request = manualRequest(
+                SpacePaymentType.MAINTENANCE, SpacePaymentCategory.EXTRA, "0");
+
+        assertThatThrownBy(() -> spacePaymentService.createManualPayment(spaceId, callerId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("valid amount");
+        verify(paymentRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void createManualPayment_rejectsUnknownMember() {
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        when(memberRepository.findByIdAndSpaceIdAndActiveTrue(memberId, spaceId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> spacePaymentService.createManualPayment(
+                        spaceId, callerId, manualRequest(SpacePaymentType.SERVICE, SpacePaymentCategory.EXTRA, "100")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Member not found");
+    }
+
+    @Test
+    void createManualPayment_rejectsMemberFromAnotherSpace() {
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        when(memberRepository.findByIdAndSpaceIdAndActiveTrue(memberId, spaceId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> spacePaymentService.createManualPayment(
+                        spaceId, callerId, manualRequest(SpacePaymentType.SERVICE, SpacePaymentCategory.EXTRA, "100")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Member not found");
+        verify(paymentRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void createManualPayment_rejectsUnauthorizedCaller() {
+        doThrow(new BusinessException("Only OWNER or MANAGER can review payments", HttpStatus.FORBIDDEN))
+                .when(accessService)
+                .requireManagePayments(spaceId, callerId);
+
+        assertThatThrownBy(() -> spacePaymentService.createManualPayment(
+                        spaceId, callerId, manualRequest(SpacePaymentType.MAINTENANCE, SpacePaymentCategory.EXTRA, "100")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("OWNER or MANAGER");
+    }
+
+    @Test
+    void createManualPayment_repeatedCallsCreateIndependentRecords() {
+        stubMember();
+        CreateSpacePaymentRequest first = manualRequest(
+                SpacePaymentType.MAINTENANCE, SpacePaymentCategory.EXTRA, "1500");
+        first.setTitle("Repair");
+        CreateSpacePaymentRequest second = manualRequest(
+                SpacePaymentType.UTILITY, SpacePaymentCategory.ELECTRICITY, "850");
+        second.setTitle("Electricity");
+
+        spacePaymentService.createManualPayment(spaceId, callerId, first);
+        spacePaymentService.createManualPayment(spaceId, callerId, second);
+
+        verify(paymentRepository, org.mockito.Mockito.times(2)).save(any());
+    }
+
+    @Test
+    void createManualPayment_rejectsGeneratedMonthlyRent() {
+        CreateSpacePaymentRequest request = manualRequest(
+                SpacePaymentType.RENT, SpacePaymentCategory.MONTHLY, "6000");
+
+        assertThatThrownBy(() -> spacePaymentService.createManualPayment(spaceId, callerId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("generated automatically");
+        verify(paymentRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    @Test
+    void createManualPayment_allowsAdvanceRentBesideMonthlyRent() {
+        stubMember();
+        CreateSpacePaymentRequest request = manualRequest(
+                SpacePaymentType.RENT, SpacePaymentCategory.ADVANCE, "6000");
+        request.setTitle("Advance rent");
+
+        var response = spacePaymentService.createManualPayment(spaceId, callerId, request);
+
+        assertThat(response.getPaymentCategory()).isEqualTo(SpacePaymentCategory.ADVANCE);
+        assertThat(response.getPaymentStatus()).isEqualTo(SpacePaymentStatus.PENDING);
+    }
+
+    @Test
+    void createManualPayment_storesDueDate() {
+        stubMember();
+        CreateSpacePaymentRequest request = manualRequest(
+                SpacePaymentType.SERVICE, SpacePaymentCategory.EXTRA, "300");
+        request.setDueDate(LocalDate.of(2026, 10, 5));
+        request.setTitle("Laundry");
+
+        var response = spacePaymentService.createManualPayment(spaceId, callerId, request);
+
+        assertThat(response.getDueDate()).isEqualTo(LocalDate.of(2026, 10, 5));
+        assertThat(response.getMonth()).isEqualTo("2026-10");
+    }
+
+    private void stubMember() {
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        when(memberRepository.findByIdAndSpaceIdAndActiveTrue(memberId, spaceId)).thenReturn(Optional.of(member));
+    }
+
+    private CreateSpacePaymentRequest manualRequest(
+            SpacePaymentType type, SpacePaymentCategory category, String amount) {
+        CreateSpacePaymentRequest request = new CreateSpacePaymentRequest();
+        request.setMemberId(memberId);
+        request.setPaymentType(type);
+        request.setPaymentCategory(category);
+        request.setAmount(new BigDecimal(amount));
+        return request;
+    }
 }

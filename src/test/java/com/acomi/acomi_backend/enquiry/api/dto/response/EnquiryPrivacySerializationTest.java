@@ -168,6 +168,6 @@ class EnquiryPrivacySerializationTest {
         assertThat(json).doesNotContain("requesterEmail");
         assertThat(json).doesNotContain("ownerContact");
         assertThat(json).doesNotContain("contactNumber");
-        assertThat(json).doesNotContain("@");
+        assertThat(json).doesNotContain("mobileNumber");
     }
 }

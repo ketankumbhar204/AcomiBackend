@@ -19,6 +19,20 @@ public interface SpaceEnquiryDeliveryRepository extends JpaRepository<SpaceEnqui
     boolean existsBySpaceIdAndRequesterUserIdAndDeliveryChannel(
             UUID spaceId, UUID requesterUserId, EnquiryDeliveryChannel deliveryChannel);
 
+    @Query(
+            """
+            SELECT COUNT(d) > 0 FROM SpaceEnquiryDeliveryEntity d
+            WHERE d.spaceId = :spaceId
+              AND d.requesterUserId = :requesterUserId
+              AND d.deliveryChannel = :channel
+              AND d.expiresAt > :now
+            """)
+    boolean existsActiveBySpaceAndRequesterAndChannel(
+            @Param("spaceId") UUID spaceId,
+            @Param("requesterUserId") UUID requesterUserId,
+            @Param("channel") EnquiryDeliveryChannel channel,
+            @Param("now") LocalDateTime now);
+
     Optional<SpaceEnquiryDeliveryEntity>
             findBySpaceIdAndRequesterUserIdAndDeliveryChannelAndRecipientEmail(
                     UUID spaceId,
@@ -93,6 +107,23 @@ public interface SpaceEnquiryDeliveryRepository extends JpaRepository<SpaceEnqui
             @Param("spaceId") UUID spaceId,
             @Param("requesterUserId") UUID requesterUserId,
             @Param("email") String email,
+            @Param("now") LocalDateTime now);
+
+    @Query(
+            """
+            SELECT d FROM SpaceEnquiryDeliveryEntity d, SpaceEnquiryEntity e
+            WHERE d.enquiryId = e.id
+              AND e.status IN (
+                  com.acomi.acomi_backend.enquiry.domain.model.SpaceEnquiryStatus.PENDING,
+                  com.acomi.acomi_backend.enquiry.domain.model.SpaceEnquiryStatus.SHARED)
+              AND d.spaceId = :spaceId
+              AND d.requesterUserId = :requesterUserId
+              AND d.deliveryChannel = com.acomi.acomi_backend.enquiry.domain.model.EnquiryDeliveryChannel.VIEW_HERE
+              AND d.expiresAt > :now
+            """)
+    Optional<SpaceEnquiryDeliveryEntity> findActiveViewHereDelivery(
+            @Param("spaceId") UUID spaceId,
+            @Param("requesterUserId") UUID requesterUserId,
             @Param("now") LocalDateTime now);
 
     @Query(

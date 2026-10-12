@@ -25,4 +25,13 @@ public class PaymentReminderDeliveryResponse {
     private LocalDateTime sentAt;
     private LocalDateTime lastAttemptAt;
     private int attemptCount;
+    /** Click-to-chat text. Present only for an owner-prepared reminder. Null means nothing was opened. */
+    private String messageText;
+    /** https://wa.me link. Null when the member phone cannot be used. */
+    private String whatsAppUrl;
+    /** Digits only, no plus sign. */
+    private String internationalPhone;
+    /** True when an in-app notification exists for the member. Does not mean a push was delivered. */
+    private boolean inAppRecorded;
+    private String inAppFailureCode;
 }

@@ -52,12 +52,21 @@ public class GeoapifyAutocompleteClient {
     }
 
     public ProviderResult autocomplete(String text) {
-        if (!StringUtils.hasText(properties.getApiKey()) || !StringUtils.hasText(text)) {
+        return fetch(requestUri(text), text);
+    }
+
+    /** Street, building, and landmark search. Does not force a locality-only result type. */
+    public ProviderResult autocompleteAddress(String text) {
+        return fetch(addressUri(text), text);
+    }
+
+    private ProviderResult fetch(URI uri, String text) {
+        if (uri == null || !StringUtils.hasText(properties.getApiKey()) || !StringUtils.hasText(text)) {
             return ProviderResult.unavailable();
         }
         long started = System.nanoTime();
         try {
-            String body = restClient.get().uri(requestUri(text)).retrieve().body(String.class);
+            String body = restClient.get().uri(uri).retrieve().body(String.class);
             long elapsedMs = elapsed(started);
             log.info(
                     "geoapify_autocomplete_ok elapsedMs={} queryLength={} status=200",
@@ -103,6 +112,27 @@ public class GeoapifyAutocompleteClient {
             builder.queryParam("type", "locality");
         }
         return builder
+                .queryParam("filter", "countrycode:" + country)
+                .queryParam("bias", "countrycode:" + country)
+                .queryParam("limit", providerLimit)
+                .queryParam("format", "json")
+                .queryParam("apiKey", properties.getApiKey().trim())
+                .build()
+                .encode()
+                .toUri();
+    }
+
+    URI addressUri(String text) {
+        int providerLimit = Math.min(20, Math.max(1, properties.getLimit()));
+        String country = StringUtils.hasText(properties.getCountryCode())
+                ? properties.getCountryCode().trim().toLowerCase()
+                : "in";
+        String base = StringUtils.hasText(properties.getBaseUrl())
+                ? properties.getBaseUrl().trim()
+                : "https://api.geoapify.com";
+        return UriComponentsBuilder.fromUriString(base)
+                .path("/v1/geocode/autocomplete")
+                .queryParam("text", text)
                 .queryParam("filter", "countrycode:" + country)
                 .queryParam("bias", "countrycode:" + country)
                 .queryParam("limit", providerLimit)

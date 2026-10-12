@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.meal.api.dto.request;
 
 import com.acomi.acomi_backend.meal.domain.model.DailyMenuEntryType;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.NotBlank;
 import java.math.BigDecimal;
 import java.util.List;
@@ -32,8 +33,15 @@ public class DailyMenuOptionRequest {
     private String currencyCode;
 
     private int sortOrder;
-    private boolean isAvailable = true;
+
+    /**
+     * Field names must not start with {@code is}. Lombok then exposes {@code available}
+     * / {@code extra}, and Jackson drops the client's {@code isAvailable} / {@code isExtra}.
+     */
+    @JsonProperty("isAvailable")
+    private boolean available = true;
 
     /** Mess-only add-on flag; ignored / rejected for non-Mess spaces. */
-    private boolean isExtra = false;
+    @JsonProperty("isExtra")
+    private boolean extra = false;
 }

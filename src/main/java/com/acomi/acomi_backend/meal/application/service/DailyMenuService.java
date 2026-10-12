@@ -5,6 +5,7 @@ import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.meal.api.dto.request.CopyDailyMenuRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.DailyMenuOptionRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.UpsertDailyMenuRequest;
+import com.acomi.acomi_backend.meal.application.support.MenuExtraClassifier;
 import com.acomi.acomi_backend.meal.application.support.PublishedMenuSnapshot;
 import com.acomi.acomi_backend.meal.api.dto.response.DailyMenuOptionResponse;
 import com.acomi.acomi_backend.meal.api.dto.response.DailyMenuResponse;
@@ -221,7 +222,7 @@ public class DailyMenuService {
                     .category(NotificationCategory.INFORMATION)
                     .priority(NotificationPriority.MEDIUM)
                     .title(title)
-                    .message("Check today's menu for " + spaceName + ".")
+                    .message(menu.getMealType().name() + " · " + menu.getMenuDate() + " · " + spaceName)
                     .actionLabel("View Menu")
                     .actionRoute("DailyMenuToday")
                     .dedupeKey("INFO:MENU_PUBLISHED:"
@@ -357,6 +358,17 @@ public class DailyMenuService {
             }
         }
 
+        UUID spaceId = null;
+        for (DailyMenuEntity menu : menus) {
+            if (menu.getSpace() != null) {
+                spaceId = menu.getSpace().getId();
+                break;
+            }
+        }
+        Set<UUID> catalogExtraIds = spaceId == null
+                ? Set.of()
+                : foodCatalogService.configuredExtraItemIds(spaceId);
+
         List<DailyMenuResponse> responses = new ArrayList<>(menus.size());
         for (DailyMenuEntity menu : menus) {
             if (customerView
@@ -383,12 +395,11 @@ public class DailyMenuService {
                     entriesByMenuId.getOrDefault(menu.getId(), List.of());
             List<DailyMenuOptionResponse> options = new ArrayList<>(entries.size());
             for (DailyMenuEntryEntity entry : entries) {
-                if (entry.getEntryType() == DailyMenuEntryType.PACKAGE) {
-                    options.add(DailyMenuOptionResponse.from(
-                            entry, packageItemsByEntryId.getOrDefault(entry.getId(), List.of())));
-                } else {
-                    options.add(DailyMenuOptionResponse.from(entry));
-                }
+                List<DailyMenuPackageItemEntity> packageItems = entry.getEntryType() == DailyMenuEntryType.PACKAGE
+                        ? packageItemsByEntryId.getOrDefault(entry.getId(), List.of())
+                        : List.of();
+                boolean extra = MenuExtraClassifier.isPresentedAsExtra(entry, packageItems, catalogExtraIds);
+                options.add(DailyMenuOptionResponse.from(entry, packageItems, extra));
             }
             responses.add(DailyMenuResponse.builder()
                     .dailyMenuId(menu.getId())

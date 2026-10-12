@@ -30,6 +30,10 @@ spring:
 
 server:
   port: ${PORT:8080}
+  tomcat:
+    # Three 3 MB listing photos travel as base64 on the public registration JSON body.
+    max-http-form-post-size: 20MB
+    max-swallow-size: 20MB
 
 management:
   endpoints:

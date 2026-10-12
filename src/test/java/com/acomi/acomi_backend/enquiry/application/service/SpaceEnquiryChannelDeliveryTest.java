@@ -121,7 +121,10 @@ class SpaceEnquiryChannelDeliveryTest {
                 clock,
                 30,
                 inquiryAccessService,
-                new com.acomi.acomi_backend.config.discovery.DiscoveryProperties());
+                new com.acomi.acomi_backend.config.discovery.DiscoveryProperties(),
+                org.mockito.Mockito.mock(
+                        com.acomi.acomi_backend.mail.infrastructure.persistence.repository.EmailSendLogRepository.class),
+                org.mockito.Mockito.mock(EnquiryInboxAccess.class));
 
         memberId = UUID.randomUUID();
         spaceId = UUID.randomUUID();

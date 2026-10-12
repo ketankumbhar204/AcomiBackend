@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.config.security;
 
 import com.acomi.acomi_backend.user.domain.model.SystemRole;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -19,6 +20,7 @@ public class UserPrincipal implements UserDetails {
     private final String fullName;
     private final boolean active;
     private final SystemRole systemRole;
+    private final LocalDateTime credentialsChangedAt;
 
     public UserPrincipal(UserEntity user) {
         this.id = user.getId();
@@ -26,6 +28,7 @@ public class UserPrincipal implements UserDetails {
         this.fullName = user.getFullName();
         this.active = user.isActive();
         this.systemRole = user.getSystemRole() != null ? user.getSystemRole() : SystemRole.USER;
+        this.credentialsChangedAt = user.getCredentialsChangedAt();
     }
 
     public boolean isAdmin() {

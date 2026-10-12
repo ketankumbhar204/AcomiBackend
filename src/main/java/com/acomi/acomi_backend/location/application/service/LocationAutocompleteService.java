@@ -66,6 +66,35 @@ public class LocationAutocompleteService {
         return suggestions;
     }
 
+    /**
+     * Address capture for property and mess registration. Keeps streets, buildings, and landmarks,
+     * and does not rewrite the result onto an ACOMI pincode office.
+     */
+    public List<LocationAutocompleteSuggestion> autocompleteAddress(String query) {
+        String text = query == null ? "" : query.trim();
+        int minimum = Math.max(1, properties.getMinQueryLength());
+        if (text.length() < minimum) {
+            return List.of();
+        }
+        if (!StringUtils.hasText(properties.getApiKey())) {
+            log.info("geoapify_address_autocomplete_disabled reason=missing_api_key queryLength={}", text.length());
+            return List.of();
+        }
+        String cacheKey = "address:" + text.toLowerCase(Locale.ROOT);
+        CacheEntry cached = cache.get(cacheKey);
+        long now = System.currentTimeMillis();
+        if (cached != null && cached.expiresAtMillis() > now) {
+            return cached.suggestions();
+        }
+        ProviderResult result = client.autocompleteAddress(text);
+        if (!result.available()) {
+            return List.of();
+        }
+        List<LocationAutocompleteSuggestion> suggestions = mapAddressPlaces(result.places());
+        remember(cacheKey, suggestions);
+        return suggestions;
+    }
+
     private List<LocationAutocompleteSuggestion> applyContext(
             List<LocationAutocompleteSuggestion> cached, String contextState, String contextDistrict) {
         if (!StringUtils.hasText(contextState) && !StringUtils.hasText(contextDistrict)) {
@@ -102,6 +131,64 @@ public class LocationAutocompleteService {
             }
         }
         return List.copyOf(suggestions);
+    }
+
+    private List<LocationAutocompleteSuggestion> mapAddressPlaces(List<JsonNode> places) {
+        int limit = Math.min(8, Math.max(1, properties.getLimit()));
+        String expectedCountry = expectedCountryCode();
+        List<LocationAutocompleteSuggestion> suggestions = new ArrayList<>();
+        for (JsonNode place : places) {
+            if (suggestions.size() >= limit) {
+                break;
+            }
+            LocationAutocompleteSuggestion suggestion = mapAddressPlace(place, expectedCountry);
+            if (suggestion != null) {
+                suggestions.add(suggestion);
+            }
+        }
+        return List.copyOf(suggestions);
+    }
+
+    private LocationAutocompleteSuggestion mapAddressPlace(JsonNode place, String expectedCountry) {
+        if (place == null || !place.isObject() || !inCountry(place, expectedCountry)) {
+            return null;
+        }
+        Double latitude = coordinate(place, "lat", INDIA_MIN_LAT, INDIA_MAX_LAT);
+        Double longitude = coordinate(place, "lon", INDIA_MIN_LON, INDIA_MAX_LON);
+        if (latitude == null || longitude == null) {
+            return null;
+        }
+        String name = text(place, "name");
+        String street = firstText(text(place, "street"), text(place, "address_line1"));
+        String area = firstText(
+                text(place, "suburb"),
+                text(place, "neighbourhood"),
+                text(place, "district"),
+                distinctFrom(name, text(place, "city")));
+        String city = text(place, "city");
+        String state = text(place, "state");
+        String formatted = text(place, "formatted");
+        String displayName = firstText(formatted, street, name, area, city);
+        if (!StringUtils.hasText(displayName) || !StringUtils.hasText(city) || !StringUtils.hasText(state)) {
+            return null;
+        }
+        return LocationAutocompleteSuggestion.builder()
+                .id(text(place, "place_id"))
+                .displayName(displayName)
+                .formattedAddress(firstText(formatted, displayName))
+                .name(firstText(name, street))
+                .area(area)
+                .city(city)
+                .taluka(talukaName(text(place, "county")))
+                .district(districtName(text(place, "state_district"), text(place, "county")))
+                .state(state)
+                .pincode(pincode(text(place, "postcode")))
+                .latitude(latitude)
+                .longitude(longitude)
+                .country(text(place, "country"))
+                .source(LocationAutocompleteSuggestion.SOURCE_GEOAPIFY)
+                .matched(false)
+                .build();
     }
 
     private LocationAutocompleteSuggestion mapPlace(

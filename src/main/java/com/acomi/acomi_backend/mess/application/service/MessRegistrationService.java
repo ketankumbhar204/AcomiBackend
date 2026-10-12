@@ -10,10 +10,14 @@ import com.acomi.acomi_backend.mess.domain.model.MessRegistrationSource;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationStatus;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.entity.MessRegistrationEntity;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRegistrationRepository;
+import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.registration.application.AdminLeadDefaults;
 import com.acomi.acomi_backend.registration.application.RegistrationMobiles;
+import com.acomi.acomi_backend.registration.application.RegistrationPhotoCodec;
+import com.acomi.acomi_backend.registration.application.RegistrationPhotoService;
 import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
 import com.acomi.acomi_backend.space.application.service.ListingMapLocation;
+import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.application.service.SpaceService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.math.BigDecimal;
@@ -38,9 +42,11 @@ public class MessRegistrationService {
     private final OtpService otpService;
     private final UserRepository userRepository;
     private final SpaceService spaceService;
+    private final RegistrationPhotoService registrationPhotoService;
 
     @Transactional
     public MessRegistrationResponse registerPublic(CreateMessRegistrationRequest request, String requestIp) {
+        RegistrationPhotoCodec.decodeAll(request.getPhotos());
         otpService.consumeVerificationToken(
                 request.getMobileNumber(), request.getVerificationToken(), OtpPurpose.MESS_REGISTRATION);
         return registerVerified(MessRegistrationPayload.fromPublic(request), requestIp, LocalDateTime.now());
@@ -65,12 +71,14 @@ public class MessRegistrationService {
                 payload.getMobileNumber(), payload.getMessName().trim());
         if (claimCandidates.size() == 1) {
             MessRegistrationEntity claimed = claimAdminLead(claimCandidates.get(0), payload, requestIp, verifiedAt);
+            registrationPhotoService.replaceForMess(claimed.getId(), payload.getPhotos());
             log.info("Mess registration claimed admin lead reference={}", claimed.getReference());
             return toResponse(claimed);
         }
 
         MessRegistrationEntity saved =
                 createNewLead(payload, requestIp, MessRegistrationSource.PUBLIC_WEBSITE, verifiedAt);
+        registrationPhotoService.replaceForMess(saved.getId(), payload.getPhotos());
         log.info("Mess registration received reference={} status={}", saved.getReference(), saved.getStatus());
         return toResponse(saved);
     }
@@ -87,8 +95,7 @@ public class MessRegistrationService {
         if (StringUtils.hasText(requestIp)) {
             existing.setRequestIp(requestIp);
         }
-        boolean likelyDuplicate = messRegistrationRepository.existsLikelyDuplicate(
-                payload.getMobileNumber(), payload.getPincode().trim(), payload.getMessName().trim());
+        boolean likelyDuplicate = isLikelyDuplicate(payload);
         if (likelyDuplicate && existing.getStatus() != MessRegistrationStatus.CONVERTED) {
             existing.setStatus(MessRegistrationStatus.DUPLICATE);
         }
@@ -112,9 +119,8 @@ public class MessRegistrationService {
             MessRegistrationSource source,
             LocalDateTime mobileVerifiedAt) {
         String messName = payload.getMessName().trim();
-        String pincode = payload.getPincode().trim();
-        boolean likelyDuplicate =
-                messRegistrationRepository.existsLikelyDuplicate(payload.getMobileNumber(), pincode, messName);
+        String pincode = trimToNull(payload.getPincode());
+        boolean likelyDuplicate = isLikelyDuplicate(payload);
         String alternateMobileNumber =
                 RegistrationMobiles.resolveAlternate(payload.getMobileNumber(), payload.getAlternateMobileNumber());
         String additionalMobileNumber = RegistrationMobiles.resolveAdditional(
@@ -125,6 +131,7 @@ public class MessRegistrationService {
         MessRegistrationEntity entity = MessRegistrationEntity.builder()
                 .reference(nextReference())
                 .messName(messName)
+                .buildingName(trimToNull(payload.getBuildingName()))
                 .ownerName(payload.getOwnerName().trim())
                 .mobileNumber(payload.getMobileNumber())
                 .alternateMobileNumber(alternateMobileNumber)
@@ -132,13 +139,14 @@ public class MessRegistrationService {
                 .mobileVerifiedAt(mobileVerifiedAt)
                 .description(trimToNull(payload.getDescription()))
                 .addressLine(payload.getAddressLine().trim())
-                .city(payload.getCity().trim())
-                .state(payload.getState().trim())
+                .city(trimToNull(payload.getCity()))
+                .state(trimToNull(payload.getState()))
                 .pincode(pincode)
                 .latitude(location.latitude())
                 .longitude(location.longitude())
                 .mapUrl(location.mapUrl())
                 .monthlyPrice(normalizePrice(payload.getMonthlyPrice()))
+                .monthlyPriceBasis(PriceBasis.resolve(SpaceType.MESS, payload.getMonthlyPriceBasis()))
                 .mealPrice(normalizePrice(payload.getMealPrice()))
                 .capacityEstimate(payload.getCapacityEstimate())
                 .status(
@@ -157,6 +165,10 @@ public class MessRegistrationService {
 
     private void applyPayload(MessRegistrationEntity entity, MessRegistrationPayload payload) {
         entity.setMessName(payload.getMessName().trim());
+        String buildingName = trimToNull(payload.getBuildingName());
+        if (buildingName != null) {
+            entity.setBuildingName(buildingName);
+        }
         entity.setOwnerName(payload.getOwnerName().trim());
         entity.setMobileNumber(payload.getMobileNumber());
         entity.setAlternateMobileNumber(
@@ -167,15 +179,21 @@ public class MessRegistrationService {
                 payload.getAdditionalMobileNumber()));
         entity.setDescription(trimToNull(payload.getDescription()));
         entity.setAddressLine(payload.getAddressLine().trim());
-        entity.setCity(payload.getCity().trim());
-        entity.setState(payload.getState().trim());
-        entity.setPincode(payload.getPincode().trim());
+        entity.setCity(trimToNull(payload.getCity()));
+        entity.setState(trimToNull(payload.getState()));
+        entity.setPincode(trimToNull(payload.getPincode()));
         ListingMapLocation.Resolved location = ListingMapLocation.resolve(
                 payload.getLatitude(), payload.getLongitude(), payload.getMapUrl());
         entity.setLatitude(location.latitude());
         entity.setLongitude(location.longitude());
         entity.setMapUrl(location.mapUrl());
         entity.setMonthlyPrice(normalizePrice(payload.getMonthlyPrice()));
+        entity.setMonthlyPriceBasis(
+                payload.getMonthlyPriceBasis() != null
+                        ? payload.getMonthlyPriceBasis()
+                        : entity.getMonthlyPriceBasis() != null
+                                ? entity.getMonthlyPriceBasis()
+                                : PriceBasis.PER_UNIT);
         entity.setMealPrice(normalizePrice(payload.getMealPrice()));
         entity.setCapacityEstimate(payload.getCapacityEstimate());
         entity.setSharingNotes(trimToNull(payload.getSharingNotes()));
@@ -205,6 +223,17 @@ public class MessRegistrationService {
             return null;
         }
         return value.trim();
+    }
+
+    /** A typed location has no pincode, so it cannot match the locality duplicate check. */
+    private boolean isLikelyDuplicate(MessRegistrationPayload payload) {
+        String pincode = trimToNull(payload.getPincode());
+        String messName = trimToNull(payload.getMessName());
+        if (pincode == null || messName == null) {
+            return false;
+        }
+        return messRegistrationRepository.existsLikelyDuplicate(
+                payload.getMobileNumber(), pincode, messName);
     }
 
     @Transactional

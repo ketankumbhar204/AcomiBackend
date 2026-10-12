@@ -28,11 +28,14 @@ import com.acomi.acomi_backend.meal.domain.policy.MealPollEligibilityPolicy;
 import com.acomi.acomi_backend.meal.domain.policy.MemberSubscriptionPolicy;
 import com.acomi.acomi_backend.meal.application.support.MealBillingResolver;
 import com.acomi.acomi_backend.meal.application.support.MealPollChargeCalculator;
+import com.acomi.acomi_backend.meal.application.support.MenuExtraClassifier;
+import com.acomi.acomi_backend.meal.application.support.MenuEntryPriceResolver;
 import com.acomi.acomi_backend.meal.application.support.MealPollCloseAtCalculator;
 import com.acomi.acomi_backend.meal.application.support.ComboItemDetailFormatter;
 import com.acomi.acomi_backend.meal.domain.model.MealPollCloseSource;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.DailyMenuEntity;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.DailyMenuEntryEntity;
+import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.DailyMenuPackageItemEntity;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MealDeliveryLocationEntity;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MealPollDayPaymentEntity;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MealPollEntity;
@@ -51,6 +54,7 @@ import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealPo
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealPollMemberDeliveryRepository;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealPollRepository;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealPollResponseRepository;
+import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.SpaceFoodItemSettingsRepository;
 import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
@@ -77,10 +81,12 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -118,6 +124,7 @@ public class MealPollService {
     private final MealDaySpacePaymentBridge mealDaySpacePaymentBridge;
     private final PaymentReferenceService paymentReferenceService;
     private final StoredFileService storedFileService;
+    private final SpaceFoodItemSettingsRepository spaceFoodItemSettingsRepository;
 
     @Transactional(readOnly = true)
     public MealPollDayResponse getPollsForDate(UUID spaceId, UUID callerId, LocalDate date) {
@@ -322,7 +329,7 @@ public class MealPollService {
                     .title("Meal poll opened")
                     .message(mealType.name() + " · " + pollDate + " · " + spaceName)
                     .actionLabel("Respond")
-                    .actionRoute("DailyMenuToday")
+                    .actionRoute("MealPollResponse")
                     .dedupeKey(
                             "INFO:MEAL_POLL_PUBLISHED:"
                                     + poll.getId()
@@ -962,7 +969,11 @@ public class MealPollService {
     private BigDecimal computeMemberDayCharge(UUID spaceId, UUID memberId, LocalDate pollDate) {
         List<MealPollResponseEntity> responses =
                 responseRepository.findForMemberInDateRange(memberId, spaceId, pollDate, pollDate);
-        return MealPollChargeCalculator.fromResponses(responses).getCurrencyTotal();
+        return MealPollChargeCalculator.fromResponses(
+                        responses,
+                        MenuEntryPriceResolver.itemDefaults(
+                                spaceFoodItemSettingsRepository.findAllBySpaceId(spaceId)))
+                .getCurrencyTotal();
     }
 
     private UUID resolveMealProofFile(UUID callerId, UUID spaceId, UUID proofFileId, String legacyPayload) {
@@ -1160,9 +1171,34 @@ public class MealPollService {
     private MealPollResponse toPollResponse(MealPollEntity poll, UUID memberId) {
         List<MealPollOptionEntity> optionEntities =
                 optionRepository.findByPollIdWithEntriesOrderBySortOrderAsc(poll.getId());
-        List<MealPollOptionResponse> options = optionEntities.stream()
-                .map(MealPollOptionResponse::from)
+        UUID spaceId = poll.getSpace() != null ? poll.getSpace().getId() : null;
+        Set<UUID> catalogExtraIds = spaceId == null
+                ? Set.of()
+                : MenuExtraClassifier.catalogExtraIds(
+                        spaceFoodItemSettingsRepository.findAllBySpaceId(spaceId));
+        List<UUID> packageEntryIds = optionEntities.stream()
+                .map(MealPollOptionEntity::getDailyMenuEntry)
+                .filter(entry -> entry != null && entry.getEntryType() == DailyMenuEntryType.PACKAGE)
+                .map(DailyMenuEntryEntity::getId)
                 .toList();
+        Map<UUID, List<DailyMenuPackageItemEntity>> packageItemsByEntryId = new HashMap<>();
+        if (!packageEntryIds.isEmpty()) {
+            for (DailyMenuPackageItemEntity packageItem :
+                    dailyMenuPackageItemRepository.findByEntryIdInWithItems(packageEntryIds)) {
+                packageItemsByEntryId
+                        .computeIfAbsent(packageItem.getEntry().getId(), ignored -> new ArrayList<>())
+                        .add(packageItem);
+            }
+        }
+        List<MealPollOptionResponse> options = new ArrayList<>(optionEntities.size());
+        for (MealPollOptionEntity option : optionEntities) {
+            DailyMenuEntryEntity entry = option.getDailyMenuEntry();
+            List<DailyMenuPackageItemEntity> packageItems = entry == null
+                    ? List.of()
+                    : packageItemsByEntryId.getOrDefault(entry.getId(), List.of());
+            boolean extra = MenuExtraClassifier.isPresentedAsExtra(entry, packageItems, catalogExtraIds);
+            options.add(MealPollOptionResponse.from(option, extra));
+        }
 
         boolean multiQuantityEnabled = poll.getSpace().getType() == SpaceType.MESS;
         UUID selectedOptionId = null;

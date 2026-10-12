@@ -32,6 +32,13 @@ public class StorageProviderConfig {
                     properties.getLogicalName());
             return new S3CompatibleStorageProvider(properties);
         }
+        if (properties.resolvedLocalDirectory() != null) {
+            log.info(
+                    "storage_provider_selected adapter=memory logicalName={} directory={}",
+                    properties.getLogicalName(),
+                    properties.resolvedLocalDirectory());
+            return new InMemoryStorageProvider(properties.resolvedLocalDirectory());
+        }
         log.info("storage_provider_selected adapter=memory logicalName={}", properties.getLogicalName());
         return new InMemoryStorageProvider();
     }

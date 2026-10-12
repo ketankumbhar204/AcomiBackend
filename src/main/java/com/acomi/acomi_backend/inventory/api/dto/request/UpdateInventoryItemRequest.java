@@ -27,6 +27,13 @@ public class UpdateInventoryItemRequest {
 
     private UUID supplierId;
 
+    /**
+     * Applied when supplierId is absent. Empty clears the supplier.
+     * Null leaves the saved supplier unchanged. An existing name is reused.
+     */
+    @Size(max = 150)
+    private String supplierName;
+
     @DecimalMin("0")
     private BigDecimal purchasePrice;
 

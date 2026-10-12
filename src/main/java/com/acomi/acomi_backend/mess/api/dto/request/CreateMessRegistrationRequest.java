@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.mess.api.dto.request;
 
+import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -27,6 +28,14 @@ public class CreateMessRegistrationRequest {
     @Size(max = 150, message = "Mess name must be at most 150 characters")
     @Schema(example = "Sunrise Mess")
     private String messName;
+
+    @Size(max = 150, message = "Building name must be at most 150 characters")
+    @Schema(description = "Apartment or building name. May differ from the mess name.", example = "Sunrise Residency")
+    private String buildingName;
+
+    public void setBuildingName(String buildingName) {
+        this.buildingName = blankToNull(buildingName);
+    }
 
     @NotBlank(message = "Owner name is required")
     @Size(max = 120, message = "Owner name must be at most 120 characters")
@@ -65,17 +74,33 @@ public class CreateMessRegistrationRequest {
     @Size(max = 255, message = "Address must be at most 255 characters")
     private String addressLine;
 
-    @NotBlank(message = "City is required")
     @Size(max = 80, message = "City must be at most 80 characters")
+    @Schema(description = "Filled when a place suggestion is selected. Omitted for a typed location.")
     private String city;
 
-    @NotBlank(message = "State is required")
     @Size(max = 80, message = "State must be at most 80 characters")
+    @Schema(description = "Filled when a place suggestion is selected. Omitted for a typed location.")
     private String state;
 
-    @NotBlank(message = "Pincode is required")
     @Pattern(regexp = "^[1-9]\\d{5}$", message = "Pincode must be a valid 6-digit Indian pincode")
+    @Schema(description = "Filled when a place suggestion includes a pincode. Omitted for a typed location.")
     private String pincode;
+
+    public void setCity(String city) {
+        this.city = blankToNull(city);
+    }
+
+    public void setState(String state) {
+        this.state = blankToNull(state);
+    }
+
+    public void setPincode(String pincode) {
+        this.pincode = blankToNull(pincode);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
 
     @Size(max = 512, message = "Map link must be at most 512 characters")
     @Schema(description = "Optional pasted Google Maps share link")
@@ -96,6 +121,9 @@ public class CreateMessRegistrationRequest {
     @DecimalMax(value = "9999999999", message = "Monthly price is too large")
     private BigDecimal monthlyPrice;
 
+    @Schema(description = "Optional unit for the monthly price. Defaults to per month when omitted.", example = "PER_UNIT")
+    private PriceBasis monthlyPriceBasis;
+
     @NotNull(message = "Per meal / tiffin price is required")
     @DecimalMin(value = "0", message = "Meal price cannot be negative")
     @DecimalMax(value = "9999999999", message = "Meal price is too large")
@@ -105,4 +133,8 @@ public class CreateMessRegistrationRequest {
     @Max(value = 100000, message = "Capacity is too large")
     @Schema(description = "Optional approximate customers")
     private Integer capacityEstimate;
+
+    @Size(max = 3, message = "You can upload at most 3 photos")
+    @Schema(description = "Optional data-URL photos. At most 3, each at most 3 MB, JPEG PNG or WebP.")
+    private java.util.List<String> photos = new java.util.ArrayList<>();
 }

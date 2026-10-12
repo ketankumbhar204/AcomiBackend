@@ -230,9 +230,9 @@ public class EnquiryListingDetailsResolver {
             return null;
         }
         return switch (priceBasis) {
-            case PER_BED -> "Per bed";
-            case PER_ROOM -> "Per room";
-            case PER_UNIT -> "Per unit";
+            case PER_BED -> "Per bed / month";
+            case PER_ROOM -> "Per room / month";
+            case PER_UNIT -> "Per month";
         };
     }
 

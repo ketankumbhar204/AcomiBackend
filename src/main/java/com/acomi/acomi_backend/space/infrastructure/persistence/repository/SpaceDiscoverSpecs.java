@@ -82,8 +82,9 @@ public final class SpaceDiscoverSpecs {
                 predicates.add(discoverable);
             }
 
-            if (!queryFilters.types().isEmpty()) {
-                predicates.add(root.get("type").in(queryFilters.types()));
+            Predicate typePredicate = DiscoverExtraFilters.typePredicate(root, query, cb, queryFilters);
+            if (typePredicate != null) {
+                predicates.add(typePredicate);
             }
 
             if (StringUtils.hasText(queryFilters.search())) {
@@ -108,6 +109,7 @@ public final class SpaceDiscoverSpecs {
                         predicates.add(hasAmenity(root, query, cb, amenityCode.trim()));
                     }
                 }
+                DiscoverExtraFilters.add(predicates, root, query, cb, queryFilters);
             }
 
             return cb.and(predicates.toArray(Predicate[]::new));
@@ -173,7 +175,21 @@ public final class SpaceDiscoverSpecs {
             pricePredicates.add(cb.lessThanOrEqualTo(startingPrice, maxRent));
         }
         priced.where(pricePredicates.toArray(Predicate[]::new));
-        return cb.exists(priced);
+
+        Subquery<Integer> messPriced = query.subquery(Integer.class);
+        Root<MessRegistrationEntity> messRoot = messPriced.from(MessRegistrationEntity.class);
+        messPriced.select(cb.literal(1));
+        List<Predicate> messPricePredicates = new ArrayList<>();
+        messPricePredicates.add(cb.equal(messRoot.get("convertedSpaceId"), root.get("id")));
+        Expression<BigDecimal> monthlyPrice = messRoot.get("monthlyPrice");
+        if (minRent != null) {
+            messPricePredicates.add(cb.greaterThanOrEqualTo(monthlyPrice, minRent));
+        }
+        if (maxRent != null) {
+            messPricePredicates.add(cb.lessThanOrEqualTo(monthlyPrice, maxRent));
+        }
+        messPriced.where(messPricePredicates.toArray(Predicate[]::new));
+        return cb.or(cb.exists(priced), cb.exists(messPriced));
     }
 
     private static Predicate hasAmenity(
@@ -184,13 +200,21 @@ public final class SpaceDiscoverSpecs {
         Subquery<Integer> assigned = query.subquery(Integer.class);
         Root<SpaceAmenityEntity> amenityRoot = assigned.from(SpaceAmenityEntity.class);
         assigned.select(cb.literal(1));
+        String normalized = amenityCode.toUpperCase(Locale.ROOT);
+        if ("AC".equals(normalized) || "KITCHEN".equals(normalized)) {
+            return DiscoverExtraFilters.amenityAlias(root, query, cb, normalized);
+        }
         assigned.where(
                 cb.equal(amenityRoot.get("space").get("id"), root.get("id")),
-                cb.equal(cb.upper(amenityRoot.get("amenityCode")), amenityCode.toUpperCase(Locale.ROOT)));
-        if ("FOOD_INCLUDED".equalsIgnoreCase(amenityCode)) {
-            return cb.or(cb.isTrue(root.get("foodIncludedInRent")), cb.exists(assigned));
+                cb.equal(cb.upper(amenityRoot.get("amenityCode")), normalized));
+        Predicate assignedMatch = cb.exists(assigned);
+        if ("FOOD_INCLUDED".equals(normalized)) {
+            return cb.or(cb.isTrue(root.get("foodIncludedInRent")), assignedMatch);
         }
-        return cb.exists(assigned);
+        if ("CCTV".equals(normalized)) {
+            return cb.or(assignedMatch, DiscoverExtraFilters.amenityAlias(root, query, cb, normalized));
+        }
+        return assignedMatch;
     }
 
     private static Predicate likeAny(

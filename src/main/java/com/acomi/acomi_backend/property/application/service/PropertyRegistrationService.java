@@ -14,6 +14,8 @@ import com.acomi.acomi_backend.property.infrastructure.persistence.entity.Proper
 import com.acomi.acomi_backend.property.infrastructure.persistence.entity.PropertyRegistrationEntity;
 import com.acomi.acomi_backend.property.infrastructure.persistence.repository.PropertyRegistrationRepository;
 import com.acomi.acomi_backend.registration.application.AdminLeadDefaults;
+import com.acomi.acomi_backend.registration.application.RegistrationPhotoCodec;
+import com.acomi.acomi_backend.registration.application.RegistrationPhotoService;
 import com.acomi.acomi_backend.registration.application.RegistrationMobiles;
 import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
@@ -46,10 +48,12 @@ public class PropertyRegistrationService {
     private final OtpService otpService;
     private final UserRepository userRepository;
     private final SpaceService spaceService;
+    private final RegistrationPhotoService registrationPhotoService;
 
     @Transactional
     public PropertyRegistrationResponse registerPublic(
             CreatePropertyRegistrationRequest request, String requestIp) {
+        RegistrationPhotoCodec.decodeAll(request.getPhotos());
         otpService.consumeVerificationToken(
                 request.getMobileNumber(), request.getVerificationToken(), OtpPurpose.PROPERTY_REGISTRATION);
         return registerVerified(PropertyRegistrationPayload.fromPublic(request), requestIp, LocalDateTime.now());
@@ -80,12 +84,14 @@ public class PropertyRegistrationService {
                         payload.getMobileNumber(), propertyType, payload.getPropertyName().trim());
         if (claimCandidates.size() == 1) {
             PropertyRegistrationEntity claimed = claimAdminLead(claimCandidates.get(0), payload, requestIp, verifiedAt);
+            registrationPhotoService.replaceForProperty(claimed.getId(), payload.getPhotos());
             log.info("Property registration claimed admin lead reference={}", claimed.getReference());
             return toResponse(claimed);
         }
 
         PropertyRegistrationEntity saved =
                 createNewLead(payload, requestIp, PropertyRegistrationSource.PUBLIC_WEBSITE, verifiedAt);
+        registrationPhotoService.replaceForProperty(saved.getId(), payload.getPhotos());
         log.info(
                 "Property registration received reference={} type={} status={}",
                 saved.getReference(),
@@ -106,8 +112,7 @@ public class PropertyRegistrationService {
         if (StringUtils.hasText(requestIp)) {
             existing.setRequestIp(requestIp);
         }
-        boolean likelyDuplicate = propertyRegistrationRepository.existsLikelyDuplicate(
-                payload.getMobileNumber(), payload.getPincode().trim(), payload.getPropertyName().trim());
+        boolean likelyDuplicate = isLikelyDuplicate(payload);
         if (likelyDuplicate && existing.getStatus() != PropertyRegistrationStatus.CONVERTED) {
             existing.setStatus(PropertyRegistrationStatus.DUPLICATE);
         }
@@ -132,9 +137,8 @@ public class PropertyRegistrationService {
             LocalDateTime mobileVerifiedAt) {
         SpaceType propertyType = requireRegistrableType(payload.getPropertyType());
         String propertyName = payload.getPropertyName().trim();
-        String pincode = payload.getPincode().trim();
-        boolean likelyDuplicate = propertyRegistrationRepository.existsLikelyDuplicate(
-                payload.getMobileNumber(), pincode, propertyName);
+        String pincode = trimToNull(payload.getPincode());
+        boolean likelyDuplicate = isLikelyDuplicate(payload);
         String alternateMobileNumber =
                 RegistrationMobiles.resolveAlternate(payload.getMobileNumber(), payload.getAlternateMobileNumber());
         String additionalMobileNumber = RegistrationMobiles.resolveAdditional(
@@ -145,6 +149,7 @@ public class PropertyRegistrationService {
                 .reference(nextReference())
                 .propertyType(propertyType)
                 .propertyName(propertyName)
+                .buildingName(trimToNull(payload.getBuildingName()))
                 .ownerName(payload.getOwnerName().trim())
                 .mobileNumber(payload.getMobileNumber())
                 .alternateMobileNumber(alternateMobileNumber)
@@ -152,14 +157,14 @@ public class PropertyRegistrationService {
                 .mobileVerifiedAt(mobileVerifiedAt)
                 .description(trimToNull(payload.getDescription()))
                 .addressLine(payload.getAddressLine().trim())
-                .city(payload.getCity().trim())
-                .state(payload.getState().trim())
+                .city(trimToNull(payload.getCity()))
+                .state(trimToNull(payload.getState()))
                 .pincode(pincode)
                 .latitude(location.latitude())
                 .longitude(location.longitude())
                 .mapUrl(location.mapUrl())
                 .startingPrice(normalizePrice(payload.getStartingPrice()))
-                .priceBasis(PriceBasis.forPropertyType(propertyType))
+                .priceBasis(PriceBasis.resolve(propertyType, payload.getPriceBasis()))
                 .capacityEstimate(payload.getCapacityEstimate())
                 .status(
                         likelyDuplicate
@@ -182,6 +187,10 @@ public class PropertyRegistrationService {
         SpaceType propertyType = requireRegistrableType(payload.getPropertyType());
         entity.setPropertyType(propertyType);
         entity.setPropertyName(payload.getPropertyName().trim());
+        String buildingName = trimToNull(payload.getBuildingName());
+        if (buildingName != null) {
+            entity.setBuildingName(buildingName);
+        }
         entity.setOwnerName(payload.getOwnerName().trim());
         entity.setMobileNumber(payload.getMobileNumber());
         entity.setAlternateMobileNumber(
@@ -192,15 +201,20 @@ public class PropertyRegistrationService {
                 payload.getAdditionalMobileNumber()));
         entity.setDescription(trimToNull(payload.getDescription()));
         entity.setAddressLine(payload.getAddressLine().trim());
-        entity.setCity(payload.getCity().trim());
-        entity.setState(payload.getState().trim());
-        entity.setPincode(payload.getPincode().trim());
+        entity.setCity(trimToNull(payload.getCity()));
+        entity.setState(trimToNull(payload.getState()));
+        entity.setPincode(trimToNull(payload.getPincode()));
         ListingMapLocation.Resolved location = resolveLocation(payload);
         entity.setLatitude(location.latitude());
         entity.setLongitude(location.longitude());
         entity.setMapUrl(location.mapUrl());
         entity.setStartingPrice(normalizePrice(payload.getStartingPrice()));
-        entity.setPriceBasis(PriceBasis.forPropertyType(propertyType));
+        entity.setPriceBasis(
+                payload.getPriceBasis() != null
+                        ? payload.getPriceBasis()
+                        : entity.getPriceBasis() != null
+                                ? entity.getPriceBasis()
+                                : PriceBasis.forPropertyType(propertyType));
         entity.setCapacityEstimate(payload.getCapacityEstimate());
         entity.setSharingNotes(trimToNull(payload.getSharingNotes()));
         entity.setFoodIncludedListing(payload.getFoodIncludedListing());
@@ -261,6 +275,17 @@ public class PropertyRegistrationService {
 
     private String trimToNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    /** A typed location has no pincode, so it cannot match the locality duplicate check. */
+    private boolean isLikelyDuplicate(PropertyRegistrationPayload payload) {
+        String pincode = trimToNull(payload.getPincode());
+        String propertyName = trimToNull(payload.getPropertyName());
+        if (pincode == null || propertyName == null) {
+            return false;
+        }
+        return propertyRegistrationRepository.existsLikelyDuplicate(
+                payload.getMobileNumber(), pincode, propertyName);
     }
 
     /** Backward-compatible alias for the public controller. */

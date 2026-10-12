@@ -30,6 +30,11 @@ public class MealPollOptionResponse {
 
     public static MealPollOptionResponse from(MealPollOptionEntity option) {
         DailyMenuEntryEntity entry = option.getDailyMenuEntry();
+        return from(option, entry != null && entry.isExtra());
+    }
+
+    public static MealPollOptionResponse from(MealPollOptionEntity option, boolean extra) {
+        DailyMenuEntryEntity entry = option.getDailyMenuEntry();
         return MealPollOptionResponse.builder()
                 .id(option.getId())
                 .optionType(option.getOptionType())
@@ -40,7 +45,7 @@ public class MealPollOptionResponse {
                 .price(resolvePrice(entry))
                 .currencyCode(resolveCurrencyCode(entry))
                 .foodType(resolveFoodType(entry))
-                .extra(entry != null && entry.isExtra())
+                .extra(extra)
                 .build();
     }
 

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -99,6 +100,9 @@ class SpaceEnquiryServiceTest {
     @Mock
     private com.acomi.acomi_backend.inquirycredit.application.service.InquiryAccessService inquiryAccessService;
 
+    @Mock
+    private EnquiryInboxAccess enquiryInboxAccess;
+
     private MailProperties mailProperties;
     private SpaceEnquiryService service;
 
@@ -138,7 +142,10 @@ class SpaceEnquiryServiceTest {
                 clock,
                 30,
                 inquiryAccessService,
-                new com.acomi.acomi_backend.config.discovery.DiscoveryProperties());
+                new com.acomi.acomi_backend.config.discovery.DiscoveryProperties(),
+                org.mockito.Mockito.mock(
+                        com.acomi.acomi_backend.mail.infrastructure.persistence.repository.EmailSendLogRepository.class),
+                enquiryInboxAccess);
         // Lenient default: allow tests that create new enquiries to succeed without STRICT_STUBS failures
         Mockito.lenient().when(inquiryAccessService.authorizeNewEnquiry(any(), any()))
                 .thenReturn(InquiryAccessGrant.FREE_WEB);
@@ -745,7 +752,7 @@ class SpaceEnquiryServiceTest {
 
         assertThat(shared.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
         assertThat(shared.getSharedByAdminId()).isEqualTo(adminId);
-        assertThat(pending.getContactEmailSentAt()).isNotNull();
+        assertThat(pending.getContactEmailSentAt()).isNull();
 
         ArgumentCaptor<PublishNotificationCommand> captor = ArgumentCaptor.forClass(PublishNotificationCommand.class);
         verify(notificationService).publish(captor.capture());
@@ -1028,6 +1035,26 @@ class SpaceEnquiryServiceTest {
     }
 
     @Test
+    void shareStillCompletesWhenListingIsInactiveAndEmailCannotBeQueued() {
+        SpaceEnquiryEntity pending = pendingEnquiry();
+        spaceB.setActive(false);
+        OwnerContactResponse contact = shareableContact();
+        when(enquiryRepository.findById(pending.getId())).thenReturn(Optional.of(pending));
+        when(userRepository.findByIdAndIsActiveTrue(memberId)).thenReturn(Optional.empty());
+        when(userRepository.findById(memberId)).thenReturn(Optional.of(member));
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceBId)).thenReturn(Optional.empty());
+        when(spaceRepository.findById(spaceBId)).thenReturn(Optional.of(spaceB));
+        when(ownerContactResolver.resolveOrEmpty(spaceB)).thenReturn(contact);
+        doThrow(new IllegalStateException("acomi.mail.from is not configured")).when(emailService).send(any());
+
+        AdminSpaceEnquiryDetailResponse shared = service.share(pending.getId(), adminId);
+
+        assertThat(shared.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
+        assertThat(shared.getSharedByAdminId()).isEqualTo(adminId);
+        verify(notificationService).publish(any());
+    }
+
+    @Test
     void shareSendsListingEmailWhenOwnerContactMissing() {
         SpaceEnquiryEntity pending = pendingEnquiry();
         OwnerContactResponse empty = OwnerContactResponse.builder().available(false).build();
@@ -1039,7 +1066,7 @@ class SpaceEnquiryServiceTest {
         AdminSpaceEnquiryDetailResponse shared = service.share(pending.getId(), adminId);
 
         assertThat(shared.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
-        assertThat(pending.getContactEmailSentAt()).isNotNull();
+        assertThat(pending.getContactEmailSentAt()).isNull();
         ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
         verify(emailService).send(mailCaptor.capture());
         assertThat(mailCaptor.getValue().getEventType()).isEqualTo(EmailEventType.ENQUIRY_SHARED);
@@ -1067,7 +1094,10 @@ class SpaceEnquiryServiceTest {
                 clock,
                 30,
                 inquiryAccessService,
-                discovery);
+                discovery,
+                org.mockito.Mockito.mock(
+                        com.acomi.acomi_backend.mail.infrastructure.persistence.repository.EmailSendLogRepository.class),
+                enquiryInboxAccess);
 
         spaceB.setDiscoverable(false);
         when(userRepository.findByIdAndIsActiveTrue(memberId)).thenReturn(Optional.of(member));
@@ -1115,11 +1145,12 @@ class SpaceEnquiryServiceTest {
         var response = service.listInquiredListingIds(memberId);
 
         assertThat(response.getInquiredListingIds()).containsExactly(spaceAId, spaceBId);
-        assertThat(response.getInquiries()).extracting("listingId", "sentVia")
+        assertThat(response.getInquiries()).extracting("listingId", "sentVia", "sentToEmail")
                 .containsExactly(
-                        org.assertj.core.groups.Tuple.tuple(spaceAId, "EMAIL"),
-                        org.assertj.core.groups.Tuple.tuple(spaceBId, "APP"));
-        assertThat(response.toString()).doesNotContain("ketan@example.com");
+                        org.assertj.core.groups.Tuple.tuple(spaceAId, "EMAIL", "ketan@example.com"),
+                        org.assertj.core.groups.Tuple.tuple(spaceBId, "APP", null));
+        assertThat(response.getInquiries().get(0).getSentAt()).isNotNull();
+        assertThat(response.toString()).doesNotContain("9991110001");
         verify(enquiryRepository).findActiveByRequester(eq(memberId), any());
         verify(enquiryRepository, never()).findActiveByRequester(eq(otherUserId), any());
     }
@@ -1147,6 +1178,50 @@ class SpaceEnquiryServiceTest {
                 .filter(command -> command.getEventType() == eventType)
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Missing email event " + eventType));
+    }
+
+    @Test
+    void ownerSeesOnlyEnquiriesForAuthorizedListings() {
+        spaceB.setType(SpaceType.MESS);
+        when(enquiryInboxAccess.authorizedSpaceIds(ownerAId)).thenReturn(List.of(spaceAId, spaceBId));
+        when(spaceRepository.findAllById(List.of(spaceAId, spaceBId))).thenReturn(List.of(spaceA, spaceB));
+
+        var inbox = service.inbox(ownerAId);
+        assertThat(inbox.getMode()).isEqualTo(com.acomi.acomi_backend.enquiry.domain.model.EnquiryInboxMode.RECEIVED);
+        assertThat(inbox.getListings()).extracting(item -> item.getSpaceType()).contains(SpaceType.PG, SpaceType.MESS);
+
+        when(enquiryInboxAccess.authorizedSpaceIds(memberId)).thenReturn(List.of());
+        assertThat(service.inbox(memberId).getMode())
+                .isEqualTo(com.acomi.acomi_backend.enquiry.domain.model.EnquiryInboxMode.MINE);
+
+        SpaceEnquiryEntity own = pendingEnquiry();
+        own.setSpaceId(spaceAId);
+        when(enquiryInboxAccess.requireScope(ownerAId, null)).thenReturn(List.of(spaceAId));
+        when(enquiryRepository.searchReceived(eq(List.of(spaceAId)), eq(null), eq(null), eq(null), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(own)));
+        when(spaceRepository.findAllById(any())).thenReturn(List.of(spaceA));
+        when(userRepository.findById(memberId)).thenReturn(Optional.of(member));
+
+        var page = service.listReceived(ownerAId, null, null, null, null, org.springframework.data.domain.PageRequest.of(0, 20));
+        assertThat(page.getContent()).hasSize(1);
+        assertThat(page.getContent().get(0).getSpaceId()).isEqualTo(spaceAId);
+        assertThat(page.getContent().get(0).getRequesterName()).isEqualTo("Ketan");
+        assertThat(page.getContent().get(0).getRequesterMobile()).isEqualTo("9876500001");
+
+        when(enquiryInboxAccess.requireScope(eq(ownerAId), eq(spaceBId)))
+                .thenThrow(new BusinessException(
+                        "ENQUIRY_FORBIDDEN",
+                        "You cannot view enquiries for this listing.",
+                        HttpStatus.FORBIDDEN));
+        assertThatThrownBy(() -> service.listReceived(
+                        ownerAId, spaceBId, null, null, null, org.springframework.data.domain.PageRequest.of(0, 20)))
+                .isInstanceOf(BusinessException.class);
+
+        SpaceEnquiryEntity foreign = pendingEnquiry();
+        when(enquiryRepository.findById(foreign.getId())).thenReturn(Optional.of(foreign));
+        when(enquiryInboxAccess.canReceive(ownerAId, spaceBId)).thenReturn(false);
+        assertThatThrownBy(() -> service.getReceived(ownerAId, foreign.getId()))
+                .isInstanceOf(ResourceNotFoundException.class);
     }
 
     private SpaceEnquiryEntity pendingEnquiry() {

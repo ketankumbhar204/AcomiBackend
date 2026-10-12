@@ -52,9 +52,11 @@ acomi:
     # Local member Search includes converted test-lead Spaces (still hidden in prod).
     include-test-spaces: ${ACOMI_DISCOVERY_INCLUDE_TEST_SPACES:true}
   storage:
-    # Keep local uploads in memory. Location search still reads R2 when .env has keys.
+    # Keep local uploads off R2. Location search still reads R2 when .env has keys.
+    # Bytes are also written under local-directory so a restart can still serve them.
     provider: memory
     logical-name: memory
+    local-directory: ${ACOMI_STORAGE_LOCAL_DIR:${user.home}/.acomi/local-files}
   location:
     allow-classpath-fallback: false
   inquiry:
@@ -77,6 +79,6 @@ springdoc:
 
 logging:
   level:
-    org.hibernate.SQL: debug
-    org.hibernate.orm.jdbc.bind: trace
+    org.hibernate.SQL: warn
+    org.hibernate.orm.jdbc.bind: warn
     org.flywaydb: info

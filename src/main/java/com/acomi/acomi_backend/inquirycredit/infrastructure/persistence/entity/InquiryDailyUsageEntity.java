@@ -44,4 +44,9 @@ public class InquiryDailyUsageEntity extends BaseEntity {
     @Column(name = "free_used", nullable = false)
     @Builder.Default
     private int freeUsed = 0;
+
+    /** Website instant-contact views used on this day. Independent of {@link #freeUsed}. */
+    @Column(name = "view_here_used", nullable = false)
+    @Builder.Default
+    private int viewHereUsed = 0;
 }

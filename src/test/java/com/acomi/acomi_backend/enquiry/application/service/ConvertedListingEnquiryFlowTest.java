@@ -140,7 +140,10 @@ class ConvertedListingEnquiryFlowTest {
                 clock,
                 30,
                 inquiryAccessService,
-                discoveryProperties);
+                discoveryProperties,
+                org.mockito.Mockito.mock(
+                        com.acomi.acomi_backend.mail.infrastructure.persistence.repository.EmailSendLogRepository.class),
+                org.mockito.Mockito.mock(EnquiryInboxAccess.class));
         lenient().when(inquiryAccessService.authorizeNewEnquiry(any(), any()))
                 .thenReturn(com.acomi.acomi_backend.inquirycredit.domain.model.InquiryAccessGrant.FREE_WEB);
         lenient().when(deliveryRepository.findActiveAppDelivery(any(), any(), any()))
@@ -211,11 +214,11 @@ class ConvertedListingEnquiryFlowTest {
         assertThat(response.getSharedAt()).isNotNull();
 
         ArgumentCaptor<SpaceEnquiryEntity> saved = ArgumentCaptor.forClass(SpaceEnquiryEntity.class);
-        verify(enquiryRepository, times(2)).save(saved.capture());
+        verify(enquiryRepository, times(1)).save(saved.capture());
         SpaceEnquiryEntity lastSaved = saved.getAllValues().get(saved.getAllValues().size() - 1);
         assertThat(lastSaved.getSharedByAdminId()).isNull();
         assertThat(lastSaved.getStatus()).isEqualTo(SpaceEnquiryStatus.SHARED);
-        assertThat(lastSaved.getContactEmailSentAt()).isNotNull();
+        assertThat(lastSaved.getContactEmailSentAt()).isNull();
 
         ArgumentCaptor<SendEmailCommand> mailCaptor = ArgumentCaptor.forClass(SendEmailCommand.class);
         verify(emailService, times(2)).send(mailCaptor.capture());

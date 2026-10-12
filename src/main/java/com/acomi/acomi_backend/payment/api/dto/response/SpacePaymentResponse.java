@@ -27,10 +27,12 @@ public class SpacePaymentResponse {
     private UUID spaceId;
     private UUID memberId;
     private String memberName;
+    private String memberMobile;
     private UUID occupancyId;
     private SpacePaymentType paymentType;
     private SpacePaymentCategory paymentCategory;
     private String title;
+    private String description;
     private BigDecimal amount;
     private String currencyCode;
     private LocalDate dueDate;
@@ -101,10 +103,12 @@ public class SpacePaymentResponse {
                 .spaceId(entity.getSpace().getId())
                 .memberId(entity.getMember().getId())
                 .memberName(entity.getMember().getFullName())
+                .memberMobile(entity.getMember().getMobileNumber())
                 .occupancyId(entity.getOccupancy() != null ? entity.getOccupancy().getId() : null)
                 .paymentType(entity.getPaymentType())
                 .paymentCategory(entity.getPaymentCategory())
                 .title(entity.getTitle())
+                .description(entity.getDescription())
                 .amount(entity.getAmount())
                 .currencyCode(entity.getCurrencyCode())
                 .dueDate(entity.getDueDate())
@@ -158,6 +162,7 @@ public class SpacePaymentResponse {
                 .spaceId(spaceId)
                 .memberId(memberId)
                 .memberName(memberName)
+                .memberMobile(memberMobile)
                 .occupancyId(occupancyId)
                 .paymentType(paymentType)
                 .paymentCategory(paymentCategory)

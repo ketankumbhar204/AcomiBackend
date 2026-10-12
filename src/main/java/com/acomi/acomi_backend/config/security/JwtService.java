@@ -5,6 +5,8 @@ import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Date;
 import java.util.UUID;
 import javax.crypto.SecretKey;
@@ -37,6 +39,22 @@ public class JwtService {
 
     public UUID extractUserId(String token) {
         return UUID.fromString(parseClaims(token).getSubject());
+    }
+
+    public Date extractIssuedAt(String token) {
+        return parseClaims(token).getIssuedAt();
+    }
+
+    /**
+     * Tokens issued before an admin or recovery password change must not keep working.
+     * A null credential timestamp means the account has never recorded one.
+     */
+    public static boolean tokenPredatesCredentialChange(Date issuedAt, LocalDateTime credentialsChangedAt) {
+        if (issuedAt == null || credentialsChangedAt == null) {
+            return false;
+        }
+        return issuedAt.toInstant().isBefore(
+                credentialsChangedAt.atZone(ZoneId.systemDefault()).toInstant());
     }
 
     public boolean isTokenValid(String token) {

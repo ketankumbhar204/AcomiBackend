@@ -19,6 +19,21 @@ public class UpdatePaymentConfigRequest {
     /** Free WEB (email) enquiries per calendar day. */
     private Integer webFreeDailyLimit;
 
+    /**
+     * Website instant contact views allowed per day. Independent of
+     * {@link #webFreeDailyLimit}. 0 disables the option.
+     */
+    private Integer viewHereDailyLimit;
+
+    /** Website instant contact viewing. Null leaves the stored value unchanged. */
+    private Boolean webViewHereEnabled;
+
+    /** Mobile instant contact viewing. Null leaves the stored value unchanged. */
+    private Boolean androidViewHereEnabled;
+
+    /** Mobile instant contact views per day. Independent of mobile enquiry credits. */
+    private Integer androidViewHereDailyLimit;
+
     /** ANDROID billing: FREE or CREDITS. */
     private String androidBillingMode;
 

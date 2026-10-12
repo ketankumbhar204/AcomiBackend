@@ -1,7 +1,10 @@
 package com.acomi.acomi_backend.admin.application.service;
 
 import com.acomi.acomi_backend.admin.api.dto.request.AdminCreateRegisteredUserRequest;
+import com.acomi.acomi_backend.admin.api.dto.request.AdminResetPasswordRequest;
 import com.acomi.acomi_backend.admin.api.dto.request.AdminUpdateRegisteredUserRequest;
+import com.acomi.acomi_backend.admin.application.AdminSecurityAudit;
+import com.acomi.acomi_backend.admin.application.LoggingAdminSecurityAudit;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUserResponse;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUserSpaceResponse;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUsersSummaryResponse;
@@ -67,6 +70,7 @@ public class AdminRegisteredUsersService {
     private final SpaceRepository spaceRepository;
     private final InvitationProvisioner invitationProvisioner;
     private final InvitationService invitationService;
+    private final AdminSecurityAudit adminSecurityAudit;
 
     @Transactional(readOnly = true)
     public long countRegisteredUsers() {
@@ -76,6 +80,22 @@ public class AdminRegisteredUsersService {
     @Transactional(readOnly = true)
     public Page<AdminRegisteredUserResponse> list(Pageable pageable) {
         return list(null, null, null, null, null, null, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<AdminRegisteredUserResponse> list(
+            String q,
+            String role,
+            String onboarding,
+            String spaceAssociation,
+            Boolean verified,
+            LocalDate from,
+            LocalDate to,
+            Pageable pageable) {
+        if (Boolean.FALSE.equals(verified)) {
+            return Page.empty(safePage(pageable));
+        }
+        return list(q, role, onboarding, spaceAssociation, from, to, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -201,6 +221,7 @@ public class AdminRegisteredUsersService {
                             ? null
                             : blankToNull(request.getEmail()).toLowerCase())
                     .passwordHash(passwordEncoder.encode(request.getPassword()))
+                    .credentialsChangedAt(now)
                     .mobileVerifiedAt(now)
                     .systemRole(SystemRole.USER)
                     .isActive(true)
@@ -321,6 +342,7 @@ public class AdminRegisteredUsersService {
                 throw new BusinessException("Password must be 8 to 72 characters");
             }
             user.setPasswordHash(passwordEncoder.encode(password));
+            user.setCredentialsChangedAt(LocalDateTime.now());
         }
 
         String mobileNumber = MobileNumberNormalizer.normalize(request.getMobileNumber());
@@ -347,6 +369,47 @@ public class AdminRegisteredUsersService {
         List<SpaceMembershipEntity> memberships =
                 spaceMembershipRepository.findActiveByUserIdsWithSpace(List.of(id));
         return toResponse(user, memberships);
+    }
+
+    /**
+     * Admin-set password. Does not change role, membership, or verification.
+     * Existing access tokens issued before this change are rejected.
+     */
+    @Transactional
+    public void resetPassword(UUID actorId, UUID targetUserId, AdminResetPasswordRequest request) {
+        if (actorId != null && actorId.equals(targetUserId)) {
+            adminSecurityAudit.record(
+                    actorId, targetUserId, LoggingAdminSecurityAudit.PASSWORD_RESET, "REJECTED_SELF");
+            throw new BusinessException(
+                    "Use account recovery to change your own password.", HttpStatus.BAD_REQUEST);
+        }
+        String password = request.getPassword();
+        String confirmPassword = request.getConfirmPassword();
+        if (password == null || confirmPassword == null || !password.equals(confirmPassword)) {
+            adminSecurityAudit.record(
+                    actorId, targetUserId, LoggingAdminSecurityAudit.PASSWORD_RESET, "REJECTED_MISMATCH");
+            throw new BusinessException("Passwords do not match");
+        }
+        if (password.length() < 8 || password.length() > 72) {
+            adminSecurityAudit.record(
+                    actorId, targetUserId, LoggingAdminSecurityAudit.PASSWORD_RESET, "REJECTED_INVALID");
+            throw new BusinessException("Password must be 8 to 72 characters");
+        }
+
+        UserEntity user = userRepository
+                .findById(targetUserId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", targetUserId));
+        if (!user.isActive() || user.getSystemRole() != SystemRole.USER) {
+            adminSecurityAudit.record(
+                    actorId, targetUserId, LoggingAdminSecurityAudit.PASSWORD_RESET, "REJECTED_NOT_FOUND");
+            throw new ResourceNotFoundException("User", "id", targetUserId);
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(password));
+        user.setCredentialsChangedAt(LocalDateTime.now());
+        userRepository.save(user);
+        adminSecurityAudit.record(
+                actorId, targetUserId, LoggingAdminSecurityAudit.PASSWORD_RESET, "SUCCESS");
     }
 
     @Transactional

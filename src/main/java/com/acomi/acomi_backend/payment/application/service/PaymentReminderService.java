@@ -5,7 +5,9 @@ import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
+import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
+import com.acomi.acomi_backend.notification.api.dto.response.NotificationResponse;
 import com.acomi.acomi_backend.notification.application.port.in.PublishNotificationCommand;
 import com.acomi.acomi_backend.notification.application.service.NotificationService;
 import com.acomi.acomi_backend.notification.domain.model.NotificationCategory;
@@ -18,11 +20,14 @@ import com.acomi.acomi_backend.payment.api.dto.response.PaymentReminderProcessRe
 import com.acomi.acomi_backend.payment.application.dto.PaymentReminderMessage;
 import com.acomi.acomi_backend.payment.application.port.out.MessageDeliveryProvider;
 import com.acomi.acomi_backend.payment.application.support.PaymentDueStatusCalculator;
+import com.acomi.acomi_backend.payment.application.support.PaymentReminderClickToChat;
 import com.acomi.acomi_backend.payment.domain.model.PaymentReminderType;
 import com.acomi.acomi_backend.payment.domain.model.PaymentTimelineEventType;
 import com.acomi.acomi_backend.payment.domain.model.ReminderChannel;
 import com.acomi.acomi_backend.payment.domain.model.ReminderDeliveryStatus;
+import com.acomi.acomi_backend.payment.domain.model.SpacePaymentType;
 import com.acomi.acomi_backend.payment.infrastructure.delivery.WhatsAppMessageDeliveryProvider;
+import com.acomi.acomi_backend.payment.infrastructure.delivery.WhatsAppPhoneNormalizer;
 import com.acomi.acomi_backend.payment.infrastructure.delivery.WhatsAppReminderProperties;
 import com.acomi.acomi_backend.payment.infrastructure.persistence.entity.PaymentReminderDeliveryEntity;
 import com.acomi.acomi_backend.payment.infrastructure.persistence.entity.SpacePaymentEntity;
@@ -30,10 +35,15 @@ import com.acomi.acomi_backend.payment.infrastructure.persistence.repository.Pay
 import com.acomi.acomi_backend.payment.infrastructure.persistence.repository.SpacePaymentRepository;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
+import java.math.BigDecimal;
+import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -65,6 +75,7 @@ public class PaymentReminderService {
     private final SpacePaymentTimelineService timelineService;
     private final NotificationService notificationService;
     private final SpaceMembershipRepository membershipRepository;
+    private final WhatsAppPhoneNormalizer phoneNormalizer;
     private final TransactionTemplate transactionTemplate;
 
     @Transactional(readOnly = true)
@@ -99,6 +110,110 @@ public class PaymentReminderService {
         return toDeliveryResponse(outcome.delivery());
     }
 
+    /**
+     * Owner action: validate the payment, record an in-app reminder, and return a WhatsApp
+     * click-to-chat link. Does not call the WhatsApp provider and does not change the payment.
+     */
+    public PaymentReminderDeliveryResponse prepareOwnerReminder(UUID spaceId, UUID paymentId, UUID callerId) {
+        accessService.requireManagePayments(spaceId, callerId);
+        SpaceEntity space = loadSpace(spaceId);
+        LocalDate businessDate = PaymentDueStatusCalculator.businessDate(space);
+
+        OverduePaymentResponse target = eligibilityService.findObligationsNeedingReminderInternal(spaceId).stream()
+                .filter(row -> paymentId.equals(row.getPaymentId()))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(
+                        "Payment is not reminder-eligible", HttpStatus.CONFLICT));
+
+        SpacePaymentEntity payment = paymentRepository
+                .findByIdAndSpaceId(paymentId, spaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("SpacePayment", "id", paymentId));
+
+        PaymentReminderMessage reminder = buildMessage(
+                space, target, PaymentReminderType.fromPaymentType(target.getPaymentType()),
+                ReminderChannel.WHATSAPP, businessDate);
+        String targetLabel = payment.getTargetLabel();
+        String messageText = PaymentReminderClickToChat.message(reminder, targetLabel);
+        String inAppText = PaymentReminderClickToChat.inAppMessage(reminder, targetLabel);
+
+        var phone = phoneNormalizer.normalize(reminder.getRecipientMobile());
+        String digits = phone.map(WhatsAppPhoneNormalizer.NormalizedPhone::digitsE164WithoutPlus).orElse(null);
+        String whatsAppUrl = PaymentReminderClickToChat.waMeUrl(digits, messageText);
+
+        boolean inAppRecorded = false;
+        String inAppFailureCode = null;
+        UserEntity memberUser = payment.getMember() != null ? payment.getMember().getUser() : null;
+        if (memberUser == null || memberUser.getId() == null) {
+            inAppFailureCode = "MEMBER_NOT_ON_ACOMI";
+        } else {
+            try {
+                LocalDateTime started = LocalDateTime.now().minusSeconds(2);
+                NotificationResponse published = notificationService.publish(PublishNotificationCommand.builder()
+                        .spaceId(spaceId)
+                        .userId(memberUser.getId())
+                        .actorId(callerId)
+                        .entityType(NotificationEntityType.PAYMENT)
+                        .entityId(paymentId)
+                        .notificationType(NotificationType.PAYMENT_REMINDER_SENT)
+                        .category(NotificationCategory.WARNING)
+                        .priority(NotificationPriority.MEDIUM)
+                        .title("Payment reminder")
+                        .message(inAppText)
+                        .actionLabel("View Payment")
+                        .actionRoute("PaymentDetail")
+                        .dedupeKey("INFO:PAYMENT_REMINDER_SENT:"
+                                + paymentId
+                                + ":"
+                                + businessDate
+                                + ":"
+                                + memberUser.getId())
+                        .deliveryChannels(List.of("IN_APP"))
+                        .build());
+                inAppRecorded = true;
+                if (published.getCreatedAt() != null && published.getCreatedAt().isBefore(started)) {
+                    log.info(
+                            "Payment reminder reused existing in-app notification payment={} user={}",
+                            paymentId,
+                            memberUser.getId());
+                }
+            } catch (RuntimeException ex) {
+                inAppFailureCode = "NOTIFICATION_FAILED";
+                log.warn(
+                        "Payment reminder in-app notification failed payment={} space={}",
+                        paymentId,
+                        spaceId,
+                        ex);
+            }
+        }
+
+        String failureCode = null;
+        String failureReason = null;
+        if (digits == null) {
+            failureCode = "INVALID_RECIPIENT";
+            failureReason = "Recipient mobile number is missing or invalid";
+        }
+        boolean notificationFailed = "NOTIFICATION_FAILED".equals(inAppFailureCode);
+        ReminderDeliveryStatus deliveryStatus = whatsAppUrl != null
+                ? ReminderDeliveryStatus.PENDING
+                : ReminderDeliveryStatus.FAILED;
+
+        return PaymentReminderDeliveryResponse.builder()
+                .paymentId(paymentId)
+                .channel(ReminderChannel.WHATSAPP)
+                .deliveryStatus(deliveryStatus)
+                .businessDate(businessDate)
+                .failureCode(failureCode)
+                .failureReason(failureReason)
+                .providerConfigured(whatsAppUrl != null)
+                .retryable(notificationFailed)
+                .messageText(messageText)
+                .whatsAppUrl(whatsAppUrl)
+                .internationalPhone(digits)
+                .inAppRecorded(inAppRecorded)
+                .inAppFailureCode(inAppFailureCode)
+                .build();
+    }
+
     private PaymentReminderProcessResultResponse processSpaceInternal(
             UUID spaceId, UUID actorId, boolean systemRun) {
         SpaceEntity space = loadSpace(spaceId);
@@ -125,6 +240,16 @@ public class PaymentReminderService {
         List<PaymentReminderDeliveryResponse> deliveries = new ArrayList<>();
 
         for (OverduePaymentResponse candidate : candidates) {
+            // In-app + FCM overdue alerts are independent of WhatsApp delivery.
+            try {
+                publishOverdueAlerts(space, candidate);
+            } catch (RuntimeException ex) {
+                log.warn(
+                        "Overdue in-app notification failed payment={} space={}",
+                        candidate.getPaymentId(),
+                        spaceId,
+                        ex);
+            }
             AttemptOutcome outcome = attemptReminder(space, candidate, businessDate, actorId);
             deliveries.add(toDeliveryResponse(outcome.delivery()));
             switch (outcome.kind()) {
@@ -367,6 +492,121 @@ public class PaymentReminderService {
         }
 
         return saved;
+    }
+
+    /**
+     * Persists the member overdue notice and a single owner action.
+     * Deduped by payment, recipient and reminder stage so a scheduler rerun
+     * does not create another row or another push. WhatsApp outcome is ignored.
+     */
+    private void publishOverdueAlerts(SpaceEntity space, OverduePaymentResponse candidate) {
+        if (candidate.getPaymentId() == null || !candidate.isOverdue()) {
+            return;
+        }
+        SpacePaymentEntity payment = paymentRepository
+                .findByIdAndSpaceId(candidate.getPaymentId(), space.getId())
+                .orElse(null);
+        if (payment == null || payment.getMember() == null) {
+            return;
+        }
+        String paymentLabel = paymentTypeLabel(candidate.getPaymentType());
+        String amount = formatInr(candidate.getOutstandingAmount(), candidate.getCurrencyCode());
+        String spaceName = space.getName() != null && !space.getName().isBlank() ? space.getName() : "your space";
+        int days = Math.max(candidate.getDaysOverdue(), 1);
+        String dayWord = days == 1 ? "day" : "days";
+        String stage = overdueStage(days);
+
+        UserEntity memberUser = payment.getMember().getUser();
+        if (memberUser != null && memberUser.getId() != null) {
+            notificationService.publish(PublishNotificationCommand.builder()
+                    .spaceId(space.getId())
+                    .userId(memberUser.getId())
+                    .entityType(NotificationEntityType.PAYMENT)
+                    .entityId(payment.getId() != null ? payment.getId() : candidate.getPaymentId())
+                    .notificationType(NotificationType.PAYMENT_REMINDER_SENT)
+                    .category(NotificationCategory.WARNING)
+                    .priority(NotificationPriority.HIGH)
+                    .title("Payment Overdue")
+                    .message("Your " + paymentLabel + " payment of " + amount + " for " + spaceName
+                            + " is overdue by " + days + " " + dayWord + ". Please complete the payment.")
+                    .actionLabel("View Payment")
+                    .actionRoute("PaymentDetail")
+                    .dedupeKey("OVERDUE:MEMBER:" + stage + ":" + candidate.getPaymentId() + ":"
+                            + memberUser.getId())
+                    .deliveryChannels(List.of("IN_APP", "PUSH"))
+                    .build());
+        }
+
+        String memberName = candidate.getMemberName() != null && !candidate.getMemberName().isBlank()
+                ? candidate.getMemberName()
+                : "A member";
+        List<SpaceMembershipEntity> managers = membershipRepository.findBySpaceIdAndStatus(
+                space.getId(), MembershipStatus.ACTIVE);
+        for (SpaceMembershipEntity membership : managers) {
+            if (membership.getRole() != MembershipRole.OWNER && membership.getRole() != MembershipRole.MANAGER) {
+                continue;
+            }
+            if (membership.getUser() == null || membership.getUser().getId() == null) {
+                continue;
+            }
+            UUID managerId = membership.getUser().getId();
+            if (memberUser != null && managerId.equals(memberUser.getId())) {
+                continue;
+            }
+            notificationService.publish(PublishNotificationCommand.builder()
+                    .spaceId(space.getId())
+                    .userId(managerId)
+                    .entityType(NotificationEntityType.PAYMENT)
+                    .entityId(payment.getId() != null ? payment.getId() : candidate.getPaymentId())
+                    .notificationType(NotificationType.PAYMENT_OVERDUE)
+                    .category(NotificationCategory.ACTION_REQUIRED)
+                    .priority(NotificationPriority.HIGH)
+                    .title("Member Payment Overdue")
+                    .message(memberName + " has an overdue " + paymentLabel + " payment of " + amount
+                            + " in " + spaceName + ".")
+                    .actionLabel("View Payment")
+                    .actionRoute("PaymentDetail")
+                    .dedupeKey("OVERDUE:OWNER:" + candidate.getPaymentId() + ":" + managerId)
+                    .deliveryChannels(List.of("IN_APP", "PUSH"))
+                    .build());
+        }
+    }
+
+    private static String overdueStage(int daysOverdue) {
+        if (daysOverdue >= 7) {
+            return "DAY7";
+        }
+        if (daysOverdue >= 3) {
+            return "DAY3";
+        }
+        return "FIRST";
+    }
+
+    private static String paymentTypeLabel(SpacePaymentType type) {
+        if (type == null) {
+            return "payment";
+        }
+        return switch (type) {
+            case RENT -> "rent";
+            case DEPOSIT -> "security deposit";
+            case UTILITY -> "utility";
+            case MAINTENANCE -> "maintenance";
+            case MEAL -> "meal";
+            case SERVICE -> "service";
+            case PENALTY -> "penalty";
+            default -> "payment";
+        };
+    }
+
+    private static String formatInr(BigDecimal amount, String currency) {
+        BigDecimal value = amount != null ? amount : BigDecimal.ZERO;
+        DecimalFormat format = new DecimalFormat("#,##0.##", DecimalFormatSymbols.getInstance(Locale.ENGLISH));
+        format.setGroupingUsed(true);
+        String text = format.format(value);
+        if (currency == null || currency.isBlank() || "INR".equalsIgnoreCase(currency.trim())) {
+            return "₹" + text;
+        }
+        return currency.trim() + " " + text;
     }
 
     private void publishInAppReminderSent(

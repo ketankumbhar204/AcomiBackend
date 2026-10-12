@@ -113,6 +113,9 @@ class MemberMasterServiceTest {
     private MembershipNotificationSyncService membershipNotificationSyncService;
 
     @Mock
+    private MemberDepositLedger memberDepositLedger;
+
+    @Mock
     private StoredFileService storedFileService;
 
     @Mock
@@ -152,6 +155,9 @@ class MemberMasterServiceTest {
         lenient()
                 .when(invitationProvisioner.ensurePendingInvitation(any(), any(), any(), any()))
                 .thenReturn(Optional.empty());
+        lenient()
+                .when(memberDepositLedger.apply(any(MemberEntity.class), any(MemberDetailsResponse.class)))
+                .thenAnswer(invocation -> invocation.getArgument(1));
     }
 
     @Test

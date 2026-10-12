@@ -9,6 +9,7 @@ public enum SpacePaymentCategory {
     REFUND,
     ELECTRICITY,
     WATER,
+    GAS,
     INTERNET,
     OTHER
 }

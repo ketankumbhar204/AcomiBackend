@@ -23,6 +23,16 @@ public class InquiryPaymentConfigResponse {
     /** Free WEB (email) enquiries per day before paid credits. */
     private Integer webFreeDailyLimit;
 
+    /** Website instant contact views per day. Independent of email enquiries. */
+    private Integer viewHereDailyLimit;
+
+    private Boolean webViewHereEnabled;
+
+    private Boolean androidViewHereEnabled;
+
+    /** Mobile instant contact views per day. Independent of in-app enquiries. */
+    private Integer androidViewHereDailyLimit;
+
     /** ANDROID billing mode: FREE or CREDITS. */
     private AndroidInquiryBillingMode androidBillingMode;
 

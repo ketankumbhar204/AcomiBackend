@@ -42,4 +42,16 @@ public class InquiryQuotaResponse {
 
     /** True when this channel has no daily enquiry cap (toggle off or limit 0). */
     private Boolean unlimited;
+
+    /**
+     * Instant contact-view cap for this channel. 0 means the option is off.
+     * Independent of the email or in-app enquiry allowance.
+     */
+    private Integer viewHereDailyLimit;
+
+    /** Instant contact views already used today on this channel. */
+    private Integer viewHereUsedToday;
+
+    /** Instant contact views still available today on this channel. */
+    private Integer viewHereRemainingToday;
 }

@@ -12,5 +12,7 @@ public interface InventorySupplierRepository extends JpaRepository<InventorySupp
 
     Optional<InventorySupplierEntity> findByIdAndSpaceIdAndIsActiveTrue(UUID id, UUID spaceId);
 
+    Optional<InventorySupplierEntity> findBySpaceIdAndIsActiveTrueAndNameIgnoreCase(UUID spaceId, String name);
+
     long countBySpaceIdAndIsActiveTrue(UUID spaceId);
 }

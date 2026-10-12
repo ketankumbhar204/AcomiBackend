@@ -4,11 +4,17 @@ import com.acomi.acomi_backend.dashboard.api.dto.response.DashboardFinancialSumm
 import com.acomi.acomi_backend.dashboard.api.dto.response.MemberPaymentLedgerResponse;
 import com.acomi.acomi_backend.dashboard.api.dto.response.MemberPaymentLedgerRowResponse;
 import com.acomi.acomi_backend.dashboard.api.dto.response.PrepaidBalanceSummaryResponse;
+import com.acomi.acomi_backend.dashboard.application.service.DashboardAccessService;
 import com.acomi.acomi_backend.dashboard.application.service.SpaceBillingService;
+import com.acomi.acomi_backend.dashboard.application.support.OccupancyBillingCalculator;
 import com.acomi.acomi_backend.dashboard.application.support.PayPerMealBillingCalculator;
 import com.acomi.acomi_backend.dashboard.application.support.SpacePaymentLedgerSupport;
 import com.acomi.acomi_backend.dashboard.domain.model.MemberPaymentStatus;
+import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
+import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
 import com.acomi.acomi_backend.payment.application.support.PaymentMonthCountsSupport;
+import com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory;
+import com.acomi.acomi_backend.payment.domain.model.SpacePaymentType;
 import com.acomi.acomi_backend.payment.infrastructure.persistence.entity.SpacePaymentEntity;
 import com.acomi.acomi_backend.payment.infrastructure.persistence.entity.SpacePaymentMemberMonthEntity;
 import com.acomi.acomi_backend.payment.infrastructure.persistence.entity.SpacePaymentMonthSummaryEntity;
@@ -16,9 +22,11 @@ import com.acomi.acomi_backend.payment.infrastructure.persistence.repository.Spa
 import com.acomi.acomi_backend.payment.infrastructure.persistence.repository.SpacePaymentMonthSummaryRepository;
 import com.acomi.acomi_backend.payment.infrastructure.persistence.repository.SpacePaymentRepository;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -53,6 +61,9 @@ public class PaymentMonthSnapshotService {
     private final SpacePaymentRepository paymentRepository;
     private final SpacePaymentLedgerSupport spacePaymentLedgerSupport;
     private final PayPerMealBillingCalculator payPerMealBillingCalculator;
+    private final SpacePaymentGenerationService paymentGenerationService;
+    private final DashboardAccessService dashboardAccessService;
+    private final OccupancyRepository occupancyRepository;
 
     @Transactional
     public void rebuildMonth(UUID spaceId, UUID callerId, YearMonth month) {
@@ -87,8 +98,85 @@ public class PaymentMonthSnapshotService {
                         spaceId,
                         monthKey);
                 rebuildMonthUnlocked(spaceId, callerId, month);
+                return;
+            }
+            if (needsExpectedRentHeal(spaceId, month) || needsMissingGeneratedRent(spaceId, month)) {
+                log.info(
+                        "payment_snapshot_expected_rent_heal spaceId={} month={}",
+                        spaceId,
+                        monthKey);
+                if (dashboardAccessService.canManagePayments(spaceId, callerId)) {
+                    paymentGenerationService.syncExpectedPayments(spaceId, callerId, month);
+                }
+                rebuildMonthUnlocked(spaceId, callerId, month);
             }
         }
+    }
+
+    /**
+     * Snapshot was materialized before move-in (or never refreshed) so Expected stays 0
+     * while an active stay already has a rent snapshot for this month.
+     */
+    private boolean needsExpectedRentHeal(UUID spaceId, YearMonth month) {
+        SpacePaymentMonthSummaryEntity summary =
+                summaryRepository.findBySpaceIdAndMonth(spaceId, month.toString()).orElse(null);
+        if (summary == null) {
+            return false;
+        }
+        BigDecimal expected = summary.getExpectedCharges();
+        if (expected != null && expected.signum() > 0) {
+            return false;
+        }
+        LocalDateTime monthStart = month.atDay(1).atStartOfDay();
+        LocalDateTime monthEndExclusive = month.plusMonths(1).atDay(1).atStartOfDay();
+        for (OccupancyEntity occupancy :
+                occupancyRepository.findBillableBySpaceIdForMonth(
+                        spaceId, monthStart, monthEndExclusive, month.atEndOfMonth())) {
+            if (!OccupancyBillingCalculator.isBillableInMonth(occupancy, month)) {
+                continue;
+            }
+            BigDecimal rent = occupancy.getRentSnapshot();
+            if (rent != null && rent.signum() > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The summary can already show contractual rent while no monthly rent row exists.
+     * That happens for months after move-in: activation writes only the first month,
+     * and a later summary rebuild counts the contract without creating the charge.
+     */
+    private boolean needsMissingGeneratedRent(UUID spaceId, YearMonth month) {
+        LocalDateTime monthStart = month.atDay(1).atStartOfDay();
+        LocalDateTime monthEndExclusive = month.plusMonths(1).atDay(1).atStartOfDay();
+        List<OccupancyEntity> occupancies = occupancyRepository.findBillableBySpaceIdForMonth(
+                spaceId, monthStart, monthEndExclusive, month.atEndOfMonth());
+        if (occupancies.isEmpty()) {
+            return false;
+        }
+        Set<UUID> membersWithRent = new HashSet<>();
+        for (SpacePaymentEntity payment : paymentRepository.findBySpaceIdAndMonth(spaceId, month.toString())) {
+            if (payment.getPaymentType() == SpacePaymentType.RENT
+                    && payment.getPaymentCategory() == SpacePaymentCategory.MONTHLY
+                    && payment.getMember() != null) {
+                membersWithRent.add(payment.getMember().getId());
+            }
+        }
+        for (OccupancyEntity occupancy : occupancies) {
+            if (!OccupancyBillingCalculator.isBillableInMonth(occupancy, month)) {
+                continue;
+            }
+            BigDecimal rent = occupancy.getRentSnapshot();
+            if (rent == null || rent.signum() <= 0 || occupancy.getMember() == null) {
+                continue;
+            }
+            if (!membersWithRent.contains(occupancy.getMember().getId())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

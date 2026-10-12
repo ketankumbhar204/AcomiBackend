@@ -23,6 +23,7 @@ import com.acomi.acomi_backend.payment.api.dto.response.SpacePaymentResponse;
 import com.acomi.acomi_backend.payment.application.support.PaymentDueStatusCalculator;
 import com.acomi.acomi_backend.payment.domain.model.PaymentReviewAction;
 import com.acomi.acomi_backend.payment.domain.model.PaymentTimelineEventType;
+import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentMethod;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus;
@@ -124,6 +125,10 @@ public class SpacePaymentService {
 
         if (syncExpected) {
             generationService.syncExpectedPayments(spaceId, callerId, month);
+        } else if (accessService.canViewAllPayments(membership)) {
+            // Summary may already count contractual rent for this month. Materialize the
+            // matching charge before the list is read so the two views use the same rows.
+            snapshotService.ensureMonth(spaceId, callerId, month);
         }
 
         // Mirror outstanding Mess day proofs into daily SpacePayment rows so
@@ -147,6 +152,35 @@ public class SpacePaymentService {
                     .toList();
         }
 
+        return SpacePaymentListResponse.builder()
+                .month(month.toString())
+                .payments(payments.stream().map(this::toResponse).toList())
+                .build();
+    }
+
+    /**
+     * Existing charges for active stays. Never generates dues.
+     * Deposit rows are included even when they belong to the move-in month.
+     */
+    @Transactional(readOnly = true)
+    public SpacePaymentListResponse listActiveStayCharges(UUID spaceId, UUID callerId, String monthParam) {
+        SpaceMembershipEntity membership = accessService.requireActiveMembership(spaceId, callerId);
+        YearMonth month = parseMonth(monthParam);
+        List<SpacePaymentEntity> payments = paymentRepository.findActiveStayCharges(
+                spaceId,
+                month.toString(),
+                OccupancyStatus.ACTIVE,
+                SpacePaymentType.DEPOSIT);
+        if (!accessService.canViewAllPayments(membership)) {
+            if (!accessService.isOwnScopeOnly(membership)) {
+                payments = List.of();
+            } else {
+                UUID ownMemberId = accessService.resolveOwnMemberId(spaceId, callerId);
+                payments = payments.stream()
+                        .filter(payment -> ownMemberId.equals(payment.getMember().getId()))
+                        .toList();
+            }
+        }
         return SpacePaymentListResponse.builder()
                 .month(month.toString())
                 .payments(payments.stream().map(this::toResponse).toList())
@@ -350,11 +384,16 @@ public class SpacePaymentService {
     public SpacePaymentResponse createManualPayment(
             UUID spaceId, UUID callerId, CreateSpacePaymentRequest request) {
         accessService.requireManagePayments(spaceId, callerId);
+        if (request.getAmount() == null || request.getAmount().signum() <= 0) {
+            throw new BusinessException("Enter a valid amount.", HttpStatus.BAD_REQUEST);
+        }
+        validateManualPaymentType(request.getPaymentType(), request.getPaymentCategory());
         SpaceEntity space = spaceRepository
                 .findById(spaceId)
                 .orElseThrow(() -> new BusinessException("Space not found", HttpStatus.NOT_FOUND));
-
-        validateManualPaymentType(request.getPaymentType(), request.getPaymentCategory());
+        String description = boundedText(request.getDescription(), 500, "Description");
+        String remarks = boundedText(request.getRemarks(), 2000, "Notes");
+        String requestedTitle = boundedText(request.getTitle(), 200, "Charge type");
 
         MemberEntity member = memberRepository
                 .findByIdAndSpaceIdAndActiveTrue(request.getMemberId(), spaceId)
@@ -387,7 +426,7 @@ public class SpacePaymentService {
                         ? request.getMonth()
                         : YearMonth.from(dueDate).toString());
         String monthKey = month.toString();
-        String title = trimToNull(request.getTitle());
+        String title = requestedTitle;
         if (title == null) {
             title = defaultManualTitle(request.getPaymentType(), request.getPaymentCategory());
         }
@@ -403,12 +442,13 @@ public class SpacePaymentService {
                 .paymentType(request.getPaymentType())
                 .paymentCategory(request.getPaymentCategory())
                 .title(title)
+                .description(description)
                 .amount(request.getAmount())
                 .currencyCode("INR")
                 .dueDate(dueDate)
                 .month(monthKey)
                 .paymentStatus(SpacePaymentStatus.PENDING)
-                .remarks(trimToNull(request.getRemarks()))
+                .remarks(remarks)
                 .targetLabel(occupancy != null ? occupancyTargetLabelBuilder.build(occupancy) : null)
                 .build();
         paymentRepository.save(payment);
@@ -419,28 +459,70 @@ public class SpacePaymentService {
     }
 
     private void validateManualPaymentType(SpacePaymentType type, SpacePaymentCategory category) {
-        if (type == SpacePaymentType.MEAL || type == SpacePaymentType.RENT) {
-            throw new BusinessException(
-                    "Rent and meal payments are generated automatically; choose another type",
-                    HttpStatus.BAD_REQUEST);
+        if (type == null) {
+            throw new BusinessException("Select a charge category.", HttpStatus.BAD_REQUEST);
+        }
+        if (category == null) {
+            throw new BusinessException("Select a charge type.", HttpStatus.BAD_REQUEST);
         }
         if (category == SpacePaymentCategory.REFUND) {
             throw new BusinessException("Refund is not a creatable payment type", HttpStatus.BAD_REQUEST);
         }
+        if ((type == SpacePaymentType.RENT && category == SpacePaymentCategory.MONTHLY)
+                || (type == SpacePaymentType.MEAL
+                        && (category == SpacePaymentCategory.MONTHLY
+                                || category == SpacePaymentCategory.DAILY))) {
+            throw new BusinessException(
+                    "Rent and meal payments are generated automatically; choose another type",
+                    HttpStatus.BAD_REQUEST);
+        }
         boolean allowed =
-                (type == SpacePaymentType.DEPOSIT && category == SpacePaymentCategory.SECURITY)
+                (type == SpacePaymentType.RENT
+                                && (category == SpacePaymentCategory.EXTRA
+                                        || category == SpacePaymentCategory.ADVANCE
+                                        || category == SpacePaymentCategory.OTHER))
+                        || (type == SpacePaymentType.DEPOSIT
+                                && (category == SpacePaymentCategory.SECURITY
+                                        || category == SpacePaymentCategory.EXTRA
+                                        || category == SpacePaymentCategory.OTHER))
                         || (type == SpacePaymentType.MAINTENANCE
+                                && (category == SpacePaymentCategory.EXTRA
+                                        || category == SpacePaymentCategory.OTHER))
+                        || (type == SpacePaymentType.UTILITY
+                                && (category == SpacePaymentCategory.ELECTRICITY
+                                        || category == SpacePaymentCategory.WATER
+                                        || category == SpacePaymentCategory.GAS
+                                        || category == SpacePaymentCategory.INTERNET
+                                        || category == SpacePaymentCategory.EXTRA
+                                        || category == SpacePaymentCategory.OTHER))
+                        || (type == SpacePaymentType.MEAL
+                                && (category == SpacePaymentCategory.EXTRA
+                                        || category == SpacePaymentCategory.ADVANCE
+                                        || category == SpacePaymentCategory.OTHER))
+                        || (type == SpacePaymentType.SERVICE
+                                && (category == SpacePaymentCategory.EXTRA
+                                        || category == SpacePaymentCategory.OTHER))
+                        || (type == SpacePaymentType.PENALTY
                                 && (category == SpacePaymentCategory.EXTRA
                                         || category == SpacePaymentCategory.OTHER))
                         || (type == SpacePaymentType.OTHER
                                 && (category == SpacePaymentCategory.ELECTRICITY
                                         || category == SpacePaymentCategory.WATER
+                                        || category == SpacePaymentCategory.GAS
                                         || category == SpacePaymentCategory.INTERNET
                                         || category == SpacePaymentCategory.EXTRA
                                         || category == SpacePaymentCategory.OTHER));
         if (!allowed) {
             throw new BusinessException("Unsupported payment type and category combination", HttpStatus.BAD_REQUEST);
         }
+    }
+
+    private String boundedText(String value, int maxLength, String label) {
+        String trimmed = trimToNull(value);
+        if (trimmed != null && trimmed.length() > maxLength) {
+            throw new BusinessException(label + " is too long", HttpStatus.BAD_REQUEST);
+        }
+        return trimmed;
     }
 
     private String defaultManualTitle(SpacePaymentType type, SpacePaymentCategory category) {
@@ -450,10 +532,23 @@ public class SpacePaymentService {
         if (type == SpacePaymentType.MAINTENANCE) {
             return "Maintenance";
         }
+        if (type == SpacePaymentType.SERVICE) {
+            return "Service";
+        }
+        if (type == SpacePaymentType.PENALTY) {
+            return "Penalty";
+        }
+        if (type == SpacePaymentType.RENT) {
+            return category == SpacePaymentCategory.ADVANCE ? "Advance rent" : "Rent";
+        }
+        if (type == SpacePaymentType.MEAL) {
+            return "Meals";
+        }
         return switch (category) {
             case ELECTRICITY -> "Electricity";
             case WATER -> "Water";
-            case INTERNET -> "Utility";
+            case GAS -> "Gas";
+            case INTERNET -> "Internet/Wi-Fi";
             default -> "Other charge";
         };
     }

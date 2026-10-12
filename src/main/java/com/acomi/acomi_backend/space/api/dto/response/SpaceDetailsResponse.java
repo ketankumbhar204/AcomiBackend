@@ -27,6 +27,8 @@ public class SpaceDetailsResponse {
     private SpaceType type;
 
     private String address;
+    private BigDecimal latitude;
+    private BigDecimal longitude;
     private String contactNumber;
     private UUID ownerId;
 
@@ -62,6 +64,8 @@ public class SpaceDetailsResponse {
                 .name(space.getName())
                 .type(space.getType())
                 .address(space.getAddress())
+                .latitude(space.getLatitude())
+                .longitude(space.getLongitude())
                 .contactNumber(space.getContactNumber())
                 .ownerId(space.getOwnerId())
                 .foodIncludedInRent(space.isFoodIncludedInRent())

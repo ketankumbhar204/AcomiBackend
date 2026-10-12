@@ -29,12 +29,15 @@ import com.acomi.acomi_backend.space.api.dto.response.SpaceResponse;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import com.acomi.acomi_backend.config.security.UserPrincipal;
+import com.acomi.acomi_backend.user.domain.model.SystemRole;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -43,6 +46,8 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 @ExtendWith(MockitoExtension.class)
 class SpaceServiceTest {
@@ -110,6 +115,11 @@ class SpaceServiceTest {
         space.setUpdatedAt(LocalDateTime.now());
     }
 
+    @AfterEach
+    void clearSecurity() {
+        SecurityContextHolder.clearContext();
+    }
+
     @Test
     void createSpace_withRentalType_persistsRentalSpace() {
         CreateSpaceRequest request = mock(CreateSpaceRequest.class);
@@ -136,6 +146,95 @@ class SpaceServiceTest {
         assertThat(response.getType()).isEqualTo(SpaceType.RENTAL);
         assertThat(response.getName()).isEqualTo("Sunrise Apartments");
         verify(inventorySeedService).seedDefaults(any(SpaceEntity.class));
+    }
+
+    @Test
+    void createSpace_whenCallerIsOnlyATenant_isRejected() {
+        authenticate(owner, SystemRole.USER);
+        when(spaceMembershipRepository.existsByUserIdAndStatus(ownerId, MembershipStatus.ACTIVE))
+                .thenReturn(true);
+        when(spaceMembershipRepository.existsByUserIdAndStatusAndRole(
+                        ownerId, MembershipStatus.ACTIVE, MembershipRole.OWNER))
+                .thenReturn(false);
+
+        CreateSpaceRequest request = mock(CreateSpaceRequest.class);
+        when(request.getOwnerId()).thenReturn(ownerId);
+
+        assertThatThrownBy(() -> spaceService.createSpace(request))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("status", HttpStatus.FORBIDDEN);
+
+        verify(spaceRepository, never()).save(any());
+    }
+
+    @Test
+    void createSpace_whenCallerCreatesASpaceForSomeoneElse_isRejected() {
+        authenticate(owner, SystemRole.USER);
+        CreateSpaceRequest request = mock(CreateSpaceRequest.class);
+        when(request.getOwnerId()).thenReturn(otherUserId);
+
+        assertThatThrownBy(() -> spaceService.createSpace(request))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("status", HttpStatus.FORBIDDEN);
+
+        verify(spaceRepository, never()).save(any());
+    }
+
+    @Test
+    void createSpace_whenAdminPublishesForAnExistingTenant_isAllowed() {
+        UserEntity admin = UserEntity.builder()
+                .mobileNumber("9000000099")
+                .fullName("Platform Admin")
+                .isActive(true)
+                .build();
+        admin.setId(UUID.randomUUID());
+        authenticate(admin, SystemRole.ADMIN);
+        when(userRepository.findByIdAndIsActiveTrue(ownerId)).thenReturn(Optional.of(owner));
+        when(spaceRepository.save(any(SpaceEntity.class))).thenAnswer(invocation -> {
+            SpaceEntity saved = invocation.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            saved.setCreatedAt(LocalDateTime.now());
+            saved.setUpdatedAt(LocalDateTime.now());
+            return saved;
+        });
+
+        CreateSpaceRequest request = mock(CreateSpaceRequest.class);
+        when(request.getName()).thenReturn("Listed PG");
+        when(request.getType()).thenReturn(SpaceType.PG);
+        when(request.getOwnerId()).thenReturn(ownerId);
+
+        SpaceResponse response = spaceService.createSpace(request);
+
+        assertThat(response.getName()).isEqualTo("Listed PG");
+        verify(spaceRepository).save(any(SpaceEntity.class));
+    }
+
+    @Test
+    void createSpace_whenCallerAlreadyOwnsASpace_isAllowed() {
+        authenticate(owner, SystemRole.USER);
+        when(spaceMembershipRepository.existsByUserIdAndStatus(ownerId, MembershipStatus.ACTIVE))
+                .thenReturn(true);
+        when(spaceMembershipRepository.existsByUserIdAndStatusAndRole(
+                        ownerId, MembershipStatus.ACTIVE, MembershipRole.OWNER))
+                .thenReturn(true);
+        when(userRepository.findByIdAndIsActiveTrue(ownerId)).thenReturn(Optional.of(owner));
+        when(spaceRepository.save(any(SpaceEntity.class))).thenAnswer(invocation -> {
+            SpaceEntity saved = invocation.getArgument(0);
+            saved.setId(UUID.randomUUID());
+            saved.setCreatedAt(LocalDateTime.now());
+            saved.setUpdatedAt(LocalDateTime.now());
+            return saved;
+        });
+
+        CreateSpaceRequest request = mock(CreateSpaceRequest.class);
+        when(request.getName()).thenReturn("Second PG");
+        when(request.getType()).thenReturn(SpaceType.PG);
+        when(request.getOwnerId()).thenReturn(ownerId);
+
+        SpaceResponse response = spaceService.createSpace(request);
+
+        assertThat(response.getName()).isEqualTo("Second PG");
+        verify(spaceRepository).save(any(SpaceEntity.class));
     }
 
     @Test
@@ -502,5 +601,13 @@ class SpaceServiceTest {
                         membership.getRole() == MembershipRole.OWNER
                                 && membership.getUser().getId().equals(newOwnerId)
                                 && membership.getStatus() == MembershipStatus.ACTIVE);
+    }
+
+    private static void authenticate(UserEntity user, SystemRole role) {
+        user.setSystemRole(role);
+        UserPrincipal principal = new UserPrincipal(user);
+        SecurityContextHolder.getContext()
+                .setAuthentication(new UsernamePasswordAuthenticationToken(
+                        principal, null, principal.getAuthorities()));
     }
 }

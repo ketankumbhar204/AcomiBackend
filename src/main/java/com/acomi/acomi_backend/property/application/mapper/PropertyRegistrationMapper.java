@@ -36,6 +36,7 @@ public final class PropertyRegistrationMapper {
                 .reference(entity.getReference())
                 .propertyType(entity.getPropertyType())
                 .propertyName(entity.getPropertyName())
+                .buildingName(entity.getBuildingName())
                 .ownerName(entity.getOwnerName())
                 .mobileNumber(entity.getMobileNumber())
                 .alternateMobileNumber(entity.getAlternateMobileNumber())

@@ -83,7 +83,23 @@ public interface SpaceMembershipRepository extends JpaRepository<SpaceMembership
 
     boolean existsByUserIdAndSpaceIdAndStatus(UUID userId, UUID spaceId, MembershipStatus status);
 
+    boolean existsByUserIdAndStatus(UUID userId, MembershipStatus status);
+
+    boolean existsByUserIdAndStatusAndRole(UUID userId, MembershipStatus status, MembershipRole role);
+
     boolean existsByUserIdAndSpaceIdAndRoleIn(UUID userId, UUID spaceId, List<MembershipRole> roles);
+
+    @Query("""
+            SELECT s.id FROM SpaceMembershipEntity sm
+            JOIN sm.space s
+            WHERE sm.user.id = :userId
+              AND sm.status = com.acomi.acomi_backend.member.domain.model.MembershipStatus.ACTIVE
+              AND sm.role IN :roles
+              AND s.isActive = true
+            """)
+    List<UUID> findActiveSpaceIdsForRoles(
+            @Param("userId") UUID userId,
+            @Param("roles") java.util.Collection<MembershipRole> roles);
 
     @Query("""
             SELECT sm FROM SpaceMembershipEntity sm

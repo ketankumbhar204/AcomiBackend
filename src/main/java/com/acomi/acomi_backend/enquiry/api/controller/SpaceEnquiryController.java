@@ -5,7 +5,15 @@ import com.acomi.acomi_backend.common.web.ApiResponse;
 import com.acomi.acomi_backend.common.web.PagedResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.request.CreateSpaceEnquiryRequest;
 import com.acomi.acomi_backend.enquiry.api.dto.request.DeliverEnquiryEmailRequest;
+import com.acomi.acomi_backend.enquiry.api.dto.response.EnquiryInboxResponse;
+import com.acomi.acomi_backend.enquiry.api.dto.response.EnquiryEmailStatusResponse;
+import com.acomi.acomi_backend.enquiry.api.dto.response.ReceivedEnquiryResponse;
+import com.acomi.acomi_backend.enquiry.domain.model.SpaceEnquiryStatus;
+import java.time.LocalDate;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.RequestParam;
 import com.acomi.acomi_backend.enquiry.api.dto.response.MyInquiredListingIdsResponse;
+import com.acomi.acomi_backend.enquiry.api.dto.response.OwnerContactResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.response.SpaceEnquiryResponse;
 import com.acomi.acomi_backend.enquiry.application.service.SpaceEnquiryService;
 import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
@@ -53,11 +61,57 @@ public class SpaceEnquiryController {
                 .body(ApiResponse.success("Enquiry sent", response));
     }
 
+    @PostMapping("/spaces/{spaceId}/enquiries/send-again")
+    @Operation(summary = "Expire the current enquiry for this listing and send a new one")
+    public ResponseEntity<ApiResponse<SpaceEnquiryResponse>> sendAgain(
+            @PathVariable UUID spaceId,
+            @RequestHeader(value = "X-ACOMI-CLIENT", required = false) String clientHeader) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        InquiryClientChannel channel = InquiryClientChannel.fromHeader(clientHeader);
+        SpaceEnquiryResponse response = spaceEnquiryService.sendAgain(callerId, spaceId, channel);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Enquiry sent", response));
+    }
+
+    @GetMapping("/spaces/{spaceId}/revealed-contact")
+    @Operation(summary = "Owner contact already revealed on the website for this listing. Does not create an enquiry.")
+    public ResponseEntity<ApiResponse<OwnerContactResponse>> revealedContact(@PathVariable UUID spaceId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(spaceEnquiryService.revealedContact(callerId, spaceId)));
+    }
+
     @GetMapping("/enquiries/me/listing-ids")
     @Operation(summary = "Listing ids the current user has already enquired about")
     public ResponseEntity<ApiResponse<MyInquiredListingIdsResponse>> listInquiredListingIds() {
         UUID callerId = SecurityUtils.getCurrentUserId();
         return ResponseEntity.ok(ApiResponse.success(spaceEnquiryService.listInquiredListingIds(callerId)));
+    }
+
+    @GetMapping("/enquiries/inbox")
+    @Operation(summary = "Whether this account sees its own enquiries or enquiries received for its listings")
+    public ResponseEntity<ApiResponse<EnquiryInboxResponse>> inbox() {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(spaceEnquiryService.inbox(callerId)));
+    }
+
+    @GetMapping("/enquiries/received")
+    @Operation(summary = "Enquiries members raised for listings the caller owns or manages")
+    public ResponseEntity<ApiResponse<PagedResponse<ReceivedEnquiryResponse>>> listReceived(
+            @RequestParam(required = false) UUID spaceId,
+            @RequestParam(required = false) SpaceEnquiryStatus status,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @PageableDefault(size = 20) Pageable pageable) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                spaceEnquiryService.listReceived(callerId, spaceId, status, from, to, pageable)));
+    }
+
+    @GetMapping("/enquiries/received/{enquiryId}")
+    @Operation(summary = "One received enquiry for a listing the caller owns or manages")
+    public ResponseEntity<ApiResponse<ReceivedEnquiryResponse>> getReceived(@PathVariable UUID enquiryId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(spaceEnquiryService.getReceived(callerId, enquiryId)));
     }
 
     @GetMapping("/enquiries/me")
@@ -66,6 +120,13 @@ public class SpaceEnquiryController {
             @PageableDefault(size = 20) Pageable pageable) {
         UUID callerId = SecurityUtils.getCurrentUserId();
         return ResponseEntity.ok(ApiResponse.success(spaceEnquiryService.listMine(callerId, pageable)));
+    }
+
+    @GetMapping("/enquiries/{enquiryId}/email-status")
+    @Operation(summary = "Whether the owner-contact email for this enquiry has been sent")
+    public ResponseEntity<ApiResponse<EnquiryEmailStatusResponse>> emailStatus(@PathVariable UUID enquiryId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(spaceEnquiryService.emailStatus(callerId, enquiryId)));
     }
 
     @GetMapping("/enquiries/{enquiryId}")

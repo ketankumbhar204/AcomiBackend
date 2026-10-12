@@ -42,6 +42,29 @@ public class InquiryPaymentConfigEntity extends BaseEntity {
     private int webFreeDailyLimit = 5;
 
     /**
+     * Instant website contact views per day. Independent of {@link #webFreeDailyLimit}.
+     * 0 hides the option.
+     */
+    @Column(name = "view_here_daily_limit", nullable = false)
+    @Builder.Default
+    private int viewHereDailyLimit = 5;
+
+    /** When false, website instant contact viewing is hidden and rejected. */
+    @Column(name = "web_view_here_enabled", nullable = false)
+    @Builder.Default
+    private boolean webViewHereEnabled = true;
+
+    /** When false, mobile instant contact viewing is hidden and rejected. */
+    @Column(name = "android_view_here_enabled", nullable = false)
+    @Builder.Default
+    private boolean androidViewHereEnabled = true;
+
+    /** Instant contact views per day on the mobile app. Independent of enquiry credits. */
+    @Column(name = "android_view_here_daily_limit", nullable = false)
+    @Builder.Default
+    private int androidViewHereDailyLimit = 5;
+
+    /**
      * ANDROID billing: {@code FREE} (rate-limit only) or {@code CREDITS}
      * (daily free then wallet).
      */

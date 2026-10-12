@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -63,9 +64,10 @@ public class InquiryCreditController {
     }
 
     @PostMapping("/quota/reset")
-    @Operation(summary = "Reset today's free enquiry quota (local testing only)")
+    @Operation(summary = "Reset today's email or view-here quota (local testing only)")
     public ResponseEntity<ApiResponse<InquiryQuotaResponse>> resetQuota(
-            @RequestHeader(value = "X-ACOMI-CLIENT", required = false) String clientHeader) {
+            @RequestHeader(value = "X-ACOMI-CLIENT", required = false) String clientHeader,
+            @RequestParam(value = "target", required = false) String target) {
         if (!allowQuotaReset) {
             throw new BusinessException(
                     "QUOTA_RESET_DISABLED",
@@ -74,9 +76,11 @@ public class InquiryCreditController {
         }
         UUID callerId = SecurityUtils.getCurrentUserId();
         InquiryClientChannel channel = InquiryClientChannel.fromHeader(clientHeader);
+        boolean viewHereOnly = target != null && "VIEW_HERE".equalsIgnoreCase(target.trim());
         return ResponseEntity.ok(
                 ApiResponse.success(
-                        "Quota reset", inquiryAccessService.resetTodayQuota(callerId, channel)));
+                        "Quota reset",
+                        inquiryAccessService.resetTodayQuota(callerId, channel, viewHereOnly)));
     }
 
     @GetMapping("/payment-config")

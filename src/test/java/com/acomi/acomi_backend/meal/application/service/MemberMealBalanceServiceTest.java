@@ -14,6 +14,7 @@ import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MemberMeal
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MemberMealBalanceLedgerRepository;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MemberMealBalanceRepository;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealPollResponseRepository;
+import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.SpaceFoodItemSettingsRepository;
 import com.acomi.acomi_backend.meal.application.support.MealBillingResolver;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
@@ -61,6 +62,9 @@ class MemberMealBalanceServiceTest {
 
     @Mock
     private MealLifecycleNotificationSyncService mealLifecycleNotificationSyncService;
+
+    @Mock
+    private SpaceFoodItemSettingsRepository spaceFoodItemSettingsRepository;
 
     @InjectMocks
     private MemberMealBalanceService service;

@@ -26,7 +26,9 @@ public class AlreadyDeliveredException extends BusinessException {
                 ERROR_CODE,
                 channel == EnquiryDeliveryChannel.EMAIL
                         ? "Owner contact details were already sent by email."
-                        : "Owner contact details were already sent to ACOMI App.",
+                        : channel == EnquiryDeliveryChannel.VIEW_HERE
+                                ? "Owner contact details were already shown on the website."
+                                : "Owner contact details were already sent to ACOMI App.",
                 HttpStatus.CONFLICT);
         this.channel = channel;
         this.deliveredAt = deliveredAt;

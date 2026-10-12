@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.mail.infrastructure.persistence.repository;
 
+import com.acomi.acomi_backend.mail.domain.model.EmailEventType;
 import com.acomi.acomi_backend.mail.domain.model.EmailSendStatus;
 import com.acomi.acomi_backend.mail.infrastructure.persistence.entity.EmailSendLogEntity;
 import jakarta.persistence.LockModeType;
@@ -18,6 +19,12 @@ import org.springframework.stereotype.Repository;
 public interface EmailSendLogRepository extends JpaRepository<EmailSendLogEntity, UUID> {
 
     Optional<EmailSendLogEntity> findByIdempotencyKey(String idempotencyKey);
+
+    Optional<EmailSendLogEntity> findFirstByRelatedEntityTypeAndRelatedEntityIdAndEventTypeOrderByCreatedAtDesc(
+            String relatedEntityType, UUID relatedEntityId, EmailEventType eventType);
+
+    List<EmailSendLogEntity> findByRelatedEntityTypeAndRelatedEntityIdInAndEventType(
+            String relatedEntityType, Collection<UUID> relatedEntityIds, EmailEventType eventType);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT e FROM EmailSendLogEntity e WHERE e.id = :id")

@@ -10,6 +10,7 @@ import com.acomi.acomi_backend.meal.api.dto.response.MemberSubscriptionLifetimeS
 import com.acomi.acomi_backend.meal.application.support.MealPollCharge;
 import com.acomi.acomi_backend.meal.application.support.MealPollChargeCalculator;
 import com.acomi.acomi_backend.meal.application.support.MealBillingResolver;
+import com.acomi.acomi_backend.meal.application.support.MenuEntryPriceResolver;
 import com.acomi.acomi_backend.meal.domain.model.MealBalanceLedgerEntryType;
 import com.acomi.acomi_backend.meal.domain.model.MealSubscriptionAction;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MemberMealBalanceEntity;
@@ -19,6 +20,7 @@ import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MealPollRe
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MemberMealBalanceLedgerRepository;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MemberMealBalanceRepository;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealPollResponseRepository;
+import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.SpaceFoodItemSettingsRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
 import com.acomi.acomi_backend.notification.application.service.MealLifecycleNotificationSyncService;
@@ -56,6 +58,7 @@ public class MemberMealBalanceService {
     private final MealAccessService mealAccessService;
     private final MealBillingResolver mealBillingResolver;
     private final MealLifecycleNotificationSyncService mealLifecycleNotificationSyncService;
+    private final SpaceFoodItemSettingsRepository spaceFoodItemSettingsRepository;
 
     @Transactional(readOnly = true)
     public MemberMealBalanceResponse getBalance(UUID spaceId, UUID memberId, UUID callerId) {
@@ -407,7 +410,10 @@ public class MemberMealBalanceService {
 
         List<MealPollResponseEntity> responses =
                 responseRepository.findAllByPollIdAndMemberId(poll.getId(), member.getId());
-        MealPollCharge charge = MealPollChargeCalculator.fromResponses(responses);
+        MealPollCharge charge = MealPollChargeCalculator.fromResponses(
+                responses,
+                MenuEntryPriceResolver.itemDefaults(
+                        spaceFoodItemSettingsRepository.findAllBySpaceId(space.getId())));
         PrepaidBalanceUnit unit = resolveUnit(space);
         BigDecimal requested = charge.requestedDebitAmount(unit);
 

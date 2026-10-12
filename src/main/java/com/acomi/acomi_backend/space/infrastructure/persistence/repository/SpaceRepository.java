@@ -83,6 +83,26 @@ public interface SpaceRepository extends JpaRepository<SpaceEntity, UUID>, JpaSp
     @Query(
             """
             SELECT s FROM SpaceEntity s
+            JOIN FETCH s.owner
+            WHERE s.isActive = true
+              AND s.type IN :types
+            ORDER BY s.createdAt DESC
+            """)
+    List<SpaceEntity> findActiveByTypesWithOwner(@Param("types") List<SpaceType> types);
+
+    @Query(
+            """
+            SELECT s FROM SpaceEntity s
+            JOIN FETCH s.owner
+            WHERE s.isActive = true
+              AND s.type = :type
+            ORDER BY s.createdAt DESC
+            """)
+    List<SpaceEntity> findActiveByTypeWithOwner(@Param("type") SpaceType type);
+
+    @Query(
+            """
+            SELECT s FROM SpaceEntity s
             WHERE s.isActive = true
               AND s.contactNumber IN :mobiles
             """)

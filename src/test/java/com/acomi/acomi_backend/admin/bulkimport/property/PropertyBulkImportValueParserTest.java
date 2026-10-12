@@ -167,6 +167,23 @@ class PropertyBulkImportValueParserTest {
     }
 
     @Test
+    void parseFoodIncluded_available_isNoWithWarning() {
+        var parsed = PropertyBulkImportValueParser.parseFoodIncluded("Available");
+        assertThat(parsed.isInvalid()).isFalse();
+        assertThat(parsed.value()).isFalse();
+        var normalized = FoodIncludedNormalizer.normalize("Available");
+        assertThat(normalized.warning()).contains("does not confirm that food is included");
+        assertThat(normalized.warning()).contains("not treated as included");
+    }
+
+    @Test
+    void parseFoodIncluded_included_isYes() {
+        var result = PropertyBulkImportValueParser.parseFoodIncluded("Included");
+        assertThat(result.isInvalid()).isFalse();
+        assertThat(result.value()).isTrue();
+    }
+
+    @Test
     void parseFoodIncluded_foodChargeExtra_isNo() {
         var result = PropertyBulkImportValueParser.parseFoodIncluded("Food charge extra");
         assertThat(result.isInvalid()).isFalse();
@@ -190,5 +207,17 @@ class PropertyBulkImportValueParserTest {
         assertThat(PropertyBulkImportValueParser.parseFoodIncluded("-").value()).isNull();
         assertThat(PropertyBulkImportValueParser.parseCoordinate("-", "Latitude").isInvalid()).isFalse();
         assertThat(PropertyBulkImportValueParser.parseCoordinate("-", "Latitude").value()).isNull();
+    }
+
+    @Test
+    void parseCoordinate_enforcesLatLngRange() {
+        assertThat(PropertyBulkImportValueParser.parseCoordinate("17.968", "Latitude").isInvalid()).isFalse();
+        assertThat(PropertyBulkImportValueParser.parseCoordinate("79.594", "Longitude").isInvalid()).isFalse();
+        assertThat(PropertyBulkImportValueParser.parseCoordinate("91", "Latitude").error())
+                .contains("out of range");
+        assertThat(PropertyBulkImportValueParser.parseCoordinate("-181", "Longitude").error())
+                .contains("out of range");
+        assertThat(PropertyBulkImportValueParser.parseCoordinate("abc", "Latitude").error())
+                .contains("must be a number");
     }
 }

@@ -82,6 +82,7 @@ public class PaymentNotificationSyncService {
                         NotificationEntityType.PAYMENT,
                         payment.getId(),
                         NotificationType.PAYMENT_UPDATE_REQUESTED);
+                clearOverdueAlerts(spaceId, payment.getId());
             } else if (status == SpacePaymentStatus.UPDATE_REQUESTED) {
                 for (UUID managerId : managerIds) {
                     String key = actionDedupeKey(NotificationType.PAYMENT_NEEDS_UPDATE, payment.getId(), managerId);
@@ -127,6 +128,9 @@ public class PaymentNotificationSyncService {
                         payment.getId(),
                         NotificationType.PAYMENT_UPDATE_REQUESTED);
             }
+            if (status == SpacePaymentStatus.PAID) {
+                clearOverdueAlerts(spaceId, payment.getId());
+            }
         }
 
         resolveStaleOwnerPaymentActions(spaceId, managerIds, expectedOwnerKeys);
@@ -161,6 +165,7 @@ public class PaymentNotificationSyncService {
                     key);
         }
         resolveRedundantOwnerPaymentInfo(spaceId, payment.getId());
+        clearOverdueAlerts(spaceId, payment.getId());
         notificationService.resolveOpenForEntity(
                 spaceId, NotificationEntityType.PAYMENT, payment.getId(), NotificationType.PAYMENT_NEEDS_UPDATE);
         notificationService.resolveOpenForEntity(
@@ -189,6 +194,14 @@ public class PaymentNotificationSyncService {
         }
     }
 
+    /** Stops further overdue reminders once the payment is paid or proof is in review. */
+    private void clearOverdueAlerts(UUID spaceId, UUID paymentId) {
+        notificationService.resolveOpenForEntity(
+                spaceId, NotificationEntityType.PAYMENT, paymentId, NotificationType.PAYMENT_OVERDUE);
+        notificationService.resolveOpenForEntity(
+                spaceId, NotificationEntityType.PAYMENT, paymentId, NotificationType.PAYMENT_REMINDER_SENT);
+    }
+
     /** Drop legacy owner INFO rows that duplicated PAYMENT_NEEDS_REVIEW / NEEDS_UPDATE. */
     private void resolveRedundantOwnerPaymentInfo(UUID spaceId, UUID paymentId) {
         notificationService.resolveOpenForEntityUsers(
@@ -206,6 +219,7 @@ public class PaymentNotificationSyncService {
                 spaceId, NotificationEntityType.PAYMENT, payment.getId(), NotificationType.PAYMENT_NEEDS_REVIEW);
         notificationService.resolveOpenForEntity(
                 spaceId, NotificationEntityType.PAYMENT, payment.getId(), NotificationType.PAYMENT_NEEDS_UPDATE);
+        clearOverdueAlerts(spaceId, payment.getId());
         UUID tenantUserId = linkedUserId(payment);
         if (tenantUserId != null) {
             notificationService.resolveOpenForEntity(

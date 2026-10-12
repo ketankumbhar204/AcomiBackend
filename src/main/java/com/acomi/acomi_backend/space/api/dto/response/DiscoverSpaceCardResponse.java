@@ -1,5 +1,7 @@
 package com.acomi.acomi_backend.space.api.dto.response;
 
+import com.acomi.acomi_backend.property.domain.model.PriceBasis;
+import com.acomi.acomi_backend.space.application.support.FoodAvailability;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -28,6 +30,9 @@ public class DiscoverSpaceCardResponse {
     @Schema(description = "Starting monthly rent when known")
     private BigDecimal startingPrice;
 
+    @Schema(description = "Unit for the listed price. Null only when the listing has no stored price.", implementation = PriceBasis.class)
+    private PriceBasis priceBasis;
+
     @Schema(description = "Mess monthly price when known")
     private BigDecimal monthlyPrice;
 
@@ -51,6 +56,12 @@ public class DiscoverSpaceCardResponse {
 
     @Schema(description = "When true, food is included in rent")
     private boolean foodIncludedInRent;
+
+    @Schema(description = "Food status when the listing actually recorded one. Null when unknown.", implementation = FoodAvailability.class)
+    private FoodAvailability foodAvailability;
+
+    @Schema(description = "Sharing text from the listing, such as 2/3 Sharing. Null when not recorded.")
+    private String sharingNotes;
 
     @Schema(description = "Gender policy when set", implementation = GenderPolicy.class)
     private GenderPolicy genderPolicy;

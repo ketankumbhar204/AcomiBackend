@@ -164,6 +164,28 @@ class LocationAutocompleteServiceTest {
         verify(client, org.mockito.Mockito.times(1)).autocomplete("411057");
     }
 
+    @Test
+    void addressSearchKeepsBuildingsAndRequiresCoordinates() throws Exception {
+        when(client.autocompleteAddress("Baner Road")).thenReturn(ProviderResult.success(List.of(
+                place("""
+                        {"place_id":"b1","result_type":"building","name":"Sunrise Residency","street":"Baner Road","suburb":"Baner","city":"Pune","state":"Maharashtra","state_district":"Pune","postcode":"411045","country":"India","country_code":"in","lat":18.559,"lon":73.786,"formatted":"Sunrise Residency, Baner Road, Baner, Pune, Maharashtra 411045, India"}
+                        """),
+                place("""
+                        {"result_type":"street","name":"No coordinates","city":"Pune","state":"Maharashtra","country_code":"in"}
+                        """))));
+
+        List<LocationAutocompleteSuggestion> suggestions = service.autocompleteAddress("Baner Road");
+
+        assertThat(suggestions).hasSize(1);
+        assertThat(suggestions.get(0).getLatitude()).isEqualTo(18.559);
+        assertThat(suggestions.get(0).getLongitude()).isEqualTo(73.786);
+        assertThat(suggestions.get(0).getCity()).isEqualTo("Pune");
+        assertThat(suggestions.get(0).getState()).isEqualTo("Maharashtra");
+        assertThat(suggestions.get(0).getArea()).isEqualTo("Baner");
+        assertThat(suggestions.get(0).getPincode()).isEqualTo("411045");
+        assertThat(suggestions.get(0).isMatched()).isFalse();
+    }
+
     private JsonNode place(String json) throws Exception {
         return mapper.readTree(json);
     }

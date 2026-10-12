@@ -22,6 +22,7 @@ import com.acomi.acomi_backend.meal.domain.model.MemberMealActivitySlotStatus;
 import com.acomi.acomi_backend.meal.domain.policy.MealPollEligibilityPolicy;
 import com.acomi.acomi_backend.meal.domain.policy.MealOccupancyPolicy;
 import com.acomi.acomi_backend.meal.application.support.MealBillingResolver;
+import com.acomi.acomi_backend.meal.application.support.MenuEntryPriceResolver;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.DailyMenuEntity;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MealParticipationEntity;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MealPollDayPaymentEntity;
@@ -34,6 +35,7 @@ import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealPo
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealPollMemberDeliveryRepository;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealPollRepository;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealPollResponseRepository;
+import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.SpaceFoodItemSettingsRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
@@ -79,6 +81,7 @@ public class MemberMealActivityService {
     private final MealPollEligibilityPolicy pollEligibilityPolicy;
     private final MealOccupancyPolicy occupancyPolicy;
     private final StoredFileService storedFileService;
+    private final SpaceFoodItemSettingsRepository spaceFoodItemSettingsRepository;
 
     @Transactional(readOnly = true)
     public MemberMealActivityMonthResponse getMonthlyActivity(
@@ -141,6 +144,8 @@ public class MemberMealActivityService {
                 .stream()
                 .collect(Collectors.toMap(
                         MealPollDayPaymentEntity::getPollDate, payment -> payment, (left, right) -> left));
+        Map<java.util.UUID, BigDecimal> itemDefaultPrices = MenuEntryPriceResolver.itemDefaults(
+                spaceFoodItemSettingsRepository.findAllBySpaceId(spaceId));
 
         int acceptedMeals = 0;
         int pendingResponses = 0;
@@ -161,7 +166,8 @@ public class MemberMealActivityService {
                         mealType,
                         publishedByDate,
                         responsesByDate,
-                        deliveryByPollKey);
+                        deliveryByPollKey,
+                        itemDefaultPrices);
                 slots.add(slot);
 
                 if (slot.getStatus() == MemberMealActivitySlotStatus.ACCEPTED) {
@@ -179,28 +185,39 @@ public class MemberMealActivityService {
                         || status == MemberMealActivitySlotStatus.SKIPPED;
             });
 
-            BigDecimal dayTotal = slots.stream()
+            BigDecimal liveTotal = slots.stream()
                     .map(MemberMealActivitySlotResponse::getSlotAmount)
                     .filter(java.util.Objects::nonNull)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
+            boolean anyAccepted = slots.stream()
+                    .anyMatch(slot -> slot.getStatus() == MemberMealActivitySlotStatus.ACCEPTED);
+            boolean allAcceptedPriced = slots.stream()
+                    .filter(slot -> slot.getStatus() == MemberMealActivitySlotStatus.ACCEPTED)
+                    .allMatch(slot -> slot.getSlotAmount() != null
+                            && slot.getSlotAmount().compareTo(BigDecimal.ZERO) > 0);
 
             MealPollDayPaymentEntity dayPayment = paymentsByDate.get(date);
             MealPollPaymentStatus paymentStatus =
                     dayPayment != null ? dayPayment.getPaymentStatus() : null;
+            BigDecimal snapshotDue = snapshotDue(dayPayment);
+            DayDue dayDue = resolveDayDue(anyAccepted, allAcceptedPriced, liveTotal, snapshotDue, paymentStatus);
 
-            if (dayTotal.compareTo(BigDecimal.ZERO) > 0) {
-                amountGenerated = amountGenerated.add(dayTotal);
+            if (dayDue.known() && dayDue.amount().compareTo(BigDecimal.ZERO) > 0) {
+                amountGenerated = amountGenerated.add(dayDue.amount());
                 if (paymentStatus == MealPollPaymentStatus.PAID) {
-                    paidAmount = paidAmount.add(dayTotal);
+                    paidAmount = paidAmount.add(dayDue.amount());
                 } else {
-                    pendingAmount = pendingAmount.add(dayTotal);
+                    pendingAmount = pendingAmount.add(dayDue.amount());
                 }
             }
 
             days.add(MemberMealActivityDayResponse.builder()
                     .date(date)
                     .hasActivity(hasActivity)
-                    .dayTotal(dayTotal.compareTo(BigDecimal.ZERO) > 0 ? dayTotal : null)
+                    .dayTotal(dayDue.known() && dayDue.amount().compareTo(BigDecimal.ZERO) > 0
+                            ? dayDue.amount()
+                            : null)
+                    .amountKnown(dayDue.known())
                     .currencyCode("INR")
                     .paymentStatus(paymentStatus)
                     .paymentBatchId(dayPayment != null ? dayPayment.getPaymentBatchId() : null)
@@ -304,7 +321,9 @@ public class MemberMealActivityService {
                         delivery -> delivery,
                         (left, right) -> left));
 
-        BigDecimal dayTotal = BigDecimal.ZERO;
+        Map<java.util.UUID, BigDecimal> itemDefaultPrices = MenuEntryPriceResolver.itemDefaults(
+                spaceFoodItemSettingsRepository.findAllBySpaceId(spaceId));
+        BigDecimal liveTotal = BigDecimal.ZERO;
         List<MemberMealActivitySlotDetailResponse> slots = new ArrayList<>();
         for (MealType mealType : MealType.values()) {
             MemberMealActivitySlotDetailResponse slot = buildSlotDetail(
@@ -316,17 +335,31 @@ public class MemberMealActivityService {
                     publishedByType.getOrDefault(mealType, false),
                     pollsByType.get(mealType),
                     responsesByType.getOrDefault(mealType, List.of()),
-                    deliveryByPollKey);
+                    deliveryByPollKey,
+                    itemDefaultPrices);
             slots.add(slot);
             if (slot.getSlotTotal() != null) {
-                dayTotal = dayTotal.add(slot.getSlotTotal());
+                liveTotal = liveTotal.add(slot.getSlotTotal());
             }
         }
 
-        MemberMealActivityDayPaymentResponse payment = dayPaymentRepository
+        MealPollDayPaymentEntity dayPayment = dayPaymentRepository
                 .findBySpaceIdAndMemberIdAndPollDate(spaceId, memberId, date)
-                .map(row -> toPaymentResponse(callerId, row))
                 .orElse(null);
+        MemberMealActivityDayPaymentResponse payment =
+                dayPayment != null ? toPaymentResponse(callerId, dayPayment) : null;
+        boolean anyAccepted = slots.stream()
+                .anyMatch(slot -> slot.getStatus() == MemberMealActivitySlotStatus.ACCEPTED);
+        boolean allAcceptedPriced = slots.stream()
+                .filter(slot -> slot.getStatus() == MemberMealActivitySlotStatus.ACCEPTED)
+                .allMatch(slot -> slot.getSlotTotal() != null
+                        && slot.getSlotTotal().compareTo(BigDecimal.ZERO) > 0);
+        DayDue dayDue = resolveDayDue(
+                anyAccepted,
+                allAcceptedPriced,
+                liveTotal,
+                snapshotDue(dayPayment),
+                dayPayment != null ? dayPayment.getPaymentStatus() : null);
 
         LocalDateTime responseSubmittedAt = slots.stream()
                 .map(MemberMealActivitySlotDetailResponse::getRespondedAt)
@@ -355,7 +388,9 @@ public class MemberMealActivityService {
                 .memberName(member.getFullName())
                 .hasActivity(hasActivity)
                 .responseSubmittedAt(responseSubmittedAt)
-                .dayTotal(dayTotal.compareTo(BigDecimal.ZERO) > 0 ? dayTotal : null)
+                .dayTotal(dayDue.known() && dayDue.amount().compareTo(BigDecimal.ZERO) > 0
+                        ? dayDue.amount()
+                        : null)
                 .currencyCode("INR")
                 .payment(payment)
                 .subscription(buildBalanceSubscription(member, date))
@@ -433,7 +468,8 @@ public class MemberMealActivityService {
             boolean menuPublished,
             MealPollEntity poll,
             List<MealPollResponseEntity> slotResponses,
-            Map<String, MealPollMemberDeliveryEntity> deliveryByPollKey) {
+            Map<String, MealPollMemberDeliveryEntity> deliveryByPollKey,
+            Map<java.util.UUID, BigDecimal> itemDefaultPrices) {
         boolean eligible = participation != null
                 && pollEligibilityPolicy.isPollEligible(
                         participation, date, mealType, null, memberOccupancy, true);
@@ -496,7 +532,11 @@ public class MemberMealActivityService {
 
             menuQuantity += response.getQuantity();
             MealPollOptionResponse optionMeta = MealPollOptionResponse.from(response.getSelectedOption());
-            BigDecimal unitPrice = optionMeta.getPrice() != null ? optionMeta.getPrice() : BigDecimal.ZERO;
+            BigDecimal unitPrice = MenuEntryPriceResolver.unitPrice(
+                    response.getSelectedOption().getDailyMenuEntry(), itemDefaultPrices);
+            if (unitPrice == null) {
+                unitPrice = BigDecimal.ZERO;
+            }
             BigDecimal lineTotal = unitPrice.multiply(BigDecimal.valueOf(response.getQuantity()));
             slotTotal = slotTotal.add(lineTotal);
 
@@ -553,7 +593,8 @@ public class MemberMealActivityService {
             MealType mealType,
             Map<LocalDate, Map<MealType, Boolean>> publishedByDate,
             Map<LocalDate, Map<MealType, List<MealPollResponseEntity>>> responsesByDate,
-            Map<String, MealPollMemberDeliveryEntity> deliveryByPollKey) {
+            Map<String, MealPollMemberDeliveryEntity> deliveryByPollKey,
+            Map<java.util.UUID, BigDecimal> itemDefaultPrices) {
         boolean eligible = participation != null
                 && pollEligibilityPolicy.isPollEligible(
                         participation, date, mealType, null, memberOccupancy, true);
@@ -597,9 +638,11 @@ public class MemberMealActivityService {
                 } else {
                     selectionParts.add(label);
                 }
-                MealPollOptionResponse optionMeta = MealPollOptionResponse.from(response.getSelectedOption());
-                BigDecimal unitPrice = optionMeta.getPrice() != null ? optionMeta.getPrice() : BigDecimal.ZERO;
-                slotAmount = slotAmount.add(unitPrice.multiply(BigDecimal.valueOf(response.getQuantity())));
+                BigDecimal unitPrice = MenuEntryPriceResolver.unitPrice(
+                        response.getSelectedOption().getDailyMenuEntry(), itemDefaultPrices);
+                if (unitPrice != null) {
+                    slotAmount = slotAmount.add(unitPrice.multiply(BigDecimal.valueOf(response.getQuantity())));
+                }
             }
         }
 
@@ -651,6 +694,45 @@ public class MemberMealActivityService {
                 .slotAmount(null)
                 .currencyCode("INR")
                 .build();
+    }
+
+    private record DayDue(BigDecimal amount, boolean known) {}
+
+    private static DayDue resolveDayDue(
+            boolean anyAccepted,
+            boolean allAcceptedPriced,
+            BigDecimal liveTotal,
+            BigDecimal snapshotDue,
+            MealPollPaymentStatus paymentStatus) {
+        if (paymentStatus == MealPollPaymentStatus.PAID && snapshotDue != null) {
+            return new DayDue(snapshotDue, true);
+        }
+        if (anyAccepted && allAcceptedPriced) {
+            return new DayDue(liveTotal != null ? liveTotal : BigDecimal.ZERO, true);
+        }
+        if (anyAccepted) {
+            return new DayDue(BigDecimal.ZERO, false);
+        }
+        if (snapshotDue != null) {
+            return new DayDue(snapshotDue, true);
+        }
+        return new DayDue(BigDecimal.ZERO, true);
+    }
+
+    private static BigDecimal snapshotDue(MealPollDayPaymentEntity payment) {
+        if (payment == null) {
+            return null;
+        }
+        if (payment.isPrepaidOverflowPayment()
+                && payment.getPrepaidOverflowAmount() != null
+                && payment.getPrepaidOverflowAmount().compareTo(BigDecimal.ZERO) > 0) {
+            return payment.getPrepaidOverflowAmount();
+        }
+        if (payment.getChargedAmount() != null
+                && payment.getChargedAmount().compareTo(BigDecimal.ZERO) > 0) {
+            return payment.getChargedAmount();
+        }
+        return null;
     }
 
     private static String pollKey(LocalDate date, MealType mealType) {

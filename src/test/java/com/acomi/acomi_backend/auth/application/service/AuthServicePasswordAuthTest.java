@@ -238,10 +238,74 @@ class AuthServicePasswordAuthTest {
 
     @Test
     void login_inactiveUser_cannotAuthenticate() {
-        when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210"))
-                .thenReturn(Optional.empty());
+        UserEntity inactive = UserEntity.builder()
+                .mobileNumber("9876543210")
+                .fullName("Inactive")
+                .isActive(false)
+                .passwordHash(passwordEncoder.encode("Secret12"))
+                .build();
+        when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210")).thenReturn(Optional.empty());
+        when(userRepository.findByMobileNumberAndIsActiveTrue("+91" + "9876543210")).thenReturn(Optional.empty());
+        when(userRepository.findByMobileNumberAndIsActiveTrue("91" + "9876543210")).thenReturn(Optional.empty());
+        when(userRepository.findByMobileNumber("9876543210")).thenReturn(Optional.of(inactive));
 
         assertThatThrownBy(() -> authService.login(loginRequest("9876543210", "Secret12")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("This account is inactive.")
+                .extracting(ex -> ((BusinessException) ex).getStatus())
+                .isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void login_legacyCountryCodeMobile_matchesNormalizedLogin() {
+        UserEntity user = activeUserWithPassword("+919876543210", "Secret12");
+        when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210")).thenReturn(Optional.empty());
+        when(userRepository.findByMobileNumberAndIsActiveTrue("+919876543210")).thenReturn(Optional.of(user));
+        when(jwtService.generateToken(user)).thenReturn("jwt-token");
+        when(jwtService.getExpirationMs()).thenReturn(86_400_000L);
+
+        var response = authService.login(loginRequest("9876543210", "Secret12"));
+
+        assertThat(response.getAccessToken()).isEqualTo("jwt-token");
+    }
+
+    @Test
+    void login_spacedStoredMobile_matchesNationalNumberAndPassword() {
+        UserEntity user = activeUserWithPassword("+91 98765 43210", "Secret12");
+        when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210")).thenReturn(Optional.empty());
+        when(userRepository.findByMobileNumberAndIsActiveTrue("+919876543210")).thenReturn(Optional.empty());
+        when(userRepository.findByMobileNumberAndIsActiveTrue("919876543210")).thenReturn(Optional.empty());
+        when(userRepository.findByNationalMobile("9876543210")).thenReturn(java.util.List.of(user));
+        when(jwtService.generateToken(user)).thenReturn("jwt-token");
+        when(jwtService.getExpirationMs()).thenReturn(86_400_000L);
+
+        var response = authService.login(loginRequest("9876543210", "Secret12"));
+
+        assertThat(response.getAccessToken()).isEqualTo("jwt-token");
+        assertThatThrownBy(() -> authService.login(loginRequest("9876543210", "WrongPass1")))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Invalid mobile number or password.");
+    }
+
+    @Test
+    void login_rawBcryptHashWithoutPrefix_stillMatches() {
+        String rawHash = new org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder().encode("Secret12");
+        UserEntity user = UserEntity.builder()
+                .mobileNumber("9876543210")
+                .fullName("Legacy Hash")
+                .isActive(true)
+                .passwordHash(rawHash)
+                .systemRole(com.acomi.acomi_backend.user.domain.model.SystemRole.USER)
+                .build();
+        user.setId(UUID.randomUUID());
+        when(userRepository.findByMobileNumberAndIsActiveTrue("9876543210")).thenReturn(Optional.of(user));
+        when(jwtService.generateToken(user)).thenReturn("jwt-token");
+        when(jwtService.getExpirationMs()).thenReturn(86_400_000L);
+
+        var response = authService.login(loginRequest("9876543210", "Secret12"));
+
+        assertThat(response.getAccessToken()).isEqualTo("jwt-token");
+        assertThatThrownBy(() -> authService.login(loginRequest("9876543210", "WrongPass1")))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Invalid mobile number or password.");
     }
@@ -259,7 +323,7 @@ class AuthServicePasswordAuthTest {
 
         assertThatThrownBy(() -> authService.login(loginRequest("9876543210", "111111")))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("Invalid mobile number or password.");
+                .hasMessageContaining("Password sign-in is not set up");
 
         verify(jwtService, never()).generateToken(any());
     }

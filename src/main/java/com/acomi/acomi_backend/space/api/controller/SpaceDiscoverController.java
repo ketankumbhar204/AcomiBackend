@@ -6,7 +6,11 @@ import com.acomi.acomi_backend.common.web.PagedResponse;
 import com.acomi.acomi_backend.space.api.dto.response.DiscoverSpaceCardResponse;
 import com.acomi.acomi_backend.space.api.dto.response.DiscoverSpaceDetailResponse;
 import com.acomi.acomi_backend.space.application.service.SpaceDiscoverService;
+import com.acomi.acomi_backend.space.application.support.FoodAvailability;
+import com.acomi.acomi_backend.space.application.support.FurnishingLevel;
+import com.acomi.acomi_backend.space.application.support.SharingOccupancy;
 import com.acomi.acomi_backend.space.application.support.SpaceDiscoverQuery;
+import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -38,7 +42,7 @@ public class SpaceDiscoverController {
     @Operation(
             summary = "Discover active spaces",
             description = "Returns a paginated list of active discoverable spaces. "
-                    + "Filters (location address-only, search, types, rent, amenities) are applied first. "
+                    + "Filters (location address-only, search, types, rent, amenities, gender, sharing, food, furnishing, contact) are applied first. "
                     + "Matching rows are then ranked by information completeness "
                     + "(usable mobile, address, map URL, amenities) and the existing newest order, "
                     + "and only then paged. Does not expose owner or contact details. "
@@ -51,6 +55,14 @@ public class SpaceDiscoverController {
             @RequestParam(required = false) BigDecimal minRent,
             @RequestParam(required = false) BigDecimal maxRent,
             @RequestParam(required = false) List<String> amenities,
+            @RequestParam(required = false) List<GenderPolicy> genders,
+            @RequestParam(required = false) List<SharingOccupancy> sharings,
+            @RequestParam(required = false) List<FoodAvailability> foods,
+            @RequestParam(required = false) List<FurnishingLevel> furnishings,
+            @RequestParam(required = false) Boolean contactAvailable,
+            @RequestParam(required = false) Boolean servicedApartment,
+            @RequestParam(required = false) List<String> mealTypes,
+            @RequestParam(required = false) List<String> foodTypes,
             @RequestParam(required = false, defaultValue = "newest") String sort,
             @PageableDefault(size = 20) Pageable pageable) {
         UUID callerId = SecurityUtils.getCurrentUserIdOrNull();
@@ -63,7 +75,21 @@ public class SpaceDiscoverController {
         }
         PagedResponse<DiscoverSpaceCardResponse> response = spaceDiscoverService.discover(
                 callerId,
-                new SpaceDiscoverQuery(search, location, resolvedTypes, minRent, maxRent, amenities),
+                new SpaceDiscoverQuery(
+                        search,
+                        location,
+                        resolvedTypes,
+                        minRent,
+                        maxRent,
+                        amenities,
+                        genders,
+                        sharings,
+                        foods,
+                        furnishings,
+                        Boolean.TRUE.equals(contactAvailable),
+                        Boolean.TRUE.equals(servicedApartment),
+                        mealTypes,
+                        foodTypes),
                 sort,
                 pageable);
         return ResponseEntity.ok(ApiResponse.success(response));

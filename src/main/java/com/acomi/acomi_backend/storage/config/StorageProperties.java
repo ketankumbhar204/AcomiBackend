@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.storage.config;
 
+import java.nio.file.Path;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -30,6 +31,12 @@ public class StorageProperties {
      */
     private String logicalName = "memory";
 
+    /**
+     * When set, the memory adapter also writes each object here so local uploads
+     * such as the inquiry payment QR survive a backend restart.
+     */
+    private String localDirectory = "";
+
     private String bucket = "acomi-files";
 
     private int uploadUrlTtlSeconds = 900;
@@ -48,6 +55,13 @@ public class StorageProperties {
 
     public boolean isS3Compatible() {
         return "s3compatible".equalsIgnoreCase(provider);
+    }
+
+    public Path resolvedLocalDirectory() {
+        if (localDirectory == null || localDirectory.isBlank()) {
+            return null;
+        }
+        return Path.of(localDirectory);
     }
 
     /**

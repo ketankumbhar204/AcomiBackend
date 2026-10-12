@@ -23,6 +23,7 @@ public class InventoryItemResponse {
     private BigDecimal minimumStock;
     private String location;
     private UUID supplierId;
+    private String supplierName;
     private BigDecimal purchasePrice;
     private BigDecimal averagePrice;
     private String barcode;
@@ -55,6 +56,7 @@ public class InventoryItemResponse {
                 .minimumStock(entity.getMinimumStock())
                 .location(entity.getLocation())
                 .supplierId(entity.getSupplier() != null ? entity.getSupplier().getId() : null)
+                .supplierName(entity.getSupplier() != null ? entity.getSupplier().getName() : null)
                 .purchasePrice(entity.getPurchasePrice())
                 .averagePrice(entity.getAveragePrice())
                 .barcode(entity.getBarcode())

@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.admin.bulkimport.property;
 
 import com.acomi.acomi_backend.admin.bulkimport.property.dto.PropertyBulkImportFieldError;
+import com.acomi.acomi_backend.admin.bulkimport.property.dto.PropertyBulkImportFieldNotice;
 import com.acomi.acomi_backend.mess.api.dto.request.AdminCreateMessRegistrationRequest;
 import com.acomi.acomi_backend.property.api.dto.request.AdminCreatePropertyRegistrationRequest;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
@@ -21,6 +22,7 @@ public final class PropertyBulkImportRowProcessor {
 
     public enum RowStatus {
         VALID,
+        WARNING,
         INVALID,
         BLANK
     }
@@ -36,7 +38,9 @@ public final class PropertyBulkImportRowProcessor {
             Map<String, String> valuesSnapshot,
             AdminCreatePropertyRegistrationRequest propertyRequest,
             AdminCreateMessRegistrationRequest messRequest,
-            List<PropertyBulkImportFieldError> errors) {
+            List<PropertyBulkImportFieldError> errors,
+            List<PropertyBulkImportFieldNotice> notices,
+            Map<String, String> normalizedValues) {
 
         /** Convenience for property-only callers/tests. */
         public AdminCreatePropertyRegistrationRequest request() {
@@ -75,20 +79,93 @@ public final class PropertyBulkImportRowProcessor {
         }
 
         if (isCompletelyBlank(rawByField)) {
-            return new ProcessedRow(RowStatus.BLANK, null, snapshot, null, null, List.of());
+            return new ProcessedRow(RowStatus.BLANK, null, snapshot, null, null, List.of(), List.of(), Map.of());
         }
         applyFieldOverrides(rawByField, fieldOverrides);
 
         List<PropertyBulkImportFieldError> errors = new ArrayList<>();
-        var typeResult = PropertyBulkImportValueParser.parsePropertyType(
+        List<PropertyBulkImportFieldNotice> notices = new ArrayList<>();
+        Map<String, String> normalizedValues = new LinkedHashMap<>();
+
+        SpaceTypeNormalizer.Result typeResult = SpaceTypeNormalizer.normalize(
                 rawByField.get(PropertyBulkImportField.PROPERTY_TYPE));
-        if (typeResult.isInvalid()) {
+        if (typeResult.error() != null) {
             errors.add(new PropertyBulkImportFieldError(
                     PropertyBulkImportField.PROPERTY_TYPE.name(), typeResult.error()));
+        } else if (typeResult.type() != null) {
+            remember(normalizedValues, PropertyBulkImportField.PROPERTY_TYPE, typeResult.normalized(),
+                    BulkImportLabels.spaceType(typeResult.type()));
+            if (typeResult.warning() != null) {
+                notices.add(notice(
+                        PropertyBulkImportField.PROPERTY_TYPE,
+                        "WARNING",
+                        typeResult.warning(),
+                        typeResult.original(),
+                        BulkImportLabels.spaceType(typeResult.type())));
+            }
         }
 
-        boolean mess = typeResult.value() == SpaceType.MESS;
-        SharedParsedFields shared = parseSharedFields(rawByField, errors);
+        GenderNormalizer.Result genderResult = GenderNormalizer.normalize(
+                rawByField.get(PropertyBulkImportField.GENDER));
+        com.acomi.acomi_backend.space.domain.model.GenderPolicy gender = genderResult.value();
+        if (genderResult.error() != null) {
+            errors.add(new PropertyBulkImportFieldError(
+                    PropertyBulkImportField.GENDER.name(), genderResult.error()));
+        } else if (gender == null && typeResult.inferredGender() != null && typeResult.error() == null) {
+            gender = typeResult.inferredGender();
+            String label = BulkImportLabels.gender(gender);
+            normalizedValues.put(PropertyBulkImportField.GENDER.name(), label);
+            notices.add(notice(
+                    PropertyBulkImportField.GENDER,
+                    "NORMALIZED",
+                    "Gender '" + label + "' was inferred from the property type '"
+                            + typeResult.original() + "'.",
+                    typeResult.original(),
+                    label));
+        } else if (gender != null && typeResult.inferredGender() != null && gender != typeResult.inferredGender()) {
+            notices.add(notice(
+                    PropertyBulkImportField.GENDER,
+                    "WARNING",
+                    "Space Type '" + typeResult.original() + "' suggests "
+                            + BulkImportLabels.gender(typeResult.inferredGender())
+                            + ", but Gender is explicitly '" + genderResult.original()
+                            + "'. Please verify.",
+                    genderResult.original(),
+                    BulkImportLabels.gender(gender)));
+        } else if (genderResult.warning() != null) {
+            notices.add(notice(
+                    PropertyBulkImportField.GENDER,
+                    "WARNING",
+                    genderResult.warning(),
+                    genderResult.original(),
+                    BulkImportLabels.gender(gender)));
+            remember(normalizedValues, PropertyBulkImportField.GENDER, true, BulkImportLabels.gender(gender));
+        } else if (gender != null) {
+            remember(normalizedValues, PropertyBulkImportField.GENDER, genderResult.normalized(),
+                    BulkImportLabels.gender(gender));
+        }
+
+        FoodIncludedNormalizer.Result foodResult = FoodIncludedNormalizer.normalize(
+                rawByField.get(PropertyBulkImportField.FOOD_INCLUDED));
+        if (foodResult.error() != null) {
+            errors.add(new PropertyBulkImportFieldError(
+                    PropertyBulkImportField.FOOD_INCLUDED.name(), foodResult.error()));
+        } else if (foodResult.value() != null) {
+            String foodLabel = BulkImportLabels.food(foodResult.value());
+            remember(normalizedValues, PropertyBulkImportField.FOOD_INCLUDED, foodResult.normalized(), foodLabel);
+            if (foodResult.warning() != null) {
+                notices.add(notice(
+                        PropertyBulkImportField.FOOD_INCLUDED,
+                        "WARNING",
+                        foodResult.warning(),
+                        foodResult.original(),
+                        foodLabel));
+            }
+        }
+
+        boolean mess = typeResult.type() == SpaceType.MESS;
+        SharedParsedFields shared = parseSharedFields(rawByField, errors, gender, foodResult.value());
+        addFoodAmenityWarnings(rawByField, foodResult, notices);
 
         if (mess) {
             AdminCreateMessRegistrationRequest request = new AdminCreateMessRegistrationRequest();
@@ -106,15 +183,12 @@ public final class PropertyBulkImportRowProcessor {
             if (validator != null) {
                 addViolations(validator.validate(request), errors);
             }
-            if (!errors.isEmpty()) {
-                return new ProcessedRow(RowStatus.INVALID, TargetKind.MESS, snapshot, null, null, List.copyOf(errors));
-            }
-            return new ProcessedRow(RowStatus.VALID, TargetKind.MESS, snapshot, null, request, List.of());
+            return finish(TargetKind.MESS, snapshot, null, request, errors, notices, normalizedValues);
         }
 
         AdminCreatePropertyRegistrationRequest request = new AdminCreatePropertyRegistrationRequest();
-        if (typeResult.value() != null) {
-            request.setPropertyType(typeResult.value());
+        if (typeResult.type() != null) {
+            request.setPropertyType(typeResult.type());
         }
         applySharedToProperty(request, shared);
         request.setPropertyName(PropertyBulkImportValueParser.blankToNull(
@@ -128,15 +202,98 @@ public final class PropertyBulkImportRowProcessor {
         if (validator != null) {
             addViolations(validator.validate(request), errors);
         }
+        return finish(TargetKind.PROPERTY, snapshot, request, null, errors, notices, normalizedValues);
+    }
+
+    private static ProcessedRow finish(
+            TargetKind kind,
+            Map<String, String> snapshot,
+            AdminCreatePropertyRegistrationRequest propertyRequest,
+            AdminCreateMessRegistrationRequest messRequest,
+            List<PropertyBulkImportFieldError> errors,
+            List<PropertyBulkImportFieldNotice> notices,
+            Map<String, String> normalizedValues) {
+        RowStatus status;
         if (!errors.isEmpty()) {
-            return new ProcessedRow(
-                    RowStatus.INVALID, TargetKind.PROPERTY, snapshot, null, null, List.copyOf(errors));
+            status = RowStatus.INVALID;
+        } else if (notices.stream().anyMatch(notice -> "WARNING".equals(notice.getLevel()))) {
+            status = RowStatus.WARNING;
+        } else {
+            status = RowStatus.VALID;
         }
-        return new ProcessedRow(RowStatus.VALID, TargetKind.PROPERTY, snapshot, request, null, List.of());
+        return new ProcessedRow(
+                status,
+                kind,
+                snapshot,
+                errors.isEmpty() ? propertyRequest : null,
+                errors.isEmpty() ? messRequest : null,
+                List.copyOf(errors),
+                List.copyOf(notices),
+                Map.copyOf(normalizedValues));
+    }
+
+    private static void remember(
+            Map<String, String> normalizedValues,
+            PropertyBulkImportField field,
+            boolean normalized,
+            String label) {
+        if (normalized && label != null && !label.isBlank()) {
+            normalizedValues.put(field.name(), label);
+        }
+    }
+
+    private static PropertyBulkImportFieldNotice notice(
+            PropertyBulkImportField field,
+            String level,
+            String message,
+            String original,
+            String normalized) {
+        return PropertyBulkImportFieldNotice.builder()
+                .field(field.name())
+                .level(level)
+                .message(message)
+                .originalValue(original)
+                .normalizedValue(normalized)
+                .build();
+    }
+
+    private static void addFoodAmenityWarnings(
+            Map<PropertyBulkImportField, String> rawByField,
+            FoodIncludedNormalizer.Result foodResult,
+            List<PropertyBulkImportFieldNotice> notices) {
+        if (foodResult.value() == null || foodResult.error() != null) {
+            return;
+        }
+        String amenities = PropertyBulkImportValueParser.blankToNull(
+                rawByField.get(PropertyBulkImportField.AMENITIES));
+        if (amenities == null) {
+            return;
+        }
+        String key = PropertyBulkImportValueParser.classificationKey(amenities);
+        if (Boolean.FALSE.equals(foodResult.value())
+                && (key.contains("meals included") || key.contains("food included"))) {
+            notices.add(notice(
+                    PropertyBulkImportField.FOOD_INCLUDED,
+                    "WARNING",
+                    "Food Included is 'No' but Amenities contains '" + amenities + "'. Please verify.",
+                    foodResult.original(),
+                    "No"));
+        }
+        if (Boolean.TRUE.equals(foodResult.value()) && key.contains("no food")) {
+            notices.add(notice(
+                    PropertyBulkImportField.FOOD_INCLUDED,
+                    "WARNING",
+                    "Food Included is 'Yes' but Amenities contains '" + amenities + "'. Please verify.",
+                    foodResult.original(),
+                    "Yes"));
+        }
     }
 
     private static SharedParsedFields parseSharedFields(
-            Map<PropertyBulkImportField, String> rawByField, List<PropertyBulkImportFieldError> errors) {
+            Map<PropertyBulkImportField, String> rawByField,
+            List<PropertyBulkImportFieldError> errors,
+            com.acomi.acomi_backend.space.domain.model.GenderPolicy gender,
+            Boolean foodIncluded) {
         String ownerName = PropertyBulkImportValueParser.blankToNull(
                 rawByField.get(PropertyBulkImportField.OWNER_NAME));
 
@@ -189,22 +346,6 @@ public final class PropertyBulkImportRowProcessor {
                     PropertyBulkImportField.TEST_LEAD.name(), boolResult.error()));
         }
 
-        var genderResult = PropertyBulkImportValueParser.parseGender(
-                rawByField.get(PropertyBulkImportField.GENDER));
-        if (genderResult.isInvalid()) {
-            errors.add(new PropertyBulkImportFieldError(
-                    PropertyBulkImportField.GENDER.name(), genderResult.error()));
-        }
-
-        var foodResult = PropertyBulkImportValueParser.parseFoodIncluded(
-                rawByField.get(PropertyBulkImportField.FOOD_INCLUDED));
-        if (foodResult.isInvalid()) {
-            errors.add(new PropertyBulkImportFieldError(
-                    PropertyBulkImportField.FOOD_INCLUDED.name(), foodResult.error()));
-        } else if (foodResult.note() != null) {
-            extraNotes.add("Food included: " + foodResult.note());
-        }
-
         var latResult = PropertyBulkImportValueParser.parseCoordinate(
                 rawByField.get(PropertyBulkImportField.LATITUDE), "Latitude");
         if (latResult.isInvalid()) {
@@ -242,8 +383,8 @@ public final class PropertyBulkImportRowProcessor {
                 mapUrl,
                 priceResult.value(),
                 boolResult.value(),
-                genderResult.value(),
-                foodResult.value(),
+                gender,
+                foodIncluded,
                 latResult.value(),
                 lngResult.value(),
                 sharingNotes,

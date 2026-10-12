@@ -131,8 +131,36 @@ class SpacePaymentLedgerSupportTest {
                 .paymentStatus(SpacePaymentStatus.PENDING)
                 .amount(new BigDecimal("850"))
                 .build();
-        assertThat(support.sumNonRecurringObligationAmount(List.of(rent, deposit, electricity)))
-                .isEqualByComparingTo("3850");
+        SpacePaymentEntity mealMonthly = SpacePaymentEntity.builder()
+                .paymentType(SpacePaymentType.MEAL)
+                .paymentCategory(SpacePaymentCategory.MONTHLY)
+                .paymentStatus(SpacePaymentStatus.PENDING)
+                .amount(new BigDecimal("1200"))
+                .build();
+        SpacePaymentEntity mealExtra = SpacePaymentEntity.builder()
+                .paymentType(SpacePaymentType.MEAL)
+                .paymentCategory(SpacePaymentCategory.EXTRA)
+                .paymentStatus(SpacePaymentStatus.PENDING)
+                .amount(new BigDecimal("400"))
+                .build();
+        SpacePaymentEntity penalty = SpacePaymentEntity.builder()
+                .paymentType(SpacePaymentType.PENALTY)
+                .paymentCategory(SpacePaymentCategory.EXTRA)
+                .paymentStatus(SpacePaymentStatus.PENDING)
+                .amount(new BigDecimal("200"))
+                .build();
+        SpacePaymentEntity advanceRent = SpacePaymentEntity.builder()
+                .paymentType(SpacePaymentType.RENT)
+                .paymentCategory(SpacePaymentCategory.ADVANCE)
+                .paymentStatus(SpacePaymentStatus.PAID)
+                .amount(new BigDecimal("6000"))
+                .build();
+        assertThat(support.sumNonRecurringObligationAmount(
+                        List.of(rent, deposit, electricity, mealMonthly, mealExtra, penalty, advanceRent)))
+                .isEqualByComparingTo("10450");
+        assertThat(support.sumRecurringRentAmount(
+                        List.of(rent, deposit, electricity, advanceRent)))
+                .isEqualByComparingTo("3400");
     }
 
     private SpacePaymentEntity payment(SpacePaymentStatus status, String amount) {

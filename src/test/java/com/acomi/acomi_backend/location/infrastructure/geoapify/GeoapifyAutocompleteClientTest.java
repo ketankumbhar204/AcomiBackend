@@ -53,6 +53,10 @@ class GeoapifyAutocompleteClientTest {
         assertThat(uri).contains("type=locality");
         assertThat(client.requestUri("Aundh Pune").toString()).doesNotContain("type=");
         assertThat(client.requestUri("411057").toString()).contains("type=postcode");
+        String address = client.addressUri("Baner Road Pune").toString();
+        assertThat(address).contains("filter=countrycode:in");
+        assertThat(address).doesNotContain("type=");
+        assertThat(address).contains(TEST_KEY);
         assertThat(uri).doesNotContain("countrycode:us");
         assertThat(uri).doesNotContain("countrycode%3Aus");
     }

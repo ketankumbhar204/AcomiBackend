@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.property.api.dto.request;
 
+import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -20,8 +21,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 /**
- * Public-website property lead. Deliberately does not accept status, source, priceBasis or
- * mobileVerifiedAt: the server derives all four.
+ * Public-website property lead. Status, source and mobileVerifiedAt are server-derived.
+ * priceBasis is optional; when omitted the server uses the property-type default.
  */
 @Getter
 @Setter
@@ -37,6 +38,14 @@ public class CreatePropertyRegistrationRequest {
     @Size(max = 150, message = "Property name must be at most 150 characters")
     @Schema(example = "Sunrise PG")
     private String propertyName;
+
+    @Size(max = 150, message = "Building name must be at most 150 characters")
+    @Schema(description = "Apartment or building name. May differ from the property name.", example = "Sunrise Residency")
+    private String buildingName;
+
+    public void setBuildingName(String buildingName) {
+        this.buildingName = blankToNull(buildingName);
+    }
 
     @NotBlank(message = "Owner name is required")
     @Size(max = 120, message = "Owner name must be at most 120 characters")
@@ -75,17 +84,33 @@ public class CreatePropertyRegistrationRequest {
     @Size(max = 255, message = "Address must be at most 255 characters")
     private String addressLine;
 
-    @NotBlank(message = "City is required")
     @Size(max = 80, message = "City must be at most 80 characters")
+    @Schema(description = "Filled when a place suggestion is selected. Omitted for a typed location.")
     private String city;
 
-    @NotBlank(message = "State is required")
     @Size(max = 80, message = "State must be at most 80 characters")
+    @Schema(description = "Filled when a place suggestion is selected. Omitted for a typed location.")
     private String state;
 
-    @NotBlank(message = "Pincode is required")
     @Pattern(regexp = "^[1-9]\\d{5}$", message = "Pincode must be a valid 6-digit Indian pincode")
+    @Schema(description = "Filled when a place suggestion includes a pincode. Omitted for a typed location.")
     private String pincode;
+
+    public void setCity(String city) {
+        this.city = blankToNull(city);
+    }
+
+    public void setState(String state) {
+        this.state = blankToNull(state);
+    }
+
+    public void setPincode(String pincode) {
+        this.pincode = blankToNull(pincode);
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
 
     @Size(max = 512, message = "Map link must be at most 512 characters")
     @Schema(description = "Optional pasted Google Maps share link")
@@ -106,6 +131,9 @@ public class CreatePropertyRegistrationRequest {
     @DecimalMax(value = "9999999999", message = "Starting price is too large")
     private BigDecimal startingPrice;
 
+    @Schema(description = "Optional pricing unit. Defaults from the property type when omitted.", example = "PER_BED")
+    private PriceBasis priceBasis;
+
     @Min(value = 0, message = "Capacity cannot be negative")
     @Max(value = 100000, message = "Capacity is too large")
     @Schema(description = "Optional approximate beds, rooms or units")
@@ -114,4 +142,8 @@ public class CreatePropertyRegistrationRequest {
     @Valid
     @Schema(description = "Optional amenities. Ignored for RENTAL.")
     private List<AmenityAssignmentDto> amenities = new ArrayList<>();
+
+    @Size(max = 3, message = "You can upload at most 3 photos")
+    @Schema(description = "Optional data-URL photos. At most 3, each at most 3 MB, JPEG PNG or WebP.")
+    private List<String> photos = new ArrayList<>();
 }

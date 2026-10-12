@@ -52,6 +52,10 @@ public class PropertyRegistrationEntity extends BaseEntity {
     @Column(name = "property_name", nullable = false, length = 150)
     private String propertyName;
 
+    /** Physical building or apartment name. May differ from the PG or property name. */
+    @Column(name = "building_name", length = 150)
+    private String buildingName;
+
     @Column(name = "owner_name", nullable = false, length = 120)
     private String ownerName;
 
@@ -73,13 +77,13 @@ public class PropertyRegistrationEntity extends BaseEntity {
     @Column(name = "address_line", nullable = false, length = 255)
     private String addressLine;
 
-    @Column(name = "city", nullable = false, length = 80)
+    @Column(name = "city", length = 80)
     private String city;
 
-    @Column(name = "state", nullable = false, length = 80)
+    @Column(name = "state", length = 80)
     private String state;
 
-    @Column(name = "pincode", nullable = false, length = 6)
+    @Column(name = "pincode", length = 6)
     private String pincode;
 
     @Column(name = "latitude", precision = 10, scale = 7)

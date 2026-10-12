@@ -114,7 +114,7 @@ class EnquiryListingDetailsResolverTest {
         assertThat(details.location()).isEqualTo("12 MG Road, New Delhi, Delhi, 110001");
         assertThat(details.mapUrl()).isEqualTo("https://maps.google.com/?q=28.61,77.20");
         assertThat(details.startingPrice()).isEqualTo("INR 8500");
-        assertThat(details.priceBasis()).isEqualTo("Per bed");
+        assertThat(details.priceBasis()).isEqualTo("Per bed / month");
         assertThat(details.genderPolicy()).isEqualTo("Male");
         assertThat(details.foodIncluded()).isEqualTo("Yes");
         assertThat(details.amenities()).isEqualTo("WiFi");

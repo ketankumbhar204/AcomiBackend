@@ -37,6 +37,10 @@ public class CreateInventoryItemRequest {
 
     private UUID supplierId;
 
+    /** Used when supplierId is absent. Blank means no supplier. An existing name is reused. */
+    @Size(max = 150)
+    private String supplierName;
+
     @DecimalMin("0")
     private BigDecimal purchasePrice;
 

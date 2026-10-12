@@ -15,10 +15,15 @@ import lombok.Setter;
 @Builder
 public class PropertyBulkImportPreviewRow {
     private int rowNumber;
-    /** VALID | INVALID | BLANK | DUPLICATE */
+    /** VALID | WARNING | INVALID | BLANK | DUPLICATE */
     private String status;
+    /** Original Excel values. */
     private Map<String, String> values;
+    /** Canonical display values for cells that were normalized. */
+    private Map<String, String> normalizedValues;
     private List<PropertyBulkImportFieldError> errors;
+    /** NORMALIZED notes and WARNING notes. Warnings do not block import. */
+    private List<PropertyBulkImportFieldNotice> notices;
     /** Present when status is DUPLICATE. */
     private PropertyBulkImportDuplicateMatch duplicateMatch;
 }

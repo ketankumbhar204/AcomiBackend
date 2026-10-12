@@ -20,6 +20,19 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
 
     Optional<UserEntity> findByMobileNumberAndIsActiveTrue(String mobileNumber);
 
+    /**
+     * Matches a stored mobile regardless of spaces or a +91 / 91 / leading 0 prefix.
+     * {@code national} must already be the 10-digit national number.
+     */
+    @Query(
+            value =
+                    """
+                    SELECT * FROM users
+                    WHERE right(regexp_replace(coalesce(mobile_number, ''), '[^0-9]', '', 'g'), 10) = :national
+                    """,
+            nativeQuery = true)
+    List<UserEntity> findByNationalMobile(@Param("national") String national);
+
     boolean existsByMobileNumber(String mobileNumber);
 
     boolean existsByMobileNumberAndIsActiveTrue(String mobileNumber);
@@ -193,4 +206,20 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
             @Param("systemRole") SystemRole systemRole,
             @Param("fromAt") LocalDateTime fromAt,
             @Param("toAt") LocalDateTime toAt);
+
+    @Query(
+            value =
+                    """
+                    SELECT CAST(u.mobile_verified_at AS date) AS day, COUNT(*) AS cnt
+                    FROM users u
+                    WHERE u.mobile_verified_at IS NOT NULL
+                      AND u.is_active = true
+                      AND u.mobile_verified_at >= :fromAt
+                      AND u.mobile_verified_at < :toAt
+                    GROUP BY CAST(u.mobile_verified_at AS date)
+                    ORDER BY day ASC
+                    """,
+            nativeQuery = true)
+    List<Object[]> countDailyVerifiedRegistrationsBetween(
+            @Param("fromAt") LocalDateTime fromAt, @Param("toAt") LocalDateTime toAt);
 }

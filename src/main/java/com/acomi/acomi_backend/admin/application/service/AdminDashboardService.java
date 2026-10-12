@@ -33,6 +33,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -301,15 +302,32 @@ public class AdminDashboardService {
     public List<AdminActiveSpaceResponse> listActiveSpaces(SpaceType type) {
         List<SpaceEntity> spaces;
         if (type == null) {
-            spaces = spaceRepository.findActiveByTypes(
+            spaces = spaceRepository.findActiveByTypesWithOwner(
                     List.of(SpaceType.PG, SpaceType.HOSTEL, SpaceType.CO_LIVING, SpaceType.RENTAL, SpaceType.MESS));
-        } else if (type == SpaceType.MESS) {
-            spaces = spaceRepository.findByTypeAndIsActiveTrue(SpaceType.MESS);
         } else {
-            spaces = spaceRepository.findByTypeAndIsActiveTrue(type);
+            spaces = spaceRepository.findActiveByTypeWithOwner(type);
         }
 
-        return spaces.stream().map(this::toActiveSpace).toList();
+        List<UUID> spaceIds = spaces.stream().map(SpaceEntity::getId).toList();
+        Map<UUID, PropertyRegistrationEntity> propertiesBySpace = new HashMap<>();
+        Map<UUID, MessRegistrationEntity> messesBySpace = new HashMap<>();
+        if (!spaceIds.isEmpty()) {
+            for (PropertyRegistrationEntity registration :
+                    propertyRegistrationRepository.findByConvertedSpaceIdIn(spaceIds)) {
+                if (registration.getConvertedSpaceId() != null) {
+                    propertiesBySpace.putIfAbsent(registration.getConvertedSpaceId(), registration);
+                }
+            }
+            for (MessRegistrationEntity registration : messRegistrationRepository.findByConvertedSpaceIdIn(spaceIds)) {
+                if (registration.getConvertedSpaceId() != null) {
+                    messesBySpace.putIfAbsent(registration.getConvertedSpaceId(), registration);
+                }
+            }
+        }
+
+        return spaces.stream()
+                .map(space -> toActiveSpace(space, propertiesBySpace.get(space.getId()), messesBySpace.get(space.getId())))
+                .toList();
     }
 
     @Transactional
@@ -324,7 +342,8 @@ public class AdminDashboardService {
         spaceRepository.save(space);
     }
 
-    private AdminActiveSpaceResponse toActiveSpace(SpaceEntity space) {
+    private AdminActiveSpaceResponse toActiveSpace(
+            SpaceEntity space, PropertyRegistrationEntity propertyLead, MessRegistrationEntity messLead) {
         AdminActiveSpaceResponse.AdminActiveSpaceResponseBuilder builder = AdminActiveSpaceResponse.builder()
                 .id(space.getId())
                 .name(space.getName())
@@ -338,11 +357,11 @@ public class AdminDashboardService {
                 .testLead(false);
 
         if (space.getType() == SpaceType.MESS) {
-            messRegistrationRepository.findByConvertedSpaceId(space.getId()).ifPresent(reg -> applyMessLead(builder, reg));
-        } else {
-            propertyRegistrationRepository
-                    .findByConvertedSpaceId(space.getId())
-                    .ifPresent(reg -> applyPropertyLead(builder, reg));
+            if (messLead != null) {
+                applyMessLead(builder, messLead);
+            }
+        } else if (propertyLead != null) {
+            applyPropertyLead(builder, propertyLead);
         }
 
         return builder.build();

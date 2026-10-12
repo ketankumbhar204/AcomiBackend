@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.mess.api.dto.request;
 
+import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -87,6 +88,9 @@ public class AdminCreateMessRegistrationRequest {
     @DecimalMin(value = "0", message = "Meal price cannot be negative")
     @DecimalMax(value = "9999999999", message = "Meal price is too large")
     private BigDecimal mealPrice;
+
+    @Schema(description = "Optional unit for the monthly price. Defaults to per month when omitted.", example = "PER_UNIT")
+    private PriceBasis monthlyPriceBasis;
 
     @Min(value = 0, message = "Capacity cannot be negative")
     @Max(value = 100000, message = "Capacity is too large")

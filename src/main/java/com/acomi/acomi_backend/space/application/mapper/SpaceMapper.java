@@ -18,6 +18,8 @@ public final class SpaceMapper {
                 .name(entity.getName())
                 .type(entity.getType())
                 .address(entity.getAddress())
+                .latitude(entity.getLatitude())
+                .longitude(entity.getLongitude())
                 .contactNumber(entity.getContactNumber())
                 .ownerId(entity.getOwner().getId())
                 .active(entity.isActive())
@@ -36,6 +38,8 @@ public final class SpaceMapper {
         Space.SpaceBuilder builder = space.toBuilder()
                 .name(request.getName())
                 .address(request.getAddress())
+                .latitude(request.getLatitude() != null ? request.getLatitude() : space.getLatitude())
+                .longitude(request.getLongitude() != null ? request.getLongitude() : space.getLongitude())
                 .contactNumber(request.getContactNumber())
                 .defaultFoodCharge(request.getDefaultFoodCharge());
         if (request.getFoodIncludedInRent() != null) {
@@ -47,6 +51,8 @@ public final class SpaceMapper {
     public static void applyToEntity(SpaceEntity entity, Space space) {
         entity.setName(space.getName());
         entity.setAddress(space.getAddress());
+        entity.setLatitude(space.getLatitude());
+        entity.setLongitude(space.getLongitude());
         entity.setContactNumber(space.getContactNumber());
         entity.setDefaultFoodCharge(space.getDefaultFoodCharge());
         entity.setFoodIncludedInRent(space.isFoodIncludedInRent());

@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.config.security;
 
 import com.acomi.acomi_backend.auth.application.cookie.AuthCookies;
+import com.acomi.acomi_backend.config.security.UserPrincipal;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
@@ -44,6 +45,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             try {
                 UUID userId = jwtService.extractUserId(token);
                 UserDetails userDetails = userDetailsService.loadUserById(userId);
+                if (userDetails instanceof UserPrincipal principal
+                        && JwtService.tokenPredatesCredentialChange(
+                                jwtService.extractIssuedAt(token), principal.getCredentialsChangedAt())) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
 
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());

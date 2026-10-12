@@ -191,9 +191,11 @@ class SpaceDiscoverSpecsTest {
                         false)
                 .toPredicate(root, query, cb);
 
-        verify(cb).exists(subquery);
-        verify(cb).greaterThanOrEqualTo(any(), org.mockito.ArgumentMatchers.eq(new BigDecimal("2000")));
-        verify(cb).lessThanOrEqualTo(any(), org.mockito.ArgumentMatchers.eq(new BigDecimal("15000")));
+        verify(cb, org.mockito.Mockito.atLeastOnce()).exists(any());
+        verify(cb, org.mockito.Mockito.atLeastOnce())
+                .greaterThanOrEqualTo(any(), org.mockito.ArgumentMatchers.eq(new BigDecimal("2000")));
+        verify(cb, org.mockito.Mockito.atLeastOnce())
+                .lessThanOrEqualTo(any(), org.mockito.ArgumentMatchers.eq(new BigDecimal("15000")));
     }
 
     @Test

@@ -106,7 +106,9 @@ public class PropertyBulkImportService {
             instructions.createRow(r++).createCell(0).setCellValue(
                     "Owner name is optional. Space owner is resolved by mobile when an ACOMI user exists, otherwise the importing admin.");
             instructions.createRow(r++).createCell(0).setCellValue(
-                    "Only .xlsx files are supported. Maximum 1000 data rows and 5MB file size.");
+                    "Only .xlsx files are supported. Maximum "
+                            + PropertyBulkImportExcelReader.MAX_DATA_ROWS
+                            + " data rows and 5MB file size.");
             instructions.autoSizeColumn(0);
 
             workbook.write(out);
@@ -142,28 +144,36 @@ public class PropertyBulkImportService {
 
         List<PropertyBulkImportPreviewRow> rows = new ArrayList<>();
         int valid = 0;
+        int warning = 0;
         int invalid = 0;
         int blank = 0;
         int duplicate = 0;
+        int normalized = 0;
 
         for (ProcessedEntry entry : entries) {
             PropertyBulkImportDuplicateMatch match = annotations.byRowNumber().get(entry.rowNumber());
             String status = entry.processed().status().name();
-            if (match != null && entry.processed().status() == PropertyBulkImportRowProcessor.RowStatus.VALID) {
+            boolean importable = entry.processed().status() == PropertyBulkImportRowProcessor.RowStatus.VALID
+                    || entry.processed().status() == PropertyBulkImportRowProcessor.RowStatus.WARNING;
+            if (match != null && importable) {
                 status = "DUPLICATE";
                 duplicate++;
             } else {
                 switch (entry.processed().status()) {
                     case VALID -> valid++;
+                    case WARNING -> warning++;
                     case INVALID -> invalid++;
                     case BLANK -> blank++;
                 }
             }
+            normalized += entry.processed().normalizedValues().size();
             rows.add(PropertyBulkImportPreviewRow.builder()
                     .rowNumber(entry.rowNumber())
                     .status(status)
                     .values(entry.processed().valuesSnapshot())
+                    .normalizedValues(entry.processed().normalizedValues())
                     .errors(entry.processed().errors())
+                    .notices(entry.processed().notices())
                     .duplicateMatch(match)
                     .build());
         }
@@ -171,8 +181,10 @@ public class PropertyBulkImportService {
         return PropertyBulkImportPreviewResponse.builder()
                 .totalRows(parsed.dataRows().size())
                 .valid(valid)
+                .warning(warning)
                 .invalid(invalid)
                 .blank(blank)
+                .normalized(normalized)
                 .duplicate(duplicate)
                 .rows(rows)
                 .build();
@@ -324,7 +336,9 @@ public class PropertyBulkImportService {
     private DuplicateAnnotations annotateDuplicates(List<ProcessedEntry> entries) {
         List<PropertyBulkImportDuplicateDetector.Fingerprint> fingerprints = new ArrayList<>();
         for (ProcessedEntry entry : entries) {
-            if (entry.processed().status() != PropertyBulkImportRowProcessor.RowStatus.VALID) {
+            var rowStatus = entry.processed().status();
+            if (rowStatus != PropertyBulkImportRowProcessor.RowStatus.VALID
+                    && rowStatus != PropertyBulkImportRowProcessor.RowStatus.WARNING) {
                 continue;
             }
             fingerprints.add(PropertyBulkImportDuplicateDetector.fingerprintFromProcessed(

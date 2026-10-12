@@ -60,6 +60,13 @@ public class LocationController {
                 locationAutocompleteService.autocomplete(q, state, district)));
     }
 
+    @GetMapping("/autocomplete/address")
+    @Operation(summary = "Suggest streets, buildings, and landmarks in India for property and mess registration.")
+    public ResponseEntity<ApiResponse<List<LocationAutocompleteSuggestion>>> autocompleteAddress(
+            @RequestParam(required = false) String q) {
+        return ResponseEntity.ok(ApiResponse.success(locationAutocompleteService.autocompleteAddress(q)));
+    }
+
     @GetMapping("/search")
     @Operation(summary = "Search locations by name, taluk, district, pincode, or multi-keyword query")
     public ResponseEntity<ApiResponse<List<LocationRecordResponse>>> search(
