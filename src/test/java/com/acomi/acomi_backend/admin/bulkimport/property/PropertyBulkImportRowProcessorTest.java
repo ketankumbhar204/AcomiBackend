@@ -215,6 +215,45 @@ class PropertyBulkImportRowProcessorTest {
     }
 
     @Test
+    void mixedSpaceType_isAWarningWithThePriorityType() {
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Space type", "PG / Co-living");
+        excelRow.put("Property Name", "Om PG & Co-Living");
+        excelRow.put("Contact 1", "9876543210");
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Space type",
+                "PROPERTY_NAME", "Property Name",
+                "MOBILE_NUMBER", "Contact 1");
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.WARNING);
+        assertThat(processed.errors()).isEmpty();
+        assertThat(processed.request().getPropertyType()).isEqualTo(com.acomi.acomi_backend.space.domain.model.SpaceType.PG);
+        assertThat(processed.valuesSnapshot()).containsEntry("PROPERTY_TYPE", "PG / Co-living");
+        assertThat(processed.normalizedValues()).containsEntry("PROPERTY_TYPE", "PG");
+        assertThat(processed.notices()).anyMatch(notice ->
+                "PROPERTY_TYPE".equals(notice.getField())
+                        && notice.getMessage().contains("PG selected as the primary type"));
+    }
+
+    @Test
+    void mixedSpaceType_doesNotHideAnotherColumnError() {
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Space type", "PG / Co-living");
+        excelRow.put("Property Name", "Om PG & Co-Living");
+        excelRow.put("Contact 1", "9876543210");
+        excelRow.put("Google Maps Link", "Google Maps");
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Space type",
+                "PROPERTY_NAME", "Property Name",
+                "MOBILE_NUMBER", "Contact 1",
+                "MAP_URL", "Google Maps Link");
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.INVALID);
+        assertThat(processed.errors()).anyMatch(error -> "MAP_URL".equals(error.getField()));
+        assertThat(processed.notices()).anyMatch(notice -> "PROPERTY_TYPE".equals(notice.getField()));
+    }
+
+    @Test
     void perBedRent_keepsAmountAndBasis() {
         Map<String, String> excelRow = new LinkedHashMap<>();
         excelRow.put("Space type", "PG");
@@ -231,6 +270,88 @@ class PropertyBulkImportRowProcessorTest {
         assertThat(processed.request().getStartingPrice()).isEqualByComparingTo("8000");
         assertThat(processed.request().getPriceBasis())
                 .isEqualTo(com.acomi.acomi_backend.property.domain.model.PriceBasis.PER_BED);
+        assertThat(processed.request().getSuppressPriceBasisDefault()).isNotEqualTo(Boolean.TRUE);
+        assertThat(processed.normalizedValues()).containsEntry("STARTING_PRICE", "8000");
+        assertThat(processed.notices()).noneMatch(notice -> "STARTING_PRICE".equals(notice.getField()));
+    }
+
+    @Test
+    void monthlyRent_isAcceptedWithoutAPriceWarning() {
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Space type", "PG");
+        excelRow.put("Property Name", "Sunrise PG");
+        excelRow.put("Contact 1", "9876543210");
+        excelRow.put("Rent starts from", "₹5,500/month");
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Space type",
+                "PROPERTY_NAME", "Property Name",
+                "MOBILE_NUMBER", "Contact 1",
+                "STARTING_PRICE", "Rent starts from");
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.VALID);
+        assertThat(processed.request().getStartingPrice()).isEqualByComparingTo("5500");
+        assertThat(processed.request().getPriceBasis()).isNull();
+        assertThat(processed.request().getSuppressPriceBasisDefault()).isNotEqualTo(Boolean.TRUE);
+        assertThat(processed.normalizedValues()).containsEntry("STARTING_PRICE", "5500");
+        assertThat(processed.notices()).noneMatch(notice -> "STARTING_PRICE".equals(notice.getField()));
+    }
+
+    @Test
+    void nightlyRent_keepsTheAmountAndDoesNotAssignABedBasis() {
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Space type", "PG");
+        excelRow.put("Property Name", "Sunrise PG");
+        excelRow.put("Contact 1", "9876543210");
+        excelRow.put("Rent starts from", "₹5,500 per night");
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Space type",
+                "PROPERTY_NAME", "Property Name",
+                "MOBILE_NUMBER", "Contact 1",
+                "STARTING_PRICE", "Rent starts from");
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.VALID);
+        assertThat(processed.request().getStartingPrice()).isEqualByComparingTo("5500");
+        assertThat(processed.request().getPriceBasis()).isNull();
+        assertThat(processed.request().getSuppressPriceBasisDefault()).isTrue();
+    }
+
+    @Test
+    void rentRange_staysInReviewWithoutStoringTheFirstNumber() {
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Space type", "PG");
+        excelRow.put("Property Name", "Sunrise PG");
+        excelRow.put("Contact 1", "9876543210");
+        excelRow.put("Rent starts from", "₹5,000–₹7,000/month");
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Space type",
+                "PROPERTY_NAME", "Property Name",
+                "MOBILE_NUMBER", "Contact 1",
+                "STARTING_PRICE", "Rent starts from");
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.WARNING);
+        assertThat(processed.request().getStartingPrice()).isNull();
+        assertThat(processed.notices()).anyMatch(notice ->
+                "STARTING_PRICE".equals(notice.getField()) && notice.getMessage().contains("rent range"));
+    }
+
+    @Test
+    void messMealUnit_keepsTheAmountAsTheMonthlyPrice() {
+        Map<String, String> excelRow = new LinkedHashMap<>();
+        excelRow.put("Space type", "Mess");
+        excelRow.put("Property Name", "Good Mess");
+        excelRow.put("Contact 1", "9876543211");
+        excelRow.put("Rent starts from", "₹150 per meal");
+        Map<String, String> mapping = identityMapping(
+                "PROPERTY_TYPE", "Space type",
+                "PROPERTY_NAME", "Property Name",
+                "MOBILE_NUMBER", "Contact 1",
+                "STARTING_PRICE", "Rent starts from");
+        var processed = PropertyBulkImportRowProcessor.process(excelRow, mapping, validator);
+        assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.VALID);
+        assertThat(processed.messRequest().getMonthlyPrice()).isEqualByComparingTo("150");
+        assertThat(processed.messRequest().getMonthlyPriceBasis()).isNull();
+        assertThat(processed.messRequest().getSuppressPriceBasisDefault()).isTrue();
+        assertThat(processed.messRequest().getMealPrice()).isNull();
     }
 
     private static Map<String, String> identityMapping(String... keyHeaderPairs) {

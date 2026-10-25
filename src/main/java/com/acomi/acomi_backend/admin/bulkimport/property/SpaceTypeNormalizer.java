@@ -8,12 +8,13 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Maps Excel space-type text onto {@link SpaceType}.
+ * Maps Excel space-type text onto one {@link SpaceType}.
  *
  * <p>A cell is split only on explicit separators ({@code /}, {@code &}, {@code +}, comma, or the
- * word "and"). Each segment is resolved on its own. Several recognized types stay as candidates
- * for review. One listing stores one type, so a mixed cell is not saved until the reviewer keeps
- * a single type.
+ * word "and"). Each segment is resolved from known aliases. When several canonical types are
+ * recognized, {@link #PRIORITY} picks the one that is stored. The others stay on the result as
+ * candidates and the cell is a warning, not an error. A segment that is not a known alias keeps
+ * the cell invalid.
  */
 public final class SpaceTypeNormalizer {
 
@@ -31,8 +32,14 @@ public final class SpaceTypeNormalizer {
         }
     }
 
-    private static final String CHOOSE_ONE =
-            "Choose one primary type. Only that type is saved; other selected types are not stored.";
+    /** Highest priority first. The first match is the type that is saved. */
+    private static final List<SpaceType> PRIORITY = List.of(
+            SpaceType.PG,
+            SpaceType.CO_LIVING,
+            SpaceType.HOSTEL,
+            SpaceType.CORPORATE_STAY,
+            SpaceType.RENTAL,
+            SpaceType.MESS);
 
     private SpaceTypeNormalizer() {}
 
@@ -56,75 +63,90 @@ public final class SpaceTypeNormalizer {
     }
 
     private static Result resolveSingle(String value, String segment) {
-        String key = PropertyBulkImportValueParser.classificationKey(segment);
+        String key = typeKey(segment);
         if (isUnsafe(key)) {
             return invalid(value);
         }
-        SegmentHit hit = classify(key);
-        if (hit.kind == HitKind.UNKNOWN) {
+        List<SpaceType> found = typesIn(key);
+        if (found.isEmpty()) {
             return invalid(value);
         }
-        if (hit.kind == HitKind.AMBIGUOUS) {
-            return review(value, hit.candidates, inferGender(key));
-        }
-        GenderPolicy inferred = inferGender(key);
-        boolean normalized = !BulkImportLabels.spaceType(hit.type).equalsIgnoreCase(value.trim());
-        return new Result(value, hit.type, inferred, normalized, null, null, List.of(hit.type));
+        return finish(value, found, inferGender(key));
     }
 
     private static Result resolveMixed(String value, List<String> segments) {
         Set<SpaceType> candidates = new LinkedHashSet<>();
-        boolean ambiguous = false;
         boolean unknownSegment = false;
         StringBuilder genderKey = new StringBuilder();
+        String wholeKey = typeKey(value);
         for (String segment : segments) {
-            String key = PropertyBulkImportValueParser.classificationKey(segment);
+            String key = typeKey(segment);
             if (!genderKey.isEmpty()) {
                 genderKey.append(' ');
             }
             genderKey.append(key);
-            if (isFoodStallDescriptor(key)
-                    && PropertyBulkImportValueParser.hasCoreMessPhrase(
-                            PropertyBulkImportValueParser.classificationKey(value))) {
+            if (isIgnorableDescriptor(key, wholeKey) || isGenderOnly(key)) {
+                continue;
+            }
+            if (isHotelBesideServicedCorporate(key, wholeKey)) {
                 continue;
             }
             if (isUnsafe(key)) {
                 return invalid(value);
             }
-            SegmentHit hit = classify(key);
-            if (hit.kind == HitKind.UNKNOWN) {
+            List<SpaceType> found = typesIn(key);
+            if (found.isEmpty()) {
                 unknownSegment = true;
                 continue;
             }
-            if (hit.kind == HitKind.AMBIGUOUS) {
-                ambiguous = true;
-            }
-            candidates.addAll(hit.candidates);
+            candidates.addAll(found);
         }
-        if (candidates.isEmpty()) {
+        if (candidates.isEmpty() || unknownSegment) {
             return invalid(value);
         }
-        List<SpaceType> ordered = List.copyOf(candidates);
-        if (unknownSegment) {
-            ambiguous = true;
-        }
-        if (ordered.size() == 1 && !ambiguous) {
-            SpaceType type = ordered.get(0);
-            boolean normalized = !BulkImportLabels.spaceType(type).equalsIgnoreCase(value.trim());
-            return new Result(value, type, inferGender(genderKey.toString()), normalized, null, null, ordered);
-        }
-        return review(value, ordered, inferGender(genderKey.toString()));
+        return finish(value, List.copyOf(candidates), inferGender(genderKey.toString()));
     }
 
-    private static Result review(String value, List<SpaceType> candidates, GenderPolicy inferred) {
-        return new Result(
-                value,
-                null,
-                inferred,
-                false,
-                null,
-                CHOOSE_ONE + " Detected: " + labels(candidates) + ".",
-                candidates);
+    private static Result finish(String value, List<SpaceType> found, GenderPolicy inferred) {
+        SpaceType primary = selectPrimary(found);
+        if (distinctCount(found) < 2) {
+            boolean normalized = !BulkImportLabels.spaceType(primary).equalsIgnoreCase(value.trim());
+            return new Result(value, primary, inferred, normalized, null, null, List.of(primary));
+        }
+        String warning = "Multiple space types detected. "
+                + BulkImportLabels.spaceType(primary)
+                + " selected as the primary type by the import priority rule. Also detected: "
+                + labels(others(found, primary))
+                + ".";
+        return new Result(value, primary, inferred, true, warning, null, found);
+    }
+
+    private static SpaceType selectPrimary(List<SpaceType> found) {
+        for (SpaceType type : PRIORITY) {
+            if (found.contains(type)) {
+                return type;
+            }
+        }
+        return found.get(0);
+    }
+
+    private static int distinctCount(List<SpaceType> found) {
+        return new LinkedHashSet<>(found).size();
+    }
+
+    private static List<SpaceType> others(List<SpaceType> found, SpaceType primary) {
+        List<SpaceType> others = new ArrayList<>();
+        for (SpaceType type : PRIORITY) {
+            if (type != primary && found.contains(type)) {
+                others.add(type);
+            }
+        }
+        return others;
+    }
+
+    private static String typeKey(String value) {
+        return PropertyBulkImportValueParser.classificationKey(
+                value.replace('–', '-').replace('—', '-'));
     }
 
     private static String labels(List<SpaceType> candidates) {
@@ -158,35 +180,74 @@ public final class SpaceTypeNormalizer {
         return segments;
     }
 
-    private enum HitKind {
-        TYPE,
-        AMBIGUOUS,
-        UNKNOWN
-    }
-
-    private record SegmentHit(HitKind kind, SpaceType type, List<SpaceType> candidates) {
-        private static SegmentHit type(SpaceType type) {
-            return new SegmentHit(HitKind.TYPE, type, List.of(type));
-        }
-
-        private static SegmentHit ambiguous(SpaceType... types) {
-            return new SegmentHit(HitKind.AMBIGUOUS, null, List.of(types));
-        }
-
-        private static SegmentHit unknown() {
-            return new SegmentHit(HitKind.UNKNOWN, null, List.of());
-        }
-    }
-
-    private static SegmentHit classify(String key) {
+    private static List<SpaceType> typesIn(String key) {
+        Set<SpaceType> found = new LinkedHashSet<>();
         if (isExactCorporateStay(key)) {
-            return SegmentHit.type(SpaceType.CORPORATE_STAY);
+            found.add(SpaceType.CORPORATE_STAY);
+            return List.copyOf(found);
         }
         if (isAmbiguousCorporate(key)) {
-            return SegmentHit.ambiguous(SpaceType.CORPORATE_STAY, SpaceType.RENTAL);
+            found.add(SpaceType.CORPORATE_STAY);
+            found.add(SpaceType.RENTAL);
         }
-        SpaceType type = resolveKnown(key);
-        return type == null ? SegmentHit.unknown() : SegmentHit.type(type);
+        if (PropertyBulkImportValueParser.hasPhrase(key, "co living", "coliving", "co live", "colive")) {
+            found.add(SpaceType.CO_LIVING);
+        }
+        if (isMessSegment(key)) {
+            found.add(SpaceType.MESS);
+        }
+        if (isServicedCorporate(key)) {
+            found.add(SpaceType.CORPORATE_STAY);
+        } else if (PropertyBulkImportValueParser.hasPhrase(
+                        key, "serviced", "rental", "rentals", "apartment", "apartments", "flat", "flats")
+                || PropertyBulkImportValueParser.hasWord(key, "rent")) {
+            found.add(SpaceType.RENTAL);
+        }
+        if (PropertyBulkImportValueParser.hasWord(key, "pg") || key.contains("paying guest")) {
+            found.add(SpaceType.PG);
+        }
+        if (PropertyBulkImportValueParser.hasWord(key, "hostel")
+                || PropertyBulkImportValueParser.hasWord(key, "hostels")) {
+            found.add(SpaceType.HOSTEL);
+        }
+        if (found.isEmpty()
+                && PropertyBulkImportValueParser.isGuestHouseFallback(key)
+                && !PropertyBulkImportValueParser.hasWord(key, "corporate")
+                && !PropertyBulkImportValueParser.hasWord(key, "company")) {
+            found.add(SpaceType.RENTAL);
+        }
+        return List.copyOf(found);
+    }
+
+    /** Food, tiffin, catering, and the meal labels used in the lead workbooks. */
+    private static boolean isMessSegment(String key) {
+        if (PropertyBulkImportValueParser.hasCoreMessPhrase(key)) {
+            return true;
+        }
+        if (PropertyBulkImportValueParser.hasExplicitLodging(key) || isFoodStallDescriptor(key)) {
+            return false;
+        }
+        return PropertyBulkImportValueParser.hasCateringFoodServicePhrase(key)
+                || PropertyBulkImportValueParser.hasWord(key, "food")
+                || PropertyBulkImportValueParser.hasWord(key, "fond")
+                || PropertyBulkImportValueParser.hasWord(key, "meal")
+                || PropertyBulkImportValueParser.hasWord(key, "meals")
+                || PropertyBulkImportValueParser.hasPhrase(
+                        key, "box lunch", "box lunches", "home food", "home foods", "prepared food", "prepared foods");
+    }
+
+    /** Serviced apartment and serviced stay are Corporate Stay, not a rental flat. */
+    private static boolean isServicedCorporate(String key) {
+        return PropertyBulkImportValueParser.hasPhrase(
+                key, "serviced apartment", "serviced apartments", "serviced stay", "serviced stays");
+    }
+
+    /** Hotel next to a serviced apartment or serviced stay does not invalidate that corporate type. */
+    private static boolean isHotelBesideServicedCorporate(String key, String wholeKey) {
+        return PropertyBulkImportValueParser.hasWord(key, "hotel")
+                && !PropertyBulkImportValueParser.hasWord(key, "hostel")
+                && !PropertyBulkImportValueParser.hasWord(key, "pg")
+                && isServicedCorporate(wholeKey);
     }
 
     private static boolean isExactCorporateStay(String key) {
@@ -208,37 +269,31 @@ public final class SpaceTypeNormalizer {
                 || PropertyBulkImportValueParser.hasWord(key, "flats");
     }
 
-    private static SpaceType resolveKnown(String key) {
-        if (PropertyBulkImportValueParser.hasPhrase(key, "co living", "coliving", "co live", "colive")) {
-            return SpaceType.CO_LIVING;
+    private static boolean isGenderOnly(String key) {
+        if (key.isBlank()) {
+            return false;
         }
-        if (PropertyBulkImportValueParser.hasCoreMessPhrase(key)
-                || ((PropertyBulkImportValueParser.hasCateringFoodServicePhrase(key)
-                                || PropertyBulkImportValueParser.hasWord(key, "meals")
-                                || PropertyBulkImportValueParser.hasWord(key, "meal"))
-                        && !PropertyBulkImportValueParser.hasExplicitLodging(key))) {
-            return SpaceType.MESS;
+        for (String word : key.split(" ")) {
+            if (!isGenderWord(word)) {
+                return false;
+            }
         }
-        if (PropertyBulkImportValueParser.hasPhrase(
-                        key, "serviced", "rental", "rentals", "apartment", "apartments", "flat", "flats")
-                || PropertyBulkImportValueParser.hasWord(key, "rent")) {
-            return SpaceType.RENTAL;
+        return true;
+    }
+
+    private static boolean isGenderWord(String word) {
+        return switch (word) {
+            case "boy", "boys", "girl", "girls", "gent", "gents", "man", "men", "mens",
+                    "male", "female", "lady", "ladies", "woman", "women", "womens" -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean isIgnorableDescriptor(String key, String wholeKey) {
+        if (!PropertyBulkImportValueParser.hasCoreMessPhrase(wholeKey)) {
+            return false;
         }
-        boolean pg = PropertyBulkImportValueParser.hasWord(key, "pg") || key.contains("paying guest");
-        boolean hostel = PropertyBulkImportValueParser.hasWord(key, "hostel")
-                || PropertyBulkImportValueParser.hasWord(key, "hostels");
-        if (pg) {
-            return SpaceType.PG;
-        }
-        if (hostel) {
-            return SpaceType.HOSTEL;
-        }
-        if (PropertyBulkImportValueParser.isGuestHouseFallback(key)
-                && !PropertyBulkImportValueParser.hasWord(key, "corporate")
-                && !PropertyBulkImportValueParser.hasWord(key, "company")) {
-            return SpaceType.RENTAL;
-        }
-        return null;
+        return isFoodStallDescriptor(key) || PropertyBulkImportValueParser.hasPhrase(key, "home food", "home foods");
     }
 
     private static boolean isFoodStallDescriptor(String key) {
@@ -261,7 +316,8 @@ public final class SpaceTypeNormalizer {
         }
         if (PropertyBulkImportValueParser.hasWord(key, "hotel")
                 && !PropertyBulkImportValueParser.hasWord(key, "hostel")
-                && !PropertyBulkImportValueParser.hasWord(key, "pg")) {
+                && !PropertyBulkImportValueParser.hasWord(key, "pg")
+                && !isServicedCorporate(key)) {
             return true;
         }
         if ((PropertyBulkImportValueParser.hasWord(key, "office")

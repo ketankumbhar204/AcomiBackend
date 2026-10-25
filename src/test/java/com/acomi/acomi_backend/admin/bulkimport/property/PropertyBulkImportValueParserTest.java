@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.admin.bulkimport.property;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
@@ -22,13 +23,19 @@ class PropertyBulkImportValueParserTest {
         "CO_LIVING, CO_LIVING",
         "Rental, RENTAL",
         "RENTAL, RENTAL",
-        "Serviced Apartment, RENTAL",
+        "Serviced Apartment, CORPORATE_STAY",
+        "Serviced Stay, CORPORATE_STAY",
+        "Hotel / Serviced Stay, CORPORATE_STAY",
+        "Serviced Stay / Hotel, CORPORATE_STAY",
         "Mess or Tiffin, MESS",
         "Mess / Tiffin, MESS",
         "Guest House, RENTAL",
         "Corporate Stay, CORPORATE_STAY",
         "Corporate Accommodation, CORPORATE_STAY",
-        "Corporate Housing, CORPORATE_STAY"
+        "Corporate Housing, CORPORATE_STAY",
+        "PG / Co-living, PG",
+        "Serviced / Corporate Apartment, CORPORATE_STAY",
+        "Corporate Apartment, CORPORATE_STAY"
     })
     void normalizePropertyType_knownLabels(String raw, SpaceType expected) {
         var result = PropertyBulkImportValueParser.parsePropertyType(raw);
@@ -41,9 +48,7 @@ class PropertyBulkImportValueParserTest {
         "Villa",
         "xyz",
         "bungalow",
-        "PG / Co-living",
-        "Serviced / Corporate Apartment",
-        "Corporate Apartment"
+        "Villa / Serviced Accommodation"
     })
     void normalizePropertyType_unknown_invalid(String raw) {
         var result = PropertyBulkImportValueParser.parsePropertyType(raw);
@@ -184,7 +189,63 @@ class PropertyBulkImportValueParserTest {
         var result = PropertyBulkImportValueParser.parseStartingPrice(raw);
         assertThat(result.isInvalid()).isFalse();
         assertThat(result.value()).isNull();
-        assertThat(result.warning()).contains("Rent range");
+        assertThat(result.warning()).containsIgnoringCase("rent range");
+        assertThat(result.warning()).contains("original text was kept");
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "5500|5500|NONE|true",
+        "5,500|5500|NONE|true",
+        "₹5,500|5500|NONE|true",
+        "Rs. 5,500|5500|NONE|true",
+        "INR 5,500|5500|NONE|true",
+        "₹5,500/-|5500|NONE|true",
+        "₹5,500/month|5500|NONE|true",
+        "₹5,500 per month|5500|NONE|true",
+        "₹5,500 / MONTH|5500|NONE|true",
+        "₹5,500/month/person|5500|NONE|false",
+        "₹5,500 per person|5500|NONE|false",
+        "₹5,500/night|5500|NONE|false",
+        "₹5,500 per night|5500|NONE|false",
+        "₹5,500/day|5500|NONE|false",
+        "₹5,500 per day|5500|NONE|false",
+        "₹200 per order|200|NONE|false",
+        "₹150 per meal|150|NONE|false",
+        "₹500 per person per day|500|NONE|false",
+        "₹5,500/bed|5500|PER_BED|false",
+        "₹5,500 per bed|5500|PER_BED|false",
+        "₹5,500/room|5500|PER_ROOM|false",
+        "₹5,500 per room|5500|PER_ROOM|false"
+    })
+    void parseStartingPrice_keepsOneAmountAndARecognizedUnit(
+            String raw, String expected, String basis, boolean useTypeDefault) {
+        var result = PropertyBulkImportValueParser.parseStartingPrice(raw);
+        assertThat(result.warning()).as(raw).isNull();
+        assertThat(result.error()).as(raw).isNull();
+        assertThat(result.value()).as(raw).isEqualByComparingTo(expected);
+        assertThat(result.useTypeDefault()).as(raw).isEqualTo(useTypeDefault);
+        if ("NONE".equals(basis)) {
+            assertThat(result.basis()).as(raw).isNull();
+        } else {
+            assertThat(result.basis()).as(raw).isEqualTo(PriceBasis.valueOf(basis));
+        }
+    }
+
+    @Test
+    void parseStartingPrice_qualifiersAndBlankValuesAreNotStoredAsZero() {
+        var qualified = PropertyBulkImportValueParser.parseStartingPrice("₹200 for two (approx.)");
+        assertThat(qualified.value()).isNull();
+        assertThat(qualified.error()).isNull();
+        assertThat(qualified.warning()).contains("qualifier");
+
+        var furnished = PropertyBulkImportValueParser.parseStartingPrice("Fully furnished");
+        assertThat(furnished.isInvalid()).isTrue();
+        assertThat(furnished.value()).isNull();
+
+        assertThat(PropertyBulkImportValueParser.parseStartingPrice("-").value()).isNull();
+        assertThat(PropertyBulkImportValueParser.parseStartingPrice("").value()).isNull();
+        assertThat(PropertyBulkImportValueParser.parseStartingPrice("-").warning()).isNull();
     }
 
     @Test

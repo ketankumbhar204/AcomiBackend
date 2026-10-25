@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.listing.api.dto;
 import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.util.List;
@@ -59,6 +60,9 @@ public class UpdateOwnedMessLeadRequest {
 
     private Boolean foodIncludedListing;
     private GenderPolicy genderPolicy;
+
+    @Min(0)
+    private Integer capacityEstimate;
 
     /** When present, replaces the lead gallery. Null leaves existing photos. */
     private List<String> photos;

@@ -35,7 +35,7 @@ class PropertyBulkImportNormalizerTest {
         "Co-living, CO_LIVING",
         "Coliving, CO_LIVING",
         "Rental Apartment, RENTAL",
-        "Serviced Apartment, RENTAL",
+        "Serviced Apartment, CORPORATE_STAY",
         "Mess, MESS",
         "Tiffin, MESS",
         "Mess / Tiffin, MESS"
@@ -80,11 +80,72 @@ class PropertyBulkImportNormalizerTest {
     }
 
     @Test
-    void spaceType_pgHostel_needsOnePrimaryType() {
+    void spaceType_pgHostel_selectsPgAndWarns() {
         var result = SpaceTypeNormalizer.normalize("PG / Hostel");
-        assertThat(result.type()).isNull();
-        assertThat(result.error()).contains("Only that type is saved");
+        assertThat(result.error()).isNull();
+        assertThat(result.type()).isEqualTo(SpaceType.PG);
+        assertThat(result.warning()).contains("PG selected as the primary type by the import priority rule");
         assertThat(result.candidates()).containsExactlyInAnyOrder(SpaceType.PG, SpaceType.HOSTEL);
+        assertThat(result.original()).isEqualTo("PG / Hostel");
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+        "PG / Co-living, PG",
+        "Co-living / PG, PG",
+        "pg / co-living, PG",
+        "PG / Hostel, PG",
+        "Hostel / PG, PG",
+        "PG-Hostel, PG",
+        "PG & Hostel, PG",
+        "PG and Hostel, PG",
+        "PG / Rental, PG",
+        "Rental / PG, PG",
+        "PG / Mess, PG",
+        "Mess / PG, PG",
+        "Mess & PG, PG",
+        "PG / Hostel / Co-living, PG",
+        "PG / Rental / Co-living, PG",
+        "PG / Rental / Mess, PG",
+        "Co-living / Hostel, CO_LIVING",
+        "Hostel / Co-living, CO_LIVING",
+        "Apartment / Rental, RENTAL",
+        "Rental Flat / Apartment, RENTAL",
+        "Mess / Tiffin, MESS",
+        "Mess / Tiffin / Home Food, MESS",
+        "Mess / Tiffin Service, MESS",
+        "Food / Tiffin, MESS",
+        "Tiffin / Box Lunch, MESS",
+        "Home Food / Catering, MESS",
+        "Catering / Tiffin Service, MESS",
+        "Meal / Prepared Food, MESS",
+        "Meal Delivery / Tiffin, MESS",
+        "Fond / Tiffin Service, MESS",
+        "Mess / Prepared Food, MESS",
+        "Rental / Serviced Apartment, CORPORATE_STAY",
+        "Serviced Apartment / Rental Flat, CORPORATE_STAY",
+        "Rental Apartment / Serviced Apartment, CORPORATE_STAY",
+        "PG / Serviced Apartment, PG",
+        "Hostel / Serviced Apartment, HOSTEL",
+        "Co-Living / Serviced Apartment, CO_LIVING",
+        "Serviced Stay, CORPORATE_STAY",
+        "Serviced Stays, CORPORATE_STAY",
+        "Hotel / Serviced Stay, CORPORATE_STAY",
+        "Serviced Stay / Hotel, CORPORATE_STAY",
+        "Hotel / Serviced Apartment, CORPORATE_STAY",
+        "Serviced Apartment / Hotel, CORPORATE_STAY",
+        "Girls PG / Hostel, PG",
+        "Girls Hostel / PG, PG",
+        "Serviced / Corporate Apartment, CORPORATE_STAY",
+        "Corporate Apartment, CORPORATE_STAY",
+        "Corporate Stay, CORPORATE_STAY",
+        "Boys & Girls Hostel, HOSTEL"
+    })
+    void spaceType_prioritySelectsOneCanonicalType(String raw, SpaceType expected) {
+        var result = SpaceTypeNormalizer.normalize(raw);
+        assertThat(result.error()).as(raw).isNull();
+        assertThat(result.type()).as(raw).isEqualTo(expected);
+        assertThat(result.original()).as(raw).isEqualTo(raw);
     }
 
     @Test

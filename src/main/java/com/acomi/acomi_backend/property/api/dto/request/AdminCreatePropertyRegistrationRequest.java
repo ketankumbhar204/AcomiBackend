@@ -95,6 +95,9 @@ public class AdminCreatePropertyRegistrationRequest {
     @Schema(description = "Optional pricing unit. Defaults from the property type when omitted.", example = "PER_BED")
     private PriceBasis priceBasis;
 
+    /** Import-only. When true, a blank basis stays blank instead of using the property-type default. */
+    private Boolean suppressPriceBasisDefault;
+
     @Min(value = 0, message = "Capacity cannot be negative")
     @Max(value = 100000, message = "Capacity is too large")
     private Integer capacityEstimate;

@@ -92,6 +92,9 @@ public class AdminCreateMessRegistrationRequest {
     @Schema(description = "Optional unit for the monthly price. Defaults to per month when omitted.", example = "PER_UNIT")
     private PriceBasis monthlyPriceBasis;
 
+    /** Import-only. When true, a blank monthly basis stays blank instead of defaulting to per unit. */
+    private Boolean suppressPriceBasisDefault;
+
     @Min(value = 0, message = "Capacity cannot be negative")
     @Max(value = 100000, message = "Capacity is too large")
     private Integer capacityEstimate;

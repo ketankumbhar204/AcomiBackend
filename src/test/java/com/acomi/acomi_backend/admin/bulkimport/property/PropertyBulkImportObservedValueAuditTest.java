@@ -21,32 +21,44 @@ class PropertyBulkImportObservedValueAuditTest {
         acceptType("CO_LIVING", SpaceType.CO_LIVING, null, false);
         acceptType("RENTAL", SpaceType.RENTAL, null, false);
         acceptType("MESS", SpaceType.MESS, null, false);
-        reviewTypes("PG / Hostel", SpaceType.PG, SpaceType.HOSTEL);
-        reviewTypes("Hostel / PG", SpaceType.PG, SpaceType.HOSTEL);
+        priorityType("PG / Hostel", SpaceType.PG, SpaceType.PG, SpaceType.HOSTEL);
+        priorityType("Hostel / PG", SpaceType.PG, SpaceType.PG, SpaceType.HOSTEL);
         acceptType("PG Services", SpaceType.PG, null, false);
         acceptType("Mess / Tiffin", SpaceType.MESS, null, false);
         acceptType("Mess / Tiffin Service", SpaceType.MESS, null, false);
         acceptType("Mess/Tiffin Service", SpaceType.MESS, null, false);
         acceptType("Tiffin / Meal Service", SpaceType.MESS, null, false);
-        acceptType("Serviced Apartment", SpaceType.RENTAL, null, false);
-        reviewTypes("Serviced / Corporate Apartment", SpaceType.CORPORATE_STAY, SpaceType.RENTAL);
+        acceptType("Serviced Apartment", SpaceType.CORPORATE_STAY, null, false);
+        acceptType("Serviced Stay", SpaceType.CORPORATE_STAY, null, false);
+        acceptType("Hotel / Serviced Stay", SpaceType.CORPORATE_STAY, null, false);
+        acceptType("Serviced Stay / Hotel", SpaceType.CORPORATE_STAY, null, false);
+        acceptType("Hotel / Serviced Apartment", SpaceType.CORPORATE_STAY, null, false);
+        acceptType("Serviced Apartment / Hotel", SpaceType.CORPORATE_STAY, null, false);
+        acceptType("Food / Tiffin", SpaceType.MESS, null, false);
+        acceptType("Tiffin / Box Lunch", SpaceType.MESS, null, false);
+        acceptType("Home Food / Catering", SpaceType.MESS, null, false);
+        priorityType("Serviced Apartment / Rental Flat", SpaceType.CORPORATE_STAY, SpaceType.CORPORATE_STAY, SpaceType.RENTAL);
+        priorityType("PG / Serviced Apartment", SpaceType.PG, SpaceType.PG, SpaceType.CORPORATE_STAY);
+        rejectType("Hotel / Apartment");
+        rejectType("Guest House / Stay");
+        priorityType("Serviced / Corporate Apartment", SpaceType.CORPORATE_STAY, SpaceType.CORPORATE_STAY, SpaceType.RENTAL);
         acceptType("Rental Room", SpaceType.RENTAL, null, false);
         acceptType("Rental Flat / Apartment", SpaceType.RENTAL, null, false);
         acceptType("Rental Flats / Apartments", SpaceType.RENTAL, null, false);
-        rejectMixed("PG / Co-living");
-        rejectMixed("PG / Apartment");
-        rejectMixed("Co-living / PG");
-        rejectMixed("Co-living / Hostel");
-        rejectMixed("Hostel / Co-living");
+        priorityType("PG / Co-living", SpaceType.PG, SpaceType.PG, SpaceType.CO_LIVING);
+        priorityType("PG / Apartment", SpaceType.PG, SpaceType.PG, SpaceType.RENTAL);
+        priorityType("Co-living / PG", SpaceType.PG, SpaceType.PG, SpaceType.CO_LIVING);
+        priorityType("Co-living / Hostel", SpaceType.CO_LIVING, SpaceType.CO_LIVING, SpaceType.HOSTEL);
+        priorityType("Hostel / Co-living", SpaceType.CO_LIVING, SpaceType.CO_LIVING, SpaceType.HOSTEL);
         acceptType("Girls PG", SpaceType.PG, null, false);
         assertThat(SpaceTypeNormalizer.normalize("Girls PG").inferredGender()).isEqualTo(GenderPolicy.FEMALE);
         acceptType("Boys PG", SpaceType.PG, null, false);
         assertThat(SpaceTypeNormalizer.normalize("Boys PG").inferredGender()).isEqualTo(GenderPolicy.MALE);
         acceptType("Boys Hostel", SpaceType.HOSTEL, null, false);
         assertThat(SpaceTypeNormalizer.normalize("Boys Hostel").inferredGender()).isEqualTo(GenderPolicy.MALE);
-        rejectMixed("Apartment / PG");
-        rejectMixed("PG / Room Rental");
-        reviewTypes("Villa / Serviced Accommodation", SpaceType.RENTAL);
+        priorityType("Apartment / PG", SpaceType.PG, SpaceType.PG, SpaceType.RENTAL);
+        priorityType("PG / Room Rental", SpaceType.PG, SpaceType.PG, SpaceType.RENTAL);
+        rejectType("Villa / Serviced Accommodation");
         blankType("");
         blankType("-");
         blankType("  ");
@@ -55,11 +67,11 @@ class PropertyBulkImportObservedValueAuditTest {
         acceptType("Corporate stay", SpaceType.CORPORATE_STAY, null, false);
         acceptType("Corporate Accommodation", SpaceType.CORPORATE_STAY, null, false);
         acceptType("Corporate Housing", SpaceType.CORPORATE_STAY, null, false);
-        reviewTypes("Corporate Apartment", SpaceType.CORPORATE_STAY, SpaceType.RENTAL);
-        reviewTypes("Corporate Serviced Apartment", SpaceType.CORPORATE_STAY, SpaceType.RENTAL);
-        reviewTypes("Company Guest House", SpaceType.CORPORATE_STAY, SpaceType.RENTAL);
-        reviewTypes("Mess & PG", SpaceType.MESS, SpaceType.PG);
-        reviewTypes("PG / Rental / Co-living", SpaceType.PG, SpaceType.RENTAL, SpaceType.CO_LIVING);
+        priorityType("Corporate Apartment", SpaceType.CORPORATE_STAY, SpaceType.CORPORATE_STAY, SpaceType.RENTAL);
+        priorityType("Corporate Serviced Apartment", SpaceType.CORPORATE_STAY, SpaceType.CORPORATE_STAY, SpaceType.RENTAL);
+        priorityType("Company Guest House", SpaceType.CORPORATE_STAY, SpaceType.CORPORATE_STAY, SpaceType.RENTAL);
+        priorityType("Mess & PG", SpaceType.PG, SpaceType.PG, SpaceType.MESS);
+        priorityType("PG / Rental / Co-living", SpaceType.PG, SpaceType.PG, SpaceType.RENTAL, SpaceType.CO_LIVING);
     }
 
     @Test
@@ -254,18 +266,13 @@ class PropertyBulkImportObservedValueAuditTest {
         assertThat(SpaceTypeNormalizer.normalize(raw).error()).contains("Unknown property type");
     }
 
-    private static void rejectMixed(String raw) {
+    private static void priorityType(String raw, SpaceType primary, SpaceType... detected) {
         SpaceTypeNormalizer.Result result = SpaceTypeNormalizer.normalize(raw);
-        assertThat(result.type()).isNull();
-        assertThat(result.error()).contains("Choose one primary type");
-        assertThat(result.candidates()).isNotEmpty();
-    }
-
-    private static void reviewTypes(String raw, SpaceType... expected) {
-        SpaceTypeNormalizer.Result result = SpaceTypeNormalizer.normalize(raw);
-        assertThat(result.type()).isNull();
-        assertThat(result.error()).contains("Only that type is saved");
-        assertThat(result.candidates()).containsExactlyInAnyOrder(expected);
+        assertThat(result.error()).as(raw).isNull();
+        assertThat(result.type()).as(raw).isEqualTo(primary);
+        assertThat(result.warning()).as(raw).contains("import priority rule");
+        assertThat(result.original()).as(raw).isEqualTo(raw);
+        assertThat(result.candidates()).as(raw).containsExactlyInAnyOrder(detected);
     }
 
     private static void blankType(String raw) {

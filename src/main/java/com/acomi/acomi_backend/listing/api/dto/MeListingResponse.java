@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.listing.api.dto;
 
 import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.property.domain.model.PriceBasis;
+import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import java.math.BigDecimal;
@@ -37,6 +38,13 @@ public class MeListingResponse {
     private String pincode;
     private String mapUrl;
     private String description;
+    private String ownerName;
+    private String buildingName;
+    private String sharingNotes;
+    private Integer capacityEstimate;
+    private BigDecimal latitude;
+    private BigDecimal longitude;
+    private List<AmenityAssignmentDto> amenities;
     private String contactNumber;
     private GenderPolicy genderPolicy;
     private Boolean foodIncluded;

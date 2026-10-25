@@ -29,7 +29,7 @@ public final class PropertyBulkImportValueParser {
     private static final Pattern RANGE_SEPARATOR =
             Pattern.compile("\\s*(?:[-–—]|to|/)\\s*", Pattern.CASE_INSENSITIVE);
     private static final Pattern PRICE_SUFFIX = Pattern.compile(
-            "(?i)(?:\\s*/\\s*|\\s+per\\s+)(?:person|persons|bed|beds|month|months|night|nights|day|days|room|rooms|order|orders|mo)\\b|/-|\\*");
+            "(?i)(?:\\s*/\\s*|\\s+per\\s+)(?:person|persons|bed|beds|month|months|night|nights|day|days|room|rooms|order|orders|meal|meals|mo)\\b|/-|\\*");
     private static final Pattern CURRENCY_MARKER = Pattern.compile(
             "(?i)(?:₹|â‚¹|竄ｹ|(?<![a-z])rs\\.?|(?<![a-z])inr(?![a-z]))");
 
@@ -167,11 +167,10 @@ public final class PropertyBulkImportValueParser {
     }
 
     /**
-     * Accepts one starting amount. Currency marks are removed.
-     * A single recognized unit ({@code /month}, {@code per person}, {@code /bed}, {@code /room},
-     * and the same forms for night, day, and order) does not block the amount.
-     * {@code /bed} and {@code /room} still set that billing basis. Other units leave the basis empty
-     * so the property type supplies it. Ranges and extra words are not stored.
+     * Accepts one starting amount. Currency marks and recognized units are removed from the number.
+     * {@code /bed} and {@code /room} set that billing basis. {@code /month} and a plain number keep
+     * the property-type basis. Night, day, order, meal, and person units are stored as an amount
+     * only, because the database has no basis for them. Ranges and extra qualifiers are not stored.
      */
     public static StartingPriceParseResult parseStartingPrice(String raw) {
         String value = blankToNull(raw);
@@ -182,6 +181,8 @@ public final class PropertyBulkImportValueParser {
         String lower = value.toLowerCase(Locale.ROOT);
         boolean perBed = lower.matches(".*(?:/\\s*beds?\\b|\\bper\\s+beds?\\b).*");
         boolean perRoom = lower.matches(".*(?:/\\s*rooms?\\b|\\bper\\s+rooms?\\b).*");
+        boolean otherUnit = lower.matches(
+                ".*(?:/\\s*(?:persons?|nights?|days?|orders?|meals?)\\b|\\bper\\s+(?:persons?|nights?|days?|orders?|meals?)\\b).*");
 
         String working = CURRENCY_MARKER.matcher(value).replaceAll(" ");
         working = PRICE_SUFFIX.matcher(working).replaceAll(" ");
@@ -194,29 +195,38 @@ public final class PropertyBulkImportValueParser {
         }
         if (found.size() >= 2 && RANGE_SEPARATOR.matcher(working).find()) {
             return StartingPriceParseResult.unrepresentable(
-                    "Rent range cannot be stored as one starting price (got: " + value + ").");
+                    "This is a rent range, so it was not stored as one starting price. The original text was kept.");
         }
         if (found.isEmpty()) {
             return StartingPriceParseResult.invalid("Invalid rent value: " + value);
         }
         if (found.size() != 1) {
             return StartingPriceParseResult.unrepresentable(
-                    "Rent value has more than one amount and was not stored (got: " + value + ").");
+                    "Rent value has more than one amount and was not stored. The original text was kept.");
         }
 
         String leftover = PRICE_NUMBER.matcher(working).replaceAll("");
         leftover = leftover.replaceAll("\\p{Sc}+", "");
         leftover = leftover.replace(",", "").replace(".", "").trim();
         leftover = leftover.replaceAll("[^\\p{L}\\p{N}]+", "").trim();
-        if (!leftover.isEmpty() || (perBed && perRoom)) {
+        if (!leftover.isEmpty()) {
             return StartingPriceParseResult.unrepresentable(
-                    "Rent unit or qualifier cannot be stored with the current price fields (got: " + value + ").");
+                    "This price includes a qualifier, so it was not stored as one starting price. The original text was kept.");
         }
 
         try {
-            String numeric = found.get(0).replace(",", "");
+            BigDecimal amount = new BigDecimal(found.get(0).replace(",", ""));
+            if (perBed && perRoom) {
+                return new StartingPriceParseResult(
+                        amount,
+                        null,
+                        "Both per bed and per room are present, so no billing basis was stored. The amount was kept.",
+                        null,
+                        false);
+            }
             PriceBasis basis = perBed ? PriceBasis.PER_BED : perRoom ? PriceBasis.PER_ROOM : null;
-            return StartingPriceParseResult.amount(new BigDecimal(numeric), basis);
+            boolean useTypeDefault = basis == null && !otherUnit;
+            return new StartingPriceParseResult(amount, basis, null, null, useTypeDefault);
         } catch (NumberFormatException ex) {
             return StartingPriceParseResult.invalid("Invalid rent value: " + value);
         }
@@ -516,24 +526,26 @@ public final class PropertyBulkImportValueParser {
     }
 
     /**
-     * A rent cell. {@code warning} means the amount was not stored because the unit or range
-     * cannot be represented. {@code basis} is set only for per-bed and per-room amounts.
+     * A rent cell. A recognized unit does not create a warning.
+     * {@code basis} is set for per bed and per room. {@code useTypeDefault} is true for a plain
+     * amount or a monthly unit, so save can apply the property-type basis.
      */
-    public record StartingPriceParseResult(BigDecimal value, PriceBasis basis, String warning, String error) {
+    public record StartingPriceParseResult(
+            BigDecimal value, PriceBasis basis, String warning, String error, boolean useTypeDefault) {
         public static StartingPriceParseResult blank() {
-            return new StartingPriceParseResult(null, null, null, null);
+            return new StartingPriceParseResult(null, null, null, null, false);
         }
 
         public static StartingPriceParseResult amount(BigDecimal value, PriceBasis basis) {
-            return new StartingPriceParseResult(value, basis, null, null);
+            return new StartingPriceParseResult(value, basis, null, null, basis == null);
         }
 
         public static StartingPriceParseResult unrepresentable(String warning) {
-            return new StartingPriceParseResult(null, null, warning, null);
+            return new StartingPriceParseResult(null, null, warning, null, false);
         }
 
         public static StartingPriceParseResult invalid(String message) {
-            return new StartingPriceParseResult(null, null, null, message);
+            return new StartingPriceParseResult(null, null, null, message, false);
         }
 
         public boolean isInvalid() {

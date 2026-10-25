@@ -28,6 +28,7 @@ public class MessRegistrationPayload {
     private BigDecimal longitude;
     private BigDecimal monthlyPrice;
     private PriceBasis monthlyPriceBasis;
+    private Boolean suppressPriceBasisDefault;
     private BigDecimal mealPrice;
     private Integer capacityEstimate;
     private Boolean testLead;
@@ -77,6 +78,7 @@ public class MessRegistrationPayload {
                 .longitude(request.getLongitude())
                 .monthlyPrice(request.getMonthlyPrice())
                 .monthlyPriceBasis(request.getMonthlyPriceBasis())
+                .suppressPriceBasisDefault(request.getSuppressPriceBasisDefault())
                 .mealPrice(request.getMealPrice())
                 .capacityEstimate(request.getCapacityEstimate())
                 .testLead(request.getTestLead())

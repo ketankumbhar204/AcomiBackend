@@ -89,13 +89,6 @@ public final class PropertyBulkImportRowProcessor {
 
         SpaceTypeNormalizer.Result typeResult = SpaceTypeNormalizer.normalize(
                 rawByField.get(PropertyBulkImportField.PROPERTY_TYPE));
-        if (typeResult.candidates().size() > 1) {
-            normalizedValues.put(
-                    PropertyBulkImportField.PROPERTY_TYPE.name(),
-                    typeResult.candidates().stream()
-                            .map(BulkImportLabels::spaceType)
-                            .collect(java.util.stream.Collectors.joining(" | ")));
-        }
         if (typeResult.error() != null) {
             errors.add(new PropertyBulkImportFieldError(
                     PropertyBulkImportField.PROPERTY_TYPE.name(), typeResult.error()));
@@ -186,36 +179,13 @@ public final class PropertyBulkImportRowProcessor {
 
         boolean mess = typeResult.type() == SpaceType.MESS;
         SharedParsedFields shared = parseSharedFields(rawByField, errors, notices, gender, foodResult.value());
-        if (typeResult.type() == SpaceType.CORPORATE_STAY
-                && shared.startingPrice() != null
-                && shared.priceBasis() == null) {
-            notices.add(notice(
-                    PropertyBulkImportField.STARTING_PRICE,
-                    "WARNING",
-                    "Corporate Stay has no default price basis, so this amount was not stored. "
-                            + "Keep a /bed or /room unit, or choose a basis before saving.",
-                    rawByField.get(PropertyBulkImportField.STARTING_PRICE),
-                    null));
-            shared = new SharedParsedFields(
-                    shared.ownerName(),
-                    shared.mobile(),
-                    shared.altMobile(),
-                    shared.contact3(),
-                    shared.addressLine(),
-                    shared.city(),
-                    shared.state(),
-                    shared.pincode(),
-                    shared.mapUrl(),
-                    null,
-                    null,
-                    shared.testLead(),
-                    shared.genderPolicy(),
-                    shared.foodIncludedListing(),
-                    shared.latitude(),
-                    shared.longitude(),
-                    shared.sharingNotes(),
-                    shared.amenities(),
-                    shared.unmappedAmenities());
+        if (shared.startingPrice() != null) {
+            String shown = shared.startingPrice().stripTrailingZeros().toPlainString();
+            String original = PropertyBulkImportValueParser.blankToNull(
+                    rawByField.get(PropertyBulkImportField.STARTING_PRICE));
+            if (original != null && !shown.equals(original)) {
+                normalizedValues.put(PropertyBulkImportField.STARTING_PRICE.name(), shown);
+            }
         }
         addBlankWarnings(mapping, rawByField, typeResult, gender, foodResult, notices);
         addFoodAmenityWarnings(rawByField, foodResult, notices);
@@ -228,6 +198,8 @@ public final class PropertyBulkImportRowProcessor {
             if (shared.startingPrice() != null) {
                 request.setMonthlyPrice(shared.startingPrice());
                 request.setMonthlyPriceBasis(shared.priceBasis());
+                request.setSuppressPriceBasisDefault(
+                        shared.priceBasis() == null && !shared.useTypeDefault());
             }
             if (markAsTestLead) {
                 request.setTestLead(true);
@@ -249,6 +221,8 @@ public final class PropertyBulkImportRowProcessor {
                 rawByField.get(PropertyBulkImportField.PROPERTY_NAME)));
         request.setStartingPrice(shared.startingPrice());
         request.setPriceBasis(shared.priceBasis());
+        request.setSuppressPriceBasisDefault(
+                shared.startingPrice() != null && shared.priceBasis() == null && !shared.useTypeDefault());
         request.setAmenities(shared.amenities());
         if (markAsTestLead) {
             request.setTestLead(true);
@@ -530,6 +504,7 @@ public final class PropertyBulkImportRowProcessor {
                 mapUrl,
                 priceResult.value(),
                 priceResult.basis(),
+                priceResult.useTypeDefault(),
                 boolResult.value(),
                 gender,
                 foodIncluded,
@@ -708,6 +683,7 @@ public final class PropertyBulkImportRowProcessor {
             String mapUrl,
             java.math.BigDecimal startingPrice,
             com.acomi.acomi_backend.property.domain.model.PriceBasis priceBasis,
+            boolean useTypeDefault,
             Boolean testLead,
             com.acomi.acomi_backend.space.domain.model.GenderPolicy genderPolicy,
             Boolean foodIncludedListing,

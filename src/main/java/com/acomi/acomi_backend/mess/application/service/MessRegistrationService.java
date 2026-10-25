@@ -163,9 +163,11 @@ public class MessRegistrationService {
                 .longitude(location.longitude())
                 .mapUrl(location.mapUrl())
                 .monthlyPrice(payload.getMonthlyPrice() == null ? null : normalizePrice(payload.getMonthlyPrice()))
-                .monthlyPriceBasis(payload.getMonthlyPrice() == null && payload.getMonthlyPriceBasis() == null
-                        ? null
-                        : PriceBasis.resolve(SpaceType.MESS, payload.getMonthlyPriceBasis()))
+                .monthlyPriceBasis(Boolean.TRUE.equals(payload.getSuppressPriceBasisDefault())
+                        ? payload.getMonthlyPriceBasis()
+                        : payload.getMonthlyPrice() == null && payload.getMonthlyPriceBasis() == null
+                                ? null
+                                : PriceBasis.resolve(SpaceType.MESS, payload.getMonthlyPriceBasis()))
                 .mealPrice(normalizePrice(payload.getMealPrice()))
                 .capacityEstimate(payload.getCapacityEstimate())
                 .status(
@@ -323,6 +325,9 @@ public class MessRegistrationService {
         }
         if (request.getMealPrice() != null) {
             entity.setMealPrice(normalizePrice(request.getMealPrice()));
+        }
+        if (request.getCapacityEstimate() != null) {
+            entity.setCapacityEstimate(request.getCapacityEstimate());
         }
         if (request.getSharingNotes() != null) {
             entity.setSharingNotes(trimToNull(request.getSharingNotes()));

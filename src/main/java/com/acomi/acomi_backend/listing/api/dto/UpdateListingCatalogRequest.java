@@ -6,6 +6,7 @@ import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.util.List;
@@ -24,6 +25,12 @@ public class UpdateListingCatalogRequest {
 
     @Size(max = 150)
     private String name;
+
+    @Size(max = 150)
+    private String buildingName;
+
+    @Size(max = 120)
+    private String ownerName;
 
     @Size(max = 500)
     private String address;
@@ -76,6 +83,9 @@ public class UpdateListingCatalogRequest {
 
     @DecimalMin("0.0")
     private BigDecimal mealPrice;
+
+    @Min(0)
+    private Integer capacityEstimate;
 
     /** When present, replaces the linked registration gallery. */
     private List<String> photos;

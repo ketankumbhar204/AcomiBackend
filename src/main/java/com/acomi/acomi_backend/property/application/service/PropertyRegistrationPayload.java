@@ -33,6 +33,7 @@ public class PropertyRegistrationPayload {
     private BigDecimal longitude;
     private BigDecimal startingPrice;
     private PriceBasis priceBasis;
+    private Boolean suppressPriceBasisDefault;
     private Integer capacityEstimate;
     private List<AmenityAssignmentDto> amenities;
     private Boolean testLead;
@@ -84,6 +85,7 @@ public class PropertyRegistrationPayload {
                 .longitude(request.getLongitude())
                 .startingPrice(request.getStartingPrice())
                 .priceBasis(request.getPriceBasis())
+                .suppressPriceBasisDefault(request.getSuppressPriceBasisDefault())
                 .capacityEstimate(request.getCapacityEstimate())
                 .amenities(request.getAmenities())
                 .testLead(request.getTestLead())

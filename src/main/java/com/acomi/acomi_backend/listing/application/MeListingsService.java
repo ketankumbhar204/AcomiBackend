@@ -22,7 +22,10 @@ import com.acomi.acomi_backend.property.infrastructure.persistence.repository.Pr
 import com.acomi.acomi_backend.registration.application.RegistrationPhotoService;
 import com.acomi.acomi_backend.registration.infrastructure.persistence.entity.RegistrationPhotoEntity;
 import com.acomi.acomi_backend.registration.infrastructure.persistence.repository.RegistrationPhotoRepository;
+import com.acomi.acomi_backend.property.infrastructure.persistence.entity.PropertyRegistrationAmenityEntity;
+import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import com.acomi.acomi_backend.space.api.dto.request.UpdateSpaceRequest;
+import com.acomi.acomi_backend.space.application.service.SpaceAmenityService;
 import com.acomi.acomi_backend.space.application.service.SpaceService;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
@@ -49,6 +52,7 @@ public class MeListingsService {
     private final PropertyRegistrationService propertyRegistrationService;
     private final MessRegistrationService messRegistrationService;
     private final SpaceService spaceService;
+    private final SpaceAmenityService spaceAmenityService;
 
     @Transactional(readOnly = true)
     public List<MeListingResponse> list(UUID callerId, String kind, String spaceType, String status, String search) {
@@ -187,6 +191,10 @@ public class MeListingsService {
         MessRegistrationEntity messLead = mess
                 ? messRegistrationRepository.findByConvertedSpaceId(space.getId()).orElse(null)
                 : null;
+        List<AmenityAssignmentDto> amenities = spaceAmenityService.getForSpace(space.getId());
+        if (amenities.isEmpty() && property != null) {
+            amenities = registrationAmenities(property);
+        }
         MeListingResponse base = MeListingResponse.builder()
                 .spaceId(space.getId())
                 .kind(mess ? Kind.MESS : Kind.PROPERTY)
@@ -196,6 +204,7 @@ public class MeListingsService {
                 .contactNumber(space.getContactNumber())
                 .genderPolicy(space.getGenderPolicy())
                 .foodIncluded(space.isFoodIncludedInRent())
+                .amenities(amenities)
                 .photoFileId(space.getPhotoFileId())
                 .publication(Publication.LIVE)
                 .membershipRole(membership.getRole())
@@ -231,6 +240,13 @@ public class MeListingsService {
                     .pincode(property.getPincode())
                 .mapUrl(property.getMapUrl())
                 .description(property.getDescription())
+                .ownerName(property.getOwnerName())
+                .buildingName(property.getBuildingName())
+                .sharingNotes(property.getSharingNotes())
+                .capacityEstimate(property.getCapacityEstimate())
+                .latitude(property.getLatitude())
+                .longitude(property.getLongitude())
+                .amenities(base.getAmenities())
                 .contactNumber(base.getContactNumber())
                 .genderPolicy(property.getGenderPolicy() != null ? property.getGenderPolicy() : base.getGenderPolicy())
                 .foodIncluded(property.getFoodIncludedListing() != null
@@ -265,6 +281,13 @@ public class MeListingsService {
                 .pincode(mess.getPincode())
                 .mapUrl(mess.getMapUrl())
                 .description(mess.getDescription())
+                .ownerName(mess.getOwnerName())
+                .buildingName(mess.getBuildingName())
+                .sharingNotes(mess.getSharingNotes())
+                .capacityEstimate(mess.getCapacityEstimate())
+                .latitude(mess.getLatitude())
+                .longitude(mess.getLongitude())
+                .amenities(base.getAmenities())
                 .contactNumber(base.getContactNumber())
                 .genderPolicy(mess.getGenderPolicy() != null ? mess.getGenderPolicy() : base.getGenderPolicy())
                 .foodIncluded(mess.getFoodIncludedListing() != null
@@ -302,6 +325,13 @@ public class MeListingsService {
                 .pincode(lead.getPincode())
                 .mapUrl(lead.getMapUrl())
                 .description(lead.getDescription())
+                .ownerName(lead.getOwnerName())
+                .buildingName(lead.getBuildingName())
+                .sharingNotes(lead.getSharingNotes())
+                .capacityEstimate(lead.getCapacityEstimate())
+                .latitude(lead.getLatitude())
+                .longitude(lead.getLongitude())
+                .amenities(registrationAmenities(lead))
                 .genderPolicy(lead.getGenderPolicy())
                 .foodIncluded(lead.getFoodIncludedListing())
                 .coverImageUrl(gallery.isEmpty() ? null : gallery.get(0).getContentUrl())
@@ -329,6 +359,12 @@ public class MeListingsService {
                 .pincode(lead.getPincode())
                 .mapUrl(lead.getMapUrl())
                 .description(lead.getDescription())
+                .ownerName(lead.getOwnerName())
+                .buildingName(lead.getBuildingName())
+                .sharingNotes(lead.getSharingNotes())
+                .capacityEstimate(lead.getCapacityEstimate())
+                .latitude(lead.getLatitude())
+                .longitude(lead.getLongitude())
                 .genderPolicy(lead.getGenderPolicy())
                 .foodIncluded(lead.getFoodIncludedListing())
                 .coverImageUrl(gallery.isEmpty() ? null : gallery.get(0).getContentUrl())
@@ -367,6 +403,12 @@ public class MeListingsService {
     private static void applyPropertyCatalog(PropertyRegistrationEntity property, UpdateListingCatalogRequest request) {
         if (StringUtils.hasText(request.getName())) {
             property.setPropertyName(request.getName().trim());
+        }
+        if (StringUtils.hasText(request.getOwnerName())) {
+            property.setOwnerName(request.getOwnerName().trim());
+        }
+        if (request.getBuildingName() != null) {
+            property.setBuildingName(blankToNull(request.getBuildingName()));
         }
         if (request.getAddress() != null) {
             property.setAddressLine(request.getAddress().trim());
@@ -407,11 +449,20 @@ public class MeListingsService {
         if (request.getFoodIncludedInRent() != null) {
             property.setFoodIncludedListing(request.getFoodIncludedInRent());
         }
+        if (request.getCapacityEstimate() != null) {
+            property.setCapacityEstimate(request.getCapacityEstimate());
+        }
     }
 
     private static void applyMessCatalog(MessRegistrationEntity mess, UpdateListingCatalogRequest request) {
         if (StringUtils.hasText(request.getName())) {
             mess.setMessName(request.getName().trim());
+        }
+        if (StringUtils.hasText(request.getOwnerName())) {
+            mess.setOwnerName(request.getOwnerName().trim());
+        }
+        if (request.getBuildingName() != null) {
+            mess.setBuildingName(blankToNull(request.getBuildingName()));
         }
         if (request.getAddress() != null) {
             mess.setAddressLine(request.getAddress().trim());
@@ -455,6 +506,9 @@ public class MeListingsService {
         if (request.getFoodIncludedInRent() != null) {
             mess.setFoodIncludedListing(request.getFoodIncludedInRent());
         }
+        if (request.getCapacityEstimate() != null) {
+            mess.setCapacityEstimate(request.getCapacityEstimate());
+        }
     }
 
     private static boolean hasSpaceFields(UpdateListingCatalogRequest request) {
@@ -480,7 +534,10 @@ public class MeListingsService {
                 || request.getMonthlyPrice() != null
                 || request.getMonthlyPriceBasis() != null
                 || request.getMealPrice() != null
-                || request.getPhotos() != null;
+                || request.getPhotos() != null
+                || request.getCapacityEstimate() != null
+                || request.getOwnerName() != null
+                || request.getBuildingName() != null;
     }
 
     private static boolean matchesKind(MeListingResponse item, String kind) {
@@ -514,6 +571,21 @@ public class MeListingsService {
 
     private static String firstText(String preferred, String fallback) {
         return StringUtils.hasText(preferred) ? preferred : fallback;
+    }
+
+    private static List<AmenityAssignmentDto> registrationAmenities(PropertyRegistrationEntity property) {
+        if (property.getAmenities() == null || property.getAmenities().isEmpty()) {
+            return List.of();
+        }
+        return property.getAmenities().stream().map(MeListingsService::toAmenity).toList();
+    }
+
+    private static AmenityAssignmentDto toAmenity(PropertyRegistrationAmenityEntity entity) {
+        AmenityAssignmentDto dto = new AmenityAssignmentDto();
+        dto.setCode(entity.getAmenityCode());
+        dto.setLabel(
+                StringUtils.hasText(entity.getCustomLabel()) ? entity.getCustomLabel().trim() : entity.getAmenityCode());
+        return dto;
     }
 
     private static String blankToNull(String value) {

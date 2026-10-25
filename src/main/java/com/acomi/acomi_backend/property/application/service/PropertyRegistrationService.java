@@ -299,7 +299,9 @@ public class PropertyRegistrationService {
         if (payload.getPriceBasis() != null) {
             return payload.getPriceBasis();
         }
-        if (payload.getStartingPrice() == null || propertyType == SpaceType.CORPORATE_STAY) {
+        if (Boolean.TRUE.equals(payload.getSuppressPriceBasisDefault())
+                || payload.getStartingPrice() == null
+                || propertyType == SpaceType.CORPORATE_STAY) {
             return null;
         }
         return PriceBasis.forPropertyType(propertyType);
@@ -384,6 +386,9 @@ public class PropertyRegistrationService {
         }
         if (request.getStartingPrice() != null) {
             entity.setStartingPrice(normalizePrice(request.getStartingPrice()));
+        }
+        if (request.getCapacityEstimate() != null) {
+            entity.setCapacityEstimate(request.getCapacityEstimate());
         }
         if (request.getPriceBasis() != null) {
             entity.setPriceBasis(request.getPriceBasis());

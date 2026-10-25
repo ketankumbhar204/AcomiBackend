@@ -23,6 +23,7 @@ import com.acomi.acomi_backend.property.infrastructure.persistence.entity.Proper
 import com.acomi.acomi_backend.property.infrastructure.persistence.repository.PropertyRegistrationRepository;
 import com.acomi.acomi_backend.registration.application.AdminLeadDefaults;
 import com.acomi.acomi_backend.registration.application.RegistrationMobiles;
+import com.acomi.acomi_backend.registration.application.RegistrationOwnerLinker;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import com.acomi.acomi_backend.space.api.dto.request.CreateSpaceRequest;
 import com.acomi.acomi_backend.space.api.dto.response.SpaceResponse;
@@ -38,6 +39,8 @@ import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRe
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -62,6 +65,7 @@ public class AdminRegistrationConversionService {
     private final SpaceService spaceService;
     private final SpaceRepository spaceRepository;
     private final EnquiryAutoSharePolicy enquiryAutoSharePolicy;
+    private final RegistrationOwnerLinker registrationOwnerLinker;
 
     @Transactional
     public PropertyRegistrationDetailResponse linkPropertyOwner(UUID registrationId, AdminLinkOwnerRequest request) {
@@ -95,6 +99,43 @@ public class AdminRegistrationConversionService {
                 entity.getConvertedSpaceId(),
                 owner.getId());
         return enrichMessDetail(messRegistrationRepository.save(entity));
+    }
+
+    @Transactional
+    public PropertyRegistrationDetailResponse updatePropertyTestLead(UUID registrationId, boolean testLead) {
+        PropertyRegistrationEntity entity = propertyRegistrationRepository
+                .lockById(registrationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Property registration", "id", registrationId));
+        entity.setTestLead(testLead);
+        if (testLead) {
+            hideConvertedSpaceFromSearch(entity.getConvertedSpaceId());
+        }
+        return enrichPropertyDetail(propertyRegistrationRepository.save(entity));
+    }
+
+    @Transactional
+    public MessRegistrationDetailResponse updateMessTestLead(UUID registrationId, boolean testLead) {
+        MessRegistrationEntity entity = messRegistrationRepository
+                .lockById(registrationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Mess registration", "id", registrationId));
+        entity.setTestLead(testLead);
+        if (testLead) {
+            hideConvertedSpaceFromSearch(entity.getConvertedSpaceId());
+        }
+        return enrichMessDetail(messRegistrationRepository.save(entity));
+    }
+
+    /** A test lead must not stay in Member Search. Turning the flag off does not publish the space. */
+    private void hideConvertedSpaceFromSearch(UUID spaceId) {
+        if (spaceId == null) {
+            return;
+        }
+        spaceRepository.findById(spaceId).ifPresent(space -> {
+            if (space.isDiscoverable()) {
+                space.setDiscoverable(false);
+                spaceRepository.save(space);
+            }
+        });
     }
 
     public PropertyRegistrationDetailResponse enrichPropertyDetail(PropertyRegistrationEntity entity) {
@@ -200,6 +241,12 @@ public class AdminRegistrationConversionService {
         if (entity.getStatus() == PropertyRegistrationStatus.CONVERTED || entity.getConvertedSpaceId() != null) {
             throw new BusinessException("Registration is already converted", HttpStatus.CONFLICT);
         }
+        rememberOwnerFromListingMobile(
+                entity::getLinkedOwnerUserId,
+                entity::setLinkedOwnerUserId,
+                entity.getMobileNumber(),
+                entity.getAlternateMobileNumber(),
+                entity.getAdditionalMobileNumber());
         UserEntity owner = resolveOwnerForAdminPublish(entity.getLinkedOwnerUserId(), fallbackOwnerUserId);
 
         boolean discoverable = !entity.isTestLead();
@@ -254,6 +301,12 @@ public class AdminRegistrationConversionService {
         if (entity.getStatus() == MessRegistrationStatus.CONVERTED || entity.getConvertedSpaceId() != null) {
             throw new BusinessException("Registration is already converted", HttpStatus.CONFLICT);
         }
+        rememberOwnerFromListingMobile(
+                entity::getLinkedOwnerUserId,
+                entity::setLinkedOwnerUserId,
+                entity.getMobileNumber(),
+                entity.getAlternateMobileNumber(),
+                entity.getAdditionalMobileNumber());
         UserEntity owner = resolveOwnerForAdminPublish(entity.getLinkedOwnerUserId(), fallbackOwnerUserId);
 
         boolean discoverable = !entity.isTestLead();
@@ -573,6 +626,26 @@ public class AdminRegistrationConversionService {
             return null;
         }
         return enquiryAutoSharePolicy.evaluateListing(space);
+    }
+
+    /**
+     * When the import has no linked account, use the listing mobile if it matches exactly one
+     * active member. That member then sees the live space under My Spaces.
+     */
+    private void rememberOwnerFromListingMobile(
+            Supplier<UUID> current,
+            Consumer<UUID> remember,
+            String... mobiles) {
+        if (current.get() != null) {
+            return;
+        }
+        for (String mobile : mobiles) {
+            UUID matched = registrationOwnerLinker.linkForVerifiedMobile(mobile);
+            if (matched != null) {
+                remember.accept(matched);
+                return;
+            }
+        }
     }
 
     /**

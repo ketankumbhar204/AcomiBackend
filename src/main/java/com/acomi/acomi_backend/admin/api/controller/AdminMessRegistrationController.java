@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.admin.api.controller;
 
 import com.acomi.acomi_backend.admin.api.dto.request.AdminLinkOwnerRequest;
+import com.acomi.acomi_backend.admin.api.dto.request.AdminUpdateTestLeadRequest;
 import com.acomi.acomi_backend.admin.api.dto.request.AdminUpdateRegistrationReviewRequest;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminMessRegistrationsSummaryResponse;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegistrationConvertResponse;
@@ -73,6 +74,15 @@ public class AdminMessRegistrationController {
         MessRegistrationResponse response = adminMessRegistrationService.create(request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("Mess registration created", response));
+    }
+
+    @PutMapping("/{id}/test-lead")
+    public ResponseEntity<ApiResponse<MessRegistrationDetailResponse>> updateTestLead(
+            @PathVariable UUID id, @RequestBody @Valid AdminUpdateTestLeadRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                "Test lead updated",
+                adminRegistrationConversionService.updateMessTestLead(
+                        id, Boolean.TRUE.equals(request.getTestLead()))));
     }
 
     @PutMapping("/{id}/contact")

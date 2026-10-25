@@ -5,6 +5,7 @@ import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 import java.util.List;
@@ -61,6 +62,9 @@ public class UpdateOwnedPropertyLeadRequest {
 
     @Valid
     private List<AmenityAssignmentDto> amenities;
+
+    @Min(0)
+    private Integer capacityEstimate;
 
     /** When present, replaces the lead gallery. Null leaves existing photos. */
     private List<String> photos;

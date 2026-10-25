@@ -10,6 +10,8 @@ import static org.mockito.Mockito.when;
 import com.acomi.acomi_backend.accommodation.api.dto.request.setup.AccommodationSetupRequest;
 import com.acomi.acomi_backend.accommodation.api.dto.request.setup.BuildingSetupInput;
 import com.acomi.acomi_backend.accommodation.api.dto.request.setup.PgHostelSetupConfig;
+import com.acomi.acomi_backend.accommodation.api.dto.request.setup.UnitSetupConfig;
+import com.acomi.acomi_backend.accommodation.domain.model.PropertyLayoutMode;
 import com.acomi.acomi_backend.accommodation.api.dto.response.setup.AccommodationSetupPreviewResponse;
 import com.acomi.acomi_backend.accommodation.domain.model.RoomType;
 import com.acomi.acomi_backend.accommodation.domain.policy.AccommodationNumberingService;
@@ -165,7 +167,7 @@ class AccommodationSetupServiceTest {
         AccommodationAccessTestSupport.stubMembership(
                 spaceMembershipRepository, ownerId, spaceId, pgSpace,
                 com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER);
-        when(buildingRepository.existsBySpaceIdAndNameAndIsActiveTrue(spaceId, "B1")).thenReturn(true);
+        when(buildingRepository.existsBySpaceIdAndNameIgnoreCaseAndIsActiveTrue(spaceId, "B1")).thenReturn(true);
 
         var request = new com.acomi.acomi_backend.accommodation.api.dto.request.setup.BuildingAvailabilityRequest();
         setField(request, "name", "B1");
@@ -181,7 +183,7 @@ class AccommodationSetupServiceTest {
         AccommodationAccessTestSupport.stubMembership(
                 spaceMembershipRepository, ownerId, spaceId, pgSpace,
                 com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER);
-        when(buildingRepository.existsBySpaceIdAndNameAndIsActiveTrue(spaceId, "B2")).thenReturn(false);
+        when(buildingRepository.existsBySpaceIdAndNameIgnoreCaseAndIsActiveTrue(spaceId, "B2")).thenReturn(false);
 
         var request = new com.acomi.acomi_backend.accommodation.api.dto.request.setup.BuildingAvailabilityRequest();
         setField(request, "name", "B2");
@@ -235,6 +237,131 @@ class AccommodationSetupServiceTest {
             var list = (java.util.List<?>) beds;
             return list.size() == 2;
         }));
+    }
+
+    @Test
+    void preview_acceptsTheSamePgSetupForAnyLiveSpace() {
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(pgSpace));
+        AccommodationAccessTestSupport.stubMembership(
+                spaceMembershipRepository, ownerId, spaceId, pgSpace,
+                com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER);
+
+        AccommodationSetupPreviewResponse response =
+                setupService.preview(spaceId, ownerId, pgSetupRequest());
+
+        assertThat(response.getTotals().getBeds()).isEqualTo(8);
+        verify(buildingRepository, never()).save(any());
+    }
+
+    @Test
+    void preview_coLivingRejectsPgLayoutAndCountsUnits() {
+        SpaceEntity space = liveSpace(SpaceType.CO_LIVING, "Shared House");
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        AccommodationAccessTestSupport.stubMembership(
+                spaceMembershipRepository, ownerId, spaceId, space,
+                com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER);
+
+        AccommodationSetupRequest mismatched = unitSetupRequest(SpaceType.CO_LIVING, PropertyLayoutMode.CORRIDOR_PG);
+        assertThatThrownBy(() -> setupService.preview(spaceId, ownerId, mismatched))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("CO_LIVING");
+
+        AccommodationSetupPreviewResponse response = setupService.preview(
+                spaceId, ownerId, unitSetupRequest(SpaceType.CO_LIVING, PropertyLayoutMode.CO_LIVING));
+        assertThat(response.getTotals().getUnits()).isEqualTo(2);
+        assertThat(response.getTotals().getRooms()).isEqualTo(2);
+        assertThat(response.getTotals().getBeds()).isEqualTo(2);
+        verify(buildingRepository, never()).save(any());
+    }
+
+    @Test
+    void preview_rentalAndCorporateStayCreateUnitsWithoutBeds() {
+        for (SpaceType type : java.util.List.of(SpaceType.RENTAL, SpaceType.CORPORATE_STAY)) {
+            SpaceEntity space = liveSpace(type, type.name());
+            when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+            AccommodationAccessTestSupport.stubMembership(
+                    spaceMembershipRepository, ownerId, spaceId, space,
+                    com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER);
+
+            AccommodationSetupRequest corridor = unitSetupRequest(type, PropertyLayoutMode.CORRIDOR_PG);
+            assertThatThrownBy(() -> setupService.preview(spaceId, ownerId, corridor))
+                    .isInstanceOf(BusinessException.class);
+
+            AccommodationSetupPreviewResponse response = setupService.preview(
+                    spaceId, ownerId, unitSetupRequest(type, PropertyLayoutMode.RENTAL));
+            assertThat(response.getTotals().getUnits()).isEqualTo(2);
+            assertThat(response.getTotals().getRooms()).isZero();
+            assertThat(response.getTotals().getBeds()).isZero();
+        }
+        verify(buildingRepository, never()).save(any());
+        verify(bedRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void preview_hostelAcceptsApartmentLayout() {
+        SpaceEntity space = liveSpace(SpaceType.HOSTEL, "North Hostel");
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        AccommodationAccessTestSupport.stubMembership(
+                spaceMembershipRepository, ownerId, spaceId, space,
+                com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER);
+
+        AccommodationSetupRequest request = pgSetupRequest();
+        setField(request, "spaceType", SpaceType.HOSTEL);
+        setField(request, "layoutMode", PropertyLayoutMode.APARTMENT_PG);
+        PgHostelSetupConfig floors = new PgHostelSetupConfig();
+        setField(floors, "count", 1);
+        setField(floors, "includeGroundFloor", false);
+        setField(floors, "apartmentsPerFloor", 1);
+        setField(floors, "roomsPerFloor", 1);
+        setField(floors, "bedsPerRoom", 1);
+        setField(floors, "defaultRoomType", RoomType.SHARED);
+        setField(floors, "capacityPerRoom", 1);
+        setField(request, "floors", floors);
+
+        AccommodationSetupPreviewResponse response = setupService.preview(spaceId, ownerId, request);
+        assertThat(response.getTotals().getFloors()).isEqualTo(1);
+        assertThat(response.getTotals().getBeds()).isEqualTo(1);
+        verify(buildingRepository, never()).save(any());
+    }
+
+    @Test
+    void preview_messCannotUseAccommodationSetup() {
+        SpaceEntity space = liveSpace(SpaceType.MESS, "Lunch Mess");
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+
+        assertThatThrownBy(() -> setupService.preview(spaceId, ownerId, pgSetupRequest()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Mess");
+        verify(buildingRepository, never()).save(any());
+    }
+
+    private SpaceEntity liveSpace(SpaceType type, String name) {
+        SpaceEntity space = SpaceEntity.builder()
+                .name(name)
+                .type(type)
+                .isActive(true)
+                .build();
+        space.setId(spaceId);
+        return space;
+    }
+
+    private AccommodationSetupRequest unitSetupRequest(SpaceType type, PropertyLayoutMode layoutMode) {
+        UnitSetupConfig units = new UnitSetupConfig();
+        setField(units, "count", 2);
+        setField(units, "roomsPerUnit", 1);
+        setField(units, "bedsPerRoom", 1);
+        setField(units, "defaultRoomType", RoomType.SHARED);
+        setField(units, "capacityPerRoom", 1);
+
+        BuildingSetupInput building = new BuildingSetupInput();
+        setField(building, "name", "Block A");
+
+        AccommodationSetupRequest request = new AccommodationSetupRequest();
+        setField(request, "spaceType", type);
+        setField(request, "layoutMode", layoutMode);
+        setField(request, "building", building);
+        setField(request, "units", units);
+        return request;
     }
 
     private AccommodationSetupRequest pgSetupRequest() {

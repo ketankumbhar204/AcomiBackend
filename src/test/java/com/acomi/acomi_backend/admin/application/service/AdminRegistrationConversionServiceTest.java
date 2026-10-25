@@ -25,6 +25,7 @@ import com.acomi.acomi_backend.property.application.service.PropertyRegistration
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationStatus;
 import com.acomi.acomi_backend.property.infrastructure.persistence.entity.PropertyRegistrationEntity;
 import com.acomi.acomi_backend.property.infrastructure.persistence.repository.PropertyRegistrationRepository;
+import com.acomi.acomi_backend.registration.application.RegistrationOwnerLinker;
 import com.acomi.acomi_backend.space.api.dto.request.CreateSpaceRequest;
 import com.acomi.acomi_backend.space.api.dto.response.SpaceResponse;
 import com.acomi.acomi_backend.space.application.service.SpaceService;
@@ -73,6 +74,9 @@ class AdminRegistrationConversionServiceTest {
 
     @Mock
     private EnquiryAutoSharePolicy enquiryAutoSharePolicy;
+
+    @Mock
+    private RegistrationOwnerLinker registrationOwnerLinker;
 
     @InjectMocks
     private AdminRegistrationConversionService conversionService;
@@ -185,6 +189,24 @@ class AdminRegistrationConversionServiceTest {
     }
 
     @Test
+    void convertProperty_linksTheMemberWhoseMobileMatchesTheListing() {
+        registration.setLinkedOwnerUserId(null);
+        when(propertyRegistrationService.requireEntity(registrationId)).thenReturn(registration);
+        when(registrationOwnerLinker.linkForVerifiedMobile("9876543210")).thenReturn(ownerId);
+        when(userRepository.findByIdAndIsActiveTrue(ownerId)).thenReturn(Optional.of(owner));
+        when(spaceService.createSpace(any(CreateSpaceRequest.class)))
+                .thenReturn(SpaceResponse.builder().id(spaceId).name("Sunrise PG").discoverable(true).build());
+        when(propertyRegistrationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        conversionService.convertProperty(registrationId, adminId);
+
+        ArgumentCaptor<CreateSpaceRequest> captor = ArgumentCaptor.forClass(CreateSpaceRequest.class);
+        verify(spaceService).createSpace(captor.capture());
+        assertThat(captor.getValue().getOwnerId()).isEqualTo(ownerId);
+        assertThat(registration.getLinkedOwnerUserId()).isEqualTo(ownerId);
+    }
+
+    @Test
     void convertProperty_keepsTestLeadHiddenFromDiscovery() {
         registration.setTestLead(true);
         when(propertyRegistrationService.requireEntity(registrationId)).thenReturn(registration);
@@ -262,6 +284,48 @@ class AdminRegistrationConversionServiceTest {
 
         SpaceEntity saved = conversionService.enableDiscovery(spaceId);
         assertThat(saved.isDiscoverable()).isTrue();
+    }
+
+    @Test
+    void updatePropertyTestLead_onHidesADiscoverableSpace() {
+        registration.setStatus(PropertyRegistrationStatus.CONVERTED);
+        registration.setConvertedSpaceId(spaceId);
+        registration.setLinkedOwnerUserId(null);
+        SpaceEntity space = convertedSpace(owner);
+        when(propertyRegistrationRepository.lockById(registrationId)).thenReturn(Optional.of(registration));
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        when(spaceRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(propertyRegistrationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(enquiryAutoSharePolicy.evaluateListing(space))
+                .thenReturn(EnquiryAutoShareDecision.deny(EnquiryAutoShareReason.TEST_LISTING));
+
+        PropertyRegistrationDetailResponse response =
+                conversionService.updatePropertyTestLead(registrationId, true);
+
+        assertThat(response.isTestLead()).isTrue();
+        assertThat(space.isDiscoverable()).isFalse();
+    }
+
+    @Test
+    void updatePropertyTestLead_offDoesNotPublishTheSpace() {
+        registration.setStatus(PropertyRegistrationStatus.CONVERTED);
+        registration.setConvertedSpaceId(spaceId);
+        registration.setLinkedOwnerUserId(null);
+        registration.setTestLead(true);
+        SpaceEntity space = convertedSpace(owner);
+        space.setDiscoverable(false);
+        when(propertyRegistrationRepository.lockById(registrationId)).thenReturn(Optional.of(registration));
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        when(propertyRegistrationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(enquiryAutoSharePolicy.evaluateListing(space))
+                .thenReturn(EnquiryAutoShareDecision.deny(EnquiryAutoShareReason.SPACE_NOT_DISCOVERABLE));
+
+        PropertyRegistrationDetailResponse response =
+                conversionService.updatePropertyTestLead(registrationId, false);
+
+        assertThat(response.isTestLead()).isFalse();
+        assertThat(space.isDiscoverable()).isFalse();
+        verify(spaceRepository, never()).save(any());
     }
 
     @Test
