@@ -49,6 +49,8 @@ public class SecurityConfig {
                         .permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/spaces/discover", "/api/v1/spaces/discover/**")
                         .permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/registration-photos/*/content")
+                        .permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/locations", "/api/v1/locations/**")
                         .permitAll()
                         .requestMatchers("/api/v1/admin/**")

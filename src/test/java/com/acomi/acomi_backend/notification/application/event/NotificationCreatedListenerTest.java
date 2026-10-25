@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.notification.application.event;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.acomi.acomi_backend.notification.application.service.PushNotificationService;
@@ -39,5 +40,17 @@ class NotificationCreatedListenerTest {
                 .build());
 
         verify(pushNotificationService).deliver(any());
+    }
+
+    @Test
+    void synchronousTestDoesNotSendASecondPush() {
+        listener.onNotificationCreated(NotificationCreatedEvent.builder()
+                .notificationId(UUID.randomUUID())
+                .userId(UUID.randomUUID())
+                .notificationType(NotificationType.PAYMENT_REMINDER_SENT)
+                .suppressAsyncPush(true)
+                .build());
+
+        verify(pushNotificationService, never()).deliver(any());
     }
 }

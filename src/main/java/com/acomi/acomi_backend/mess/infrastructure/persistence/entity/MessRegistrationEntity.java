@@ -48,7 +48,7 @@ public class MessRegistrationEntity extends BaseEntity {
     @Column(name = "owner_name", nullable = false, length = 120)
     private String ownerName;
 
-    @Column(name = "mobile_number", nullable = false, length = 15)
+    @Column(name = "mobile_number", length = 15)
     private String mobileNumber;
 
     @Column(name = "alternate_mobile_number", length = 15)
@@ -63,7 +63,7 @@ public class MessRegistrationEntity extends BaseEntity {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
-    @Column(name = "address_line", nullable = false, length = 255)
+    @Column(name = "address_line", length = 255)
     private String addressLine;
 
     @Column(name = "city", length = 80)
@@ -84,7 +84,7 @@ public class MessRegistrationEntity extends BaseEntity {
     @Column(name = "map_url", length = 512)
     private String mapUrl;
 
-    @Column(name = "monthly_price", nullable = false, precision = 12, scale = 2)
+    @Column(name = "monthly_price", precision = 12, scale = 2)
     private BigDecimal monthlyPrice;
 
     /** Null on rows created before the unit was stored. Readers treat that as per month. */

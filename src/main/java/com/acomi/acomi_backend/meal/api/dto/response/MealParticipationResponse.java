@@ -14,6 +14,7 @@ import lombok.Getter;
 public class MealParticipationResponse {
 
     private UUID participationId;
+    private String referenceCode;
     private UUID memberId;
     private String memberName;
     private MembershipRole memberRole;
@@ -30,6 +31,7 @@ public class MealParticipationResponse {
     public static MealParticipationResponse from(MealParticipationEntity entity) {
         return MealParticipationResponse.builder()
                 .participationId(entity.getId())
+                .referenceCode(entity.getReferenceCode())
                 .memberId(entity.getMember().getId())
                 .memberName(entity.getMember().getFullName())
                 .memberRole(entity.getMember().getRole())

@@ -43,14 +43,26 @@ public class DotEnvEnvironmentPostProcessor implements EnvironmentPostProcessor 
             return;
         }
         environment.getPropertySources().addLast(new MapPropertySource("dotenvFile", values));
-        log.info("dotenv_loaded path=" + file.toAbsolutePath() + " keys=" + values.size());
+        DotEnvLocation.remember(file);
+        log.info("dotenv_loaded keys=" + values.size());
     }
 
     static Path resolveEnvFile() {
+        return resolveEnvFile(
+                Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize(),
+                BackendModuleRoot.locate(DotEnvEnvironmentPostProcessor.class));
+    }
+
+    /**
+     * Prefers the backend module that owns this code, then the process directory.
+     * A launch from the mobile workspace must still load this module's {@code .env}.
+     */
+    static Path resolveEnvFile(Path workingDirectory, Path moduleRoot) {
         Set<Path> candidates = new LinkedHashSet<>();
-        Path userDir = Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
-        candidates.add(Path.of(".env").toAbsolutePath().normalize());
-        Path cursor = userDir;
+        if (moduleRoot != null) {
+            candidates.add(moduleRoot.resolve(".env"));
+        }
+        Path cursor = workingDirectory == null ? null : workingDirectory.toAbsolutePath().normalize();
         for (int i = 0; i < 5 && cursor != null; i++) {
             candidates.add(cursor.resolve(".env"));
             candidates.add(cursor.resolve("acomi-backend").resolve(".env"));
@@ -58,7 +70,7 @@ public class DotEnvEnvironmentPostProcessor implements EnvironmentPostProcessor 
         }
         for (Path candidate : candidates) {
             if (Files.isRegularFile(candidate)) {
-                return candidate;
+                return candidate.toAbsolutePath().normalize();
             }
         }
         return null;

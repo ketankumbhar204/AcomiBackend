@@ -48,6 +48,9 @@ class MessRegistrationServiceAlternateMobileTest {
     @Mock
     private com.acomi.acomi_backend.registration.application.RegistrationPhotoService registrationPhotoService;
 
+    @Mock
+    private com.acomi.acomi_backend.registration.application.RegistrationOwnerLinker registrationOwnerLinker;
+
     private MessRegistrationService service;
 
     @BeforeEach
@@ -57,7 +60,8 @@ class MessRegistrationServiceAlternateMobileTest {
                 otpService,
                 userRepository,
                 spaceService,
-                registrationPhotoService);
+                registrationPhotoService,
+                registrationOwnerLinker);
     }
 
     @Test
@@ -78,6 +82,28 @@ class MessRegistrationServiceAlternateMobileTest {
         verify(messRegistrationRepository).save(captor.capture());
         assertThat(captor.getValue().getMobileNumber()).isEqualTo("9876543210");
         assertThat(captor.getValue().getAlternateMobileNumber()).isNull();
+    }
+
+    @Test
+    void publicRegister_linksVerifiedMobileToEligibleAccount() {
+        UUID ownerId = UUID.randomUUID();
+        CreateMessRegistrationRequest request = publicRequest("Sunrise Mess", "9876543210");
+        when(messRegistrationRepository.findUnclaimedAdminLeads("9876543210", "Sunrise Mess"))
+                .thenReturn(Collections.emptyList());
+        when(messRegistrationRepository.existsLikelyDuplicate("9876543210", "411001", "Sunrise Mess"))
+                .thenReturn(false);
+        when(messRegistrationRepository.nextReferenceNumber()).thenReturn(4L);
+        when(registrationOwnerLinker.linkForVerifiedMobile("9876543210")).thenReturn(ownerId);
+        when(messRegistrationRepository.save(any(MessRegistrationEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.registerPublic(request, "127.0.0.1");
+
+        ArgumentCaptor<MessRegistrationEntity> captor = ArgumentCaptor.forClass(MessRegistrationEntity.class);
+        verify(messRegistrationRepository).save(captor.capture());
+        assertThat(captor.getValue().getLinkedOwnerUserId()).isEqualTo(ownerId);
+        assertThat(captor.getValue().getConvertedSpaceId()).isNull();
+        assertThat(captor.getValue().getStatus()).isEqualTo(MessRegistrationStatus.PENDING);
     }
 
     @Test

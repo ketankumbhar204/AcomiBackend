@@ -6,20 +6,25 @@ import com.acomi.acomi_backend.meal.api.dto.request.CreateComboInlineItemRequest
 import com.acomi.acomi_backend.meal.api.dto.request.CreateFoodItemRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.CreateMealComboRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.MealComboItemQuantityRequest;
+import com.acomi.acomi_backend.meal.api.dto.request.UpdateMealComboEnabledRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.UpdateMealComboPriceRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.UpdateMealComboRequest;
 import com.acomi.acomi_backend.meal.api.dto.response.MealComboResponse;
+import com.acomi.acomi_backend.meal.application.support.MenuLibraryOwnership;
 import com.acomi.acomi_backend.meal.domain.policy.FoodTypeResolver;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MealComboEntity;
+import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.SpaceMealComboSettingsEntity;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MealComboItemEntity;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealComboItemRepository;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealComboRepository;
+import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.SpaceMealComboSettingsRepository;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import com.acomi.acomi_backend.storage.application.service.EntityPhotoService;
 import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -27,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +42,7 @@ public class MealComboService {
 
     private final MealComboRepository mealComboRepository;
     private final MealComboItemRepository mealComboItemRepository;
+    private final SpaceMealComboSettingsRepository spaceMealComboSettingsRepository;
     private final FoodCatalogService foodCatalogService;
     private final MealSpaceSetupService mealSpaceSetupService;
     private final SpaceRepository spaceRepository;
@@ -47,8 +54,17 @@ public class MealComboService {
         mealAccessService.requireViewMeals(spaceId, callerId);
         SpaceEntity space = loadSpace(spaceId);
         mealSpaceSetupService.ensureSampleCombos(space);
-        return mealComboRepository.findBySpaceIdAndIsActiveTrueOrderByNameAsc(spaceId).stream()
-                .map(combo -> MealComboResponse.from(combo, mealComboItemRepository.findByComboIdWithItems(combo.getId())))
+        UUID ownerId = MenuLibraryOwnership.ownerId(space);
+        Map<UUID, Boolean> enabledByComboId = spaceMealComboSettingsRepository.findAllBySpaceId(spaceId).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        SpaceMealComboSettingsEntity::getComboId,
+                        SpaceMealComboSettingsEntity::isEnabled,
+                        (left, right) -> right));
+        return mealComboRepository.findListedForOwner(ownerId).stream()
+                .map(combo -> MealComboResponse.from(
+                        combo,
+                        mealComboItemRepository.findByComboIdWithItems(combo.getId()),
+                        enabledByComboId.getOrDefault(combo.getId(), true)))
                 .toList();
     }
 
@@ -58,11 +74,13 @@ public class MealComboService {
         SpaceEntity space = loadSpace(spaceId);
         MealComboEntity combo = mealComboRepository.save(MealComboEntity.builder()
                 .space(space)
+                .owner(space.getOwner())
                 .name(request.getName().trim())
                 .description(request.getDescription())
                 .price(resolvePrice(request.getPrice()))
                 .currencyCode(MealPriceValidator.resolveCurrencyCode(request.getCurrencyCode()))
                 .isActive(true)
+                .libraryListed(true)
                 .build());
         saveComboItems(
                 space,
@@ -80,7 +98,7 @@ public class MealComboService {
     public MealComboResponse updateCombo(UUID spaceId, UUID comboId, UUID callerId, UpdateMealComboRequest request) {
         mealAccessService.requireManageMeals(spaceId, callerId);
         SpaceEntity space = loadSpace(spaceId);
-        MealComboEntity combo = loadCombo(spaceId, comboId);
+        MealComboEntity combo = requireOwnedCombo(space, comboId);
         combo.setName(request.getName().trim());
         combo.setDescription(request.getDescription());
         combo.setPrice(resolvePrice(request.getPrice()));
@@ -106,7 +124,8 @@ public class MealComboService {
     public MealComboResponse updateComboPrice(
             UUID spaceId, UUID comboId, UUID callerId, UpdateMealComboPriceRequest request) {
         mealAccessService.requireManageMeals(spaceId, callerId);
-        MealComboEntity combo = loadCombo(spaceId, comboId);
+        SpaceEntity space = loadSpace(spaceId);
+        MealComboEntity combo = requireOwnedCombo(space, comboId);
         combo.setPrice(resolvePrice(request.getPrice()));
         combo.setCurrencyCode(MealPriceValidator.resolveCurrencyCode(request.getCurrencyCode()));
         mealComboRepository.save(combo);
@@ -116,21 +135,61 @@ public class MealComboService {
     @Transactional
     public void deactivateCombo(UUID spaceId, UUID comboId, UUID callerId) {
         mealAccessService.requireManageMeals(spaceId, callerId);
-        MealComboEntity combo = loadCombo(spaceId, comboId);
+        SpaceEntity space = loadSpace(spaceId);
+        MealComboEntity combo = requireOwnedCombo(space, comboId);
         combo.setActive(false);
         mealComboRepository.save(combo);
     }
 
+    /**
+     * Hides or shows the shared combo in this space only. Price and the shared definition stay unchanged.
+     */
+    @Transactional
+    public MealComboResponse setComboEnabled(
+            UUID spaceId, UUID comboId, UUID callerId, UpdateMealComboEnabledRequest request) {
+        mealAccessService.requireManageMeals(spaceId, callerId);
+        SpaceEntity space = loadSpace(spaceId);
+        MealComboEntity combo = requireOwnedCombo(space, comboId);
+        LocalDateTime now = LocalDateTime.now();
+        SpaceMealComboSettingsEntity settings = spaceMealComboSettingsRepository
+                .findBySpaceIdAndComboId(spaceId, comboId)
+                .orElse(SpaceMealComboSettingsEntity.builder()
+                        .spaceId(spaceId)
+                        .comboId(comboId)
+                        .isEnabled(true)
+                        .updatedAt(now)
+                        .build());
+        settings.setEnabled(request.isEnabled());
+        settings.setUpdatedAt(now);
+        spaceMealComboSettingsRepository.save(settings);
+        return MealComboResponse.from(
+                combo, mealComboItemRepository.findByComboIdWithItems(combo.getId()), request.isEnabled());
+    }
+
     public MealComboEntity loadCombo(UUID spaceId, UUID comboId) {
-        return mealComboRepository
-                .findByIdAndSpaceId(comboId, spaceId)
-                .orElseThrow(() -> new ResourceNotFoundException("MealCombo", "id", comboId));
+        return loadComboForSelection(spaceId, comboId, false);
+    }
+
+    /**
+     * Accepts a combo owned by this space's owner. A combo hidden in this space can stay on a menu
+     * that already selected it, and cannot be added as a new selection.
+     */
+    public MealComboEntity loadComboForSelection(UUID spaceId, UUID comboId, boolean alreadySelected) {
+        SpaceEntity space = loadSpace(spaceId);
+        MealComboEntity combo = requireOwnedCombo(space, comboId);
+        if (!combo.isActive()) {
+            throw new BusinessException("Combo is not active", HttpStatus.BAD_REQUEST);
+        }
+        if (!alreadySelected && !isEnabledForSpace(spaceId, comboId)) {
+            throw new BusinessException("Combo is hidden in this space", HttpStatus.BAD_REQUEST);
+        }
+        return combo;
     }
 
     @Transactional
     public MealComboResponse replacePhoto(UUID spaceId, UUID comboId, UUID callerId, UUID fileId) {
         mealAccessService.requireViewMeals(spaceId, callerId);
-        MealComboEntity combo = loadCombo(spaceId, comboId);
+        MealComboEntity combo = requireOwnedCombo(loadSpace(spaceId), comboId);
         UUID next = entityPhotoService.replacePhoto(
                 callerId, spaceId, FilePurpose.COMBO_PHOTO, combo.getPhotoFileId(), fileId);
         combo.setPhotoFileId(next);
@@ -141,7 +200,7 @@ public class MealComboService {
     @Transactional
     public MealComboResponse removePhoto(UUID spaceId, UUID comboId, UUID callerId) {
         mealAccessService.requireViewMeals(spaceId, callerId);
-        MealComboEntity combo = loadCombo(spaceId, comboId);
+        MealComboEntity combo = requireOwnedCombo(loadSpace(spaceId), comboId);
         entityPhotoService.removePhoto(callerId, spaceId, combo.getPhotoFileId());
         combo.setPhotoFileId(null);
         mealComboRepository.save(combo);
@@ -211,6 +270,21 @@ public class MealComboService {
             throw new BusinessException("Combo must include at least one item");
         }
         return new ArrayList<>(new LinkedHashSet<>(resolved));
+    }
+
+    private MealComboEntity requireOwnedCombo(SpaceEntity space, UUID comboId) {
+        UUID ownerId = MenuLibraryOwnership.ownerId(space);
+        return mealComboRepository
+                .findByIdAndOwnerId(comboId, ownerId)
+                .orElseThrow(() -> new BusinessException(
+                        "Combo does not belong to this owner", HttpStatus.FORBIDDEN));
+    }
+
+    private boolean isEnabledForSpace(UUID spaceId, UUID comboId) {
+        return spaceMealComboSettingsRepository
+                .findBySpaceIdAndComboId(spaceId, comboId)
+                .map(SpaceMealComboSettingsEntity::isEnabled)
+                .orElse(true);
     }
 
     private SpaceEntity loadSpace(UUID spaceId) {

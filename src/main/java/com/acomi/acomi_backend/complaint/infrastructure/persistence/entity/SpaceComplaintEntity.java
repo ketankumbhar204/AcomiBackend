@@ -1,5 +1,8 @@
 package com.acomi.acomi_backend.complaint.infrastructure.persistence.entity;
 
+import com.acomi.acomi_backend.common.reference.BusinessReferencePrefix;
+import com.acomi.acomi_backend.common.reference.BusinessReferenced;
+
 import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.complaint.domain.model.ComplaintCategory;
 import com.acomi.acomi_backend.complaint.domain.model.ComplaintPriority;
@@ -32,7 +35,15 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class SpaceComplaintEntity extends BaseEntity {
+public class SpaceComplaintEntity extends BaseEntity implements BusinessReferenced {
+    @Column(name = "reference_code", nullable = false, updatable = false, length = 24)
+    private String referenceCode;
+
+    @Override
+    public BusinessReferencePrefix businessReferencePrefix() {
+        return BusinessReferencePrefix.CMP;
+    }
+
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "space_id", nullable = false)

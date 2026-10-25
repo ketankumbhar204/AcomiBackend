@@ -88,5 +88,11 @@ public enum NotificationType {
 
     // Inquiry credit payments — user inbox
     INQUIRY_CREDIT_PAYMENT_APPROVED,
-    INQUIRY_CREDIT_PAYMENT_REJECTED
+    INQUIRY_CREDIT_PAYMENT_REJECTED,
+
+    // Account security — user inbox. Message must never include the password.
+    PASSWORD_CHANGED,
+
+    // Listing photo request — owner/vendor inbox. Not a contact enquiry.
+    PHOTO_REQUEST_RECEIVED
 }

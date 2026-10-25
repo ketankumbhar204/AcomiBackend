@@ -5,6 +5,7 @@ import com.acomi.acomi_backend.auth.domain.model.OtpPurpose;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.property.api.dto.request.AdminCreatePropertyRegistrationRequest;
+import com.acomi.acomi_backend.listing.api.dto.UpdateOwnedPropertyLeadRequest;
 import com.acomi.acomi_backend.property.api.dto.request.CreatePropertyRegistrationRequest;
 import com.acomi.acomi_backend.property.api.dto.response.PropertyRegistrationResponse;
 import com.acomi.acomi_backend.property.domain.model.PriceBasis;
@@ -14,6 +15,7 @@ import com.acomi.acomi_backend.property.infrastructure.persistence.entity.Proper
 import com.acomi.acomi_backend.property.infrastructure.persistence.entity.PropertyRegistrationEntity;
 import com.acomi.acomi_backend.property.infrastructure.persistence.repository.PropertyRegistrationRepository;
 import com.acomi.acomi_backend.registration.application.AdminLeadDefaults;
+import com.acomi.acomi_backend.registration.application.RegistrationOwnerLinker;
 import com.acomi.acomi_backend.registration.application.RegistrationPhotoCodec;
 import com.acomi.acomi_backend.registration.application.RegistrationPhotoService;
 import com.acomi.acomi_backend.registration.application.RegistrationMobiles;
@@ -26,6 +28,7 @@ import com.acomi.acomi_backend.space.domain.model.AmenityCode;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.math.BigDecimal;
+import java.util.UUID;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.Year;
@@ -49,6 +52,7 @@ public class PropertyRegistrationService {
     private final UserRepository userRepository;
     private final SpaceService spaceService;
     private final RegistrationPhotoService registrationPhotoService;
+    private final RegistrationOwnerLinker registrationOwnerLinker;
 
     @Transactional
     public PropertyRegistrationResponse registerPublic(
@@ -62,6 +66,18 @@ public class PropertyRegistrationService {
     @Transactional
     public PropertyRegistrationResponse registerAdmin(AdminCreatePropertyRegistrationRequest request) {
         return registerAdminPayload(PropertyRegistrationPayload.fromAdmin(request));
+    }
+
+    @Transactional
+    public PropertyRegistrationResponse registerImported(AdminCreatePropertyRegistrationRequest request) {
+        PropertyRegistrationPayload normalized =
+                AdminLeadDefaults.normalizeImportedProperty(PropertyRegistrationPayload.fromAdmin(request));
+        PropertyRegistrationEntity saved = createNewLead(normalized, null, PropertyRegistrationSource.ADMIN, null);
+        log.info(
+                "Imported property registration created reference={} type={}",
+                saved.getReference(),
+                saved.getPropertyType());
+        return toResponse(saved);
     }
 
     @Transactional
@@ -150,21 +166,21 @@ public class PropertyRegistrationService {
                 .propertyType(propertyType)
                 .propertyName(propertyName)
                 .buildingName(trimToNull(payload.getBuildingName()))
-                .ownerName(payload.getOwnerName().trim())
-                .mobileNumber(payload.getMobileNumber())
+                .ownerName(textOrUnknown(payload.getOwnerName()))
+                .mobileNumber(trimToNull(payload.getMobileNumber()))
                 .alternateMobileNumber(alternateMobileNumber)
                 .additionalMobileNumber(additionalMobileNumber)
                 .mobileVerifiedAt(mobileVerifiedAt)
                 .description(trimToNull(payload.getDescription()))
-                .addressLine(payload.getAddressLine().trim())
+                .addressLine(trimToNull(payload.getAddressLine()))
                 .city(trimToNull(payload.getCity()))
                 .state(trimToNull(payload.getState()))
                 .pincode(pincode)
                 .latitude(location.latitude())
                 .longitude(location.longitude())
                 .mapUrl(location.mapUrl())
-                .startingPrice(normalizePrice(payload.getStartingPrice()))
-                .priceBasis(PriceBasis.resolve(propertyType, payload.getPriceBasis()))
+                .startingPrice(payload.getStartingPrice() == null ? null : normalizePrice(payload.getStartingPrice()))
+                .priceBasis(priceBasisForNewLead(propertyType, payload))
                 .capacityEstimate(payload.getCapacityEstimate())
                 .status(
                         likelyDuplicate
@@ -180,6 +196,9 @@ public class PropertyRegistrationService {
                 .build();
 
         attachAmenities(entity, propertyType, payload.getAmenities());
+        if (source == PropertyRegistrationSource.PUBLIC_WEBSITE && mobileVerifiedAt != null) {
+            entity.setLinkedOwnerUserId(registrationOwnerLinker.linkForVerifiedMobile(payload.getMobileNumber()));
+        }
         return propertyRegistrationRepository.save(entity);
     }
 
@@ -209,12 +228,7 @@ public class PropertyRegistrationService {
         entity.setLongitude(location.longitude());
         entity.setMapUrl(location.mapUrl());
         entity.setStartingPrice(normalizePrice(payload.getStartingPrice()));
-        entity.setPriceBasis(
-                payload.getPriceBasis() != null
-                        ? payload.getPriceBasis()
-                        : entity.getPriceBasis() != null
-                                ? entity.getPriceBasis()
-                                : PriceBasis.forPropertyType(propertyType));
+        entity.setPriceBasis(requirePriceBasis(propertyType, payload.getPriceBasis(), entity.getPriceBasis()));
         entity.setCapacityEstimate(payload.getCapacityEstimate());
         entity.setSharingNotes(trimToNull(payload.getSharingNotes()));
         entity.setFoodIncludedListing(payload.getFoodIncludedListing());
@@ -240,6 +254,21 @@ public class PropertyRegistrationService {
         }
     }
 
+    private PriceBasis requirePriceBasis(SpaceType propertyType, PriceBasis requested, PriceBasis existing) {
+        if (requested != null) {
+            return requested;
+        }
+        if (existing != null) {
+            return existing;
+        }
+        if (propertyType == SpaceType.CORPORATE_STAY) {
+            throw new BusinessException(
+                    "Corporate Stay needs an explicit price basis of per bed, per room, or per unit",
+                    HttpStatus.BAD_REQUEST);
+        }
+        return PriceBasis.forPropertyType(propertyType);
+    }
+
     private SpaceType requireRegistrableType(SpaceType propertyType) {
         if (propertyType == SpaceType.MESS) {
             throw new BusinessException(
@@ -263,6 +292,21 @@ public class PropertyRegistrationService {
 
     private BigDecimal normalizePrice(BigDecimal startingPrice) {
         return startingPrice.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /** Keeps a submitted basis. A blank rent does not receive a generated basis. */
+    private PriceBasis priceBasisForNewLead(SpaceType propertyType, PropertyRegistrationPayload payload) {
+        if (payload.getPriceBasis() != null) {
+            return payload.getPriceBasis();
+        }
+        if (payload.getStartingPrice() == null || propertyType == SpaceType.CORPORATE_STAY) {
+            return null;
+        }
+        return PriceBasis.forPropertyType(propertyType);
+    }
+
+    private String textOrUnknown(String value) {
+        return StringUtils.hasText(value) ? value.trim() : AdminLeadDefaults.UNKNOWN_OWNER;
     }
 
     private ListingMapLocation.Resolved resolveLocation(PropertyRegistrationPayload payload) {
@@ -300,5 +344,87 @@ public class PropertyRegistrationService {
         return propertyRegistrationRepository
                 .findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Property registration", "id", id));
+    }
+
+    @Transactional
+    public PropertyRegistrationEntity updateOwnedLead(UUID callerId, UUID id, UpdateOwnedPropertyLeadRequest request) {
+        PropertyRegistrationEntity entity = requireOwnedEditable(callerId, id);
+        if (StringUtils.hasText(request.getPropertyName())) {
+            entity.setPropertyName(request.getPropertyName().trim());
+        }
+        if (request.getBuildingName() != null) {
+            entity.setBuildingName(trimToNull(request.getBuildingName()));
+        }
+        if (StringUtils.hasText(request.getOwnerName())) {
+            entity.setOwnerName(request.getOwnerName().trim());
+        }
+        if (request.getDescription() != null) {
+            entity.setDescription(trimToNull(request.getDescription()));
+        }
+        if (StringUtils.hasText(request.getAddressLine())) {
+            entity.setAddressLine(request.getAddressLine().trim());
+        }
+        if (request.getCity() != null) {
+            entity.setCity(trimToNull(request.getCity()));
+        }
+        if (request.getState() != null) {
+            entity.setState(trimToNull(request.getState()));
+        }
+        if (request.getPincode() != null) {
+            entity.setPincode(trimToNull(request.getPincode()));
+        }
+        if (request.getLatitude() != null) {
+            entity.setLatitude(request.getLatitude());
+        }
+        if (request.getLongitude() != null) {
+            entity.setLongitude(request.getLongitude());
+        }
+        if (request.getMapUrl() != null) {
+            entity.setMapUrl(trimToNull(request.getMapUrl()));
+        }
+        if (request.getStartingPrice() != null) {
+            entity.setStartingPrice(normalizePrice(request.getStartingPrice()));
+        }
+        if (request.getPriceBasis() != null) {
+            entity.setPriceBasis(request.getPriceBasis());
+        }
+        if (request.getSharingNotes() != null) {
+            entity.setSharingNotes(trimToNull(request.getSharingNotes()));
+        }
+        if (request.getFoodIncludedListing() != null) {
+            entity.setFoodIncludedListing(request.getFoodIncludedListing());
+        }
+        if (request.getGenderPolicy() != null) {
+            entity.setGenderPolicy(request.getGenderPolicy());
+        }
+        if (request.getAmenities() != null) {
+            entity.getAmenities().clear();
+            attachAmenities(entity, entity.getPropertyType(), request.getAmenities());
+        }
+        PropertyRegistrationEntity saved = propertyRegistrationRepository.save(entity);
+        if (request.getPhotos() != null) {
+            registrationPhotoService.replaceForProperty(saved.getId(), request.getPhotos());
+        }
+        return saved;
+    }
+
+    private PropertyRegistrationEntity requireOwnedEditable(UUID callerId, UUID id) {
+        PropertyRegistrationEntity entity = requireEntity(id);
+        if (entity.getLinkedOwnerUserId() == null || !entity.getLinkedOwnerUserId().equals(callerId)) {
+            throw new ResourceNotFoundException("Property registration", "id", id);
+        }
+        if (entity.getConvertedSpaceId() != null || !ownerMayEdit(entity.getStatus())) {
+            throw new BusinessException(
+                    "REGISTRATION_NOT_EDITABLE",
+                    "This registration can no longer be edited.",
+                    HttpStatus.CONFLICT);
+        }
+        return entity;
+    }
+
+    private static boolean ownerMayEdit(PropertyRegistrationStatus status) {
+        return status == PropertyRegistrationStatus.PENDING
+                || status == PropertyRegistrationStatus.IN_REVIEW
+                || status == PropertyRegistrationStatus.CONTACTED;
     }
 }

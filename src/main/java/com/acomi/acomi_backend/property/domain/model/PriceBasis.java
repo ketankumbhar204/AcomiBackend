@@ -17,6 +17,8 @@ public enum PriceBasis {
             case PG, HOSTEL -> PER_BED;
             case CO_LIVING -> PER_ROOM;
             case RENTAL, MESS -> PER_UNIT;
+            case CORPORATE_STAY -> throw new IllegalArgumentException(
+                    "Corporate Stay has no default price basis. Submit PER_BED, PER_ROOM, or PER_UNIT explicitly.");
         };
     }
 

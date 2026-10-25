@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.inventory.application.service.InventorySeedService;
+import com.acomi.acomi_backend.listing.application.ListingRegistrationSync;
 import com.acomi.acomi_backend.meal.application.service.MealPlanService;
 import com.acomi.acomi_backend.meal.application.service.MealSpaceSetupService;
 import com.acomi.acomi_backend.member.application.service.MemberMasterService;
@@ -51,6 +52,9 @@ import org.springframework.security.core.context.SecurityContextHolder;
 
 @ExtendWith(MockitoExtension.class)
 class SpaceServiceTest {
+
+    @Mock
+    private ListingRegistrationSync listingRegistrationSync;
 
     @Mock
     private SpaceRepository spaceRepository;
@@ -456,13 +460,13 @@ class SpaceServiceTest {
 
         when(spaceMembershipRepository.findMembershipByUserAndSpace(ownerId, spaceId))
                 .thenReturn(Optional.of(membership));
-        when(spaceMembershipRepository.save(any(SpaceMembershipEntity.class)))
+        when(spaceMembershipRepository.saveAndFlush(any(SpaceMembershipEntity.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
         SetDefaultSpaceResponse response = spaceService.setDefaultSpace(ownerId, spaceId);
 
         verify(spaceMembershipRepository).clearDefaultSpaceForUser(ownerId);
-        verify(spaceMembershipRepository).save(membership);
+        verify(spaceMembershipRepository).saveAndFlush(membership);
         assertThat(membership.isDefault()).isTrue();
         assertThat(response.getSpaceId()).isEqualTo(spaceId);
         assertThat(response.isDefault()).isTrue();

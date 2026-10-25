@@ -26,6 +26,9 @@ public final class PaymentDueStatusCalculator {
             SpacePaymentStatus.REJECTED,
             SpacePaymentStatus.UPDATE_REQUESTED);
 
+    /** Days before the due date when an unpaid reminder may be sent. */
+    public static final int REMINDER_APPROACHING_DAYS = 3;
+
     private PaymentDueStatusCalculator() {}
 
     @Getter
@@ -75,7 +78,10 @@ public final class PaymentDueStatusCalculator {
             }
         }
 
-        boolean reminderEligible = overdue
+        boolean dueOrApproaching = payment.getDueDate() != null
+                && !payment.getDueDate().isAfter(businessDate.plusDays(REMINDER_APPROACHING_DAYS));
+        boolean reminderEligible = dueOrApproaching
+                && outstanding.compareTo(BigDecimal.ZERO) > 0
                 && REMINDER_ELIGIBLE_STATUSES.contains(payment.getPaymentStatus())
                 && payment.getMember() != null
                 && payment.getMember().isActive();

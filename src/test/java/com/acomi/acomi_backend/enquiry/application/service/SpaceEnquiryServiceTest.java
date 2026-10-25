@@ -19,6 +19,7 @@ import org.mockito.Mockito;
 import com.acomi.acomi_backend.enquiry.api.dto.response.AdminSpaceEnquiryDetailResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.response.OwnerContactResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.response.SpaceEnquiryResponse;
+import com.acomi.acomi_backend.enquiry.domain.model.EnquiryDeliveryChannel;
 import com.acomi.acomi_backend.enquiry.domain.model.EnquiryRequesterType;
 import com.acomi.acomi_backend.enquiry.domain.model.SpaceEnquiryStatus;
 import com.acomi.acomi_backend.enquiry.domain.policy.EnquiryAutoShareDecision;
@@ -871,7 +872,7 @@ class SpaceEnquiryServiceTest {
     }
 
     @Test
-    void webMemberEnquiryDoesNotExposeOwnerContactAfterShare() {
+    void webMemberEnquiryIncludesOwnerContactAfterShare() {
         SpaceEnquiryEntity shared = pendingEnquiry();
         shared.setClientChannel(InquiryClientChannel.WEB);
         shared.setStatus(SpaceEnquiryStatus.SHARED);
@@ -879,13 +880,15 @@ class SpaceEnquiryServiceTest {
         when(enquiryRepository.findByIdAndRequesterUserId(shared.getId(), memberId))
                 .thenReturn(Optional.of(shared));
         when(spaceRepository.findById(spaceBId)).thenReturn(Optional.of(spaceB));
+        when(ownerContactResolver.resolveOrEmpty(spaceB)).thenReturn(shareableContact());
 
         SpaceEnquiryResponse response = service.getMine(memberId, shared.getId());
 
         assertThat(response.getContactDelivery()).isNull();
         assertThat(response.isContactEmailSent()).isFalse();
-        assertThat(response.getOwnerContact()).isNull();
-        verify(ownerContactResolver, never()).resolveOrEmpty(any());
+        assertThat(response.getOwnerContact()).isNotNull();
+        assertThat(response.getOwnerContact().getMobileNumber()).isEqualTo("9991110001");
+        assertThat(response.getOwnerContact().getOwnerName()).isEqualTo("Owner A");
     }
 
     @Test
@@ -1155,6 +1158,30 @@ class SpaceEnquiryServiceTest {
         verify(enquiryRepository, never()).findActiveByRequester(eq(otherUserId), any());
     }
 
+    @Test
+    void listInquiredListingIds_keepsAndroidViewHereOffTheSentEnquiryList() {
+        SpaceEnquiryEntity viewed = pendingEnquiry();
+        viewed.setSpaceId(spaceAId);
+        viewed.setClientChannel(InquiryClientChannel.ANDROID);
+        SpaceEnquiryDeliveryEntity delivery = SpaceEnquiryDeliveryEntity.builder()
+                .enquiryId(viewed.getId())
+                .spaceId(spaceAId)
+                .requesterUserId(memberId)
+                .deliveryChannel(EnquiryDeliveryChannel.VIEW_HERE)
+                .deliveredAt(LocalDateTime.now(clock))
+                .expiresAt(LocalDateTime.now(clock).plusDays(30))
+                .build();
+        when(enquiryRepository.findActiveByRequester(eq(memberId), any())).thenReturn(List.of(viewed));
+        when(deliveryRepository.findActiveByRequester(eq(memberId), any())).thenReturn(List.of(delivery));
+
+        var response = service.listInquiredListingIds(memberId);
+
+        assertThat(response.getInquiredListingIds()).isEmpty();
+        assertThat(response.getInquiries()).hasSize(1);
+        assertThat(response.getInquiries().get(0).getContactViewed()).isTrue();
+        assertThat(response.getInquiries().get(0).getSentVia()).isNull();
+    }
+
     private void stubCreateSuccess(UserEntity requester, SpaceEntity space, boolean registeredOwner) {
         when(userRepository.findByIdAndIsActiveTrue(requester.getId())).thenReturn(Optional.of(requester));
         when(spaceRepository.findByIdAndIsActiveTrueAndDiscoverableTrue(space.getId())).thenReturn(Optional.of(space));
@@ -1197,16 +1224,26 @@ class SpaceEnquiryServiceTest {
         SpaceEnquiryEntity own = pendingEnquiry();
         own.setSpaceId(spaceAId);
         when(enquiryInboxAccess.requireScope(ownerAId, null)).thenReturn(List.of(spaceAId));
-        when(enquiryRepository.searchReceived(eq(List.of(spaceAId)), eq(null), eq(null), eq(null), any()))
+        when(enquiryRepository.searchReceived(eq(List.of(spaceAId)), eq(null), eq(null), eq(null), eq(null), any()))
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(own)));
         when(spaceRepository.findAllById(any())).thenReturn(List.of(spaceA));
         when(userRepository.findById(memberId)).thenReturn(Optional.of(member));
 
-        var page = service.listReceived(ownerAId, null, null, null, null, org.springframework.data.domain.PageRequest.of(0, 20));
+        var page = service.listReceived(ownerAId, null, null, null, null, null, org.springframework.data.domain.PageRequest.of(0, 20));
         assertThat(page.getContent()).hasSize(1);
         assertThat(page.getContent().get(0).getSpaceId()).isEqualTo(spaceAId);
         assertThat(page.getContent().get(0).getRequesterName()).isEqualTo("Ketan");
         assertThat(page.getContent().get(0).getRequesterMobile()).isEqualTo("9876500001");
+
+        when(enquiryRepository.countReceivedByStatus(List.of(spaceAId))).thenReturn(List.<Object[]>of(
+                new Object[] {SpaceEnquiryStatus.PENDING, 2L},
+                new Object[] {SpaceEnquiryStatus.SHARED, 1L},
+                new Object[] {SpaceEnquiryStatus.EXPIRED, 1L}));
+        var summary = service.receivedSummary(ownerAId, null);
+        assertThat(summary.getTotal()).isEqualTo(4);
+        assertThat(summary.getPending()).isEqualTo(2);
+        assertThat(summary.getShared()).isEqualTo(1);
+        assertThat(summary.getClosed()).isEqualTo(1);
 
         when(enquiryInboxAccess.requireScope(eq(ownerAId), eq(spaceBId)))
                 .thenThrow(new BusinessException(
@@ -1214,7 +1251,7 @@ class SpaceEnquiryServiceTest {
                         "You cannot view enquiries for this listing.",
                         HttpStatus.FORBIDDEN));
         assertThatThrownBy(() -> service.listReceived(
-                        ownerAId, spaceBId, null, null, null, org.springframework.data.domain.PageRequest.of(0, 20)))
+                        ownerAId, spaceBId, null, null, null, null, org.springframework.data.domain.PageRequest.of(0, 20)))
                 .isInstanceOf(BusinessException.class);
 
         SpaceEnquiryEntity foreign = pendingEnquiry();

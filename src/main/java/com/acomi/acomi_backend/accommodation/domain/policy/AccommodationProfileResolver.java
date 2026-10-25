@@ -11,7 +11,7 @@ public class AccommodationProfileResolver {
         return switch (spaceType) {
             case PG, HOSTEL -> AccommodationProfile.forPgOrHostel();
             case CO_LIVING -> AccommodationProfile.forCoLiving();
-            case RENTAL -> AccommodationProfile.forRental();
+            case RENTAL, CORPORATE_STAY -> AccommodationProfile.forRental();
             case MESS -> throw new IllegalArgumentException("Accommodation is not applicable for Mess spaces");
         };
     }

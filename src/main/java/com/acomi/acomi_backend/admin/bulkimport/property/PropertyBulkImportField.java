@@ -93,6 +93,7 @@ public enum PropertyBulkImportField {
             "Maps URL",
             "Google Map Link",
             "Google Maps Link",
+            "Full Google Maps Link",
             "Google Map",
             "Google Maps URL",
             "Maps Link",

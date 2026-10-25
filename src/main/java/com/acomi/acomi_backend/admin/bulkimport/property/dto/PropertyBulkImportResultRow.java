@@ -19,6 +19,8 @@ public class PropertyBulkImportResultRow {
     /** PROPERTY | MESS when classified; null for blank rows. */
     private String targetKind;
     private String reference;
+    /** Live space reference when this row was converted. Distinct from the PR/MR lead reference. */
+    private String spaceReferenceCode;
     /** Set when the lead was converted to a live Space in the same import. */
     private String spaceId;
     private String spaceName;

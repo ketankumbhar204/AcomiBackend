@@ -23,10 +23,11 @@ public interface FoodItemRepository extends JpaRepository<FoodItemEntity, UUID> 
                        SELECT 1 FROM SpaceFoodItemSettingsEntity s
                        WHERE s.spaceId = :spaceId AND s.itemId = i.id AND s.isEnabled = false))
                   OR (i.scope = com.acomi.acomi_backend.meal.domain.model.FoodScope.SPACE
-                      AND i.space.id = :spaceId))
+                      AND i.owner.id = :ownerId))
             ORDER BY c.sortOrder ASC, i.name ASC
             """)
-    List<FoodItemEntity> findAllVisibleForSpace(@Param("spaceId") UUID spaceId);
+    List<FoodItemEntity> findAllVisibleForSpace(
+            @Param("spaceId") UUID spaceId, @Param("ownerId") UUID ownerId);
 
     @Query("""
             SELECT i FROM FoodItemEntity i
@@ -39,12 +40,14 @@ public interface FoodItemRepository extends JpaRepository<FoodItemEntity, UUID> 
                        SELECT 1 FROM SpaceFoodItemSettingsEntity s
                        WHERE s.spaceId = :spaceId AND s.itemId = i.id AND s.isEnabled = false))
                   OR (i.scope = com.acomi.acomi_backend.meal.domain.model.FoodScope.SPACE
-                      AND i.space.id = :spaceId))
+                      AND i.owner.id = :ownerId))
               AND i.category.id = :categoryId
             ORDER BY c.sortOrder ASC, i.name ASC
             """)
     List<FoodItemEntity> findVisibleForSpaceInCategory(
-            @Param("spaceId") UUID spaceId, @Param("categoryId") UUID categoryId);
+            @Param("spaceId") UUID spaceId,
+            @Param("ownerId") UUID ownerId,
+            @Param("categoryId") UUID categoryId);
 
     @Query("""
             SELECT i FROM FoodItemEntity i
@@ -58,9 +61,9 @@ public interface FoodItemRepository extends JpaRepository<FoodItemEntity, UUID> 
             JOIN FETCH i.category
             WHERE i.id = :id
               AND i.scope = com.acomi.acomi_backend.meal.domain.model.FoodScope.SPACE
-              AND i.space.id = :spaceId
+              AND i.owner.id = :ownerId
             """)
-    Optional<FoodItemEntity> findSpaceItem(@Param("id") UUID id, @Param("spaceId") UUID spaceId);
+    Optional<FoodItemEntity> findOwnerItem(@Param("id") UUID id, @Param("ownerId") UUID ownerId);
 
     @Query("""
             SELECT i FROM FoodItemEntity i
@@ -75,10 +78,10 @@ public interface FoodItemRepository extends JpaRepository<FoodItemEntity, UUID> 
             WHERE i.isActive = true
               AND i.category.id = :categoryId
               AND i.scope = com.acomi.acomi_backend.meal.domain.model.FoodScope.SPACE
-              AND i.space.id = :spaceId
+              AND i.owner.id = :ownerId
             """)
-    List<FoodItemEntity> findActiveSpaceItemsInCategory(
-            @Param("spaceId") UUID spaceId, @Param("categoryId") UUID categoryId);
+    List<FoodItemEntity> findActiveOwnerItemsInCategory(
+            @Param("ownerId") UUID ownerId, @Param("categoryId") UUID categoryId);
 
     @Query("""
             SELECT COUNT(i) FROM FoodItemEntity i
@@ -91,9 +94,12 @@ public interface FoodItemRepository extends JpaRepository<FoodItemEntity, UUID> 
                        SELECT 1 FROM SpaceFoodItemSettingsEntity s
                        WHERE s.spaceId = :spaceId AND s.itemId = i.id AND s.isEnabled = false))
                   OR (i.scope = com.acomi.acomi_backend.meal.domain.model.FoodScope.SPACE
-                      AND i.space.id = :spaceId))
+                      AND i.owner.id = :ownerId))
             """)
-    long countEnabledForSpaceInCategory(@Param("spaceId") UUID spaceId, @Param("categoryId") UUID categoryId);
+    long countEnabledForSpaceInCategory(
+            @Param("spaceId") UUID spaceId,
+            @Param("ownerId") UUID ownerId,
+            @Param("categoryId") UUID categoryId);
 
     @Query("""
             SELECT COUNT(i) FROM FoodItemEntity i
@@ -119,8 +125,9 @@ public interface FoodItemRepository extends JpaRepository<FoodItemEntity, UUID> 
                        SELECT 1 FROM SpaceFoodItemSettingsEntity s
                        WHERE s.spaceId = :spaceId AND s.itemId = i.id AND s.isEnabled = false))
                   OR (i.scope = com.acomi.acomi_backend.meal.domain.model.FoodScope.SPACE
-                      AND i.space.id = :spaceId))
+                      AND i.owner.id = :ownerId))
             GROUP BY i.category.id
             """)
-    List<CategoryItemCount> countVisibleItemsGroupedByCategory(@Param("spaceId") UUID spaceId);
+    List<CategoryItemCount> countVisibleItemsGroupedByCategory(
+            @Param("spaceId") UUID spaceId, @Param("ownerId") UUID ownerId);
 }

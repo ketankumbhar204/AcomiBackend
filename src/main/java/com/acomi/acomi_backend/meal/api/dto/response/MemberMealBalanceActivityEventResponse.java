@@ -15,6 +15,7 @@ import lombok.Getter;
 public class MemberMealBalanceActivityEventResponse {
 
     private UUID eventId;
+    private String referenceCode;
     private MealBalanceLedgerEntryType eventType;
     private BigDecimal meals;
     private BigDecimal paidAmount;

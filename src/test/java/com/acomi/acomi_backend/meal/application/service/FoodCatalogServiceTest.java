@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.meal.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -98,8 +99,8 @@ class FoodCatalogServiceTest {
         when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space()));
         when(foodCategoryRepository.countGlobalActive()).thenReturn(12L);
         FoodCategoryEntity breads = category("Breads", FoodScope.GLOBAL, 1);
-        when(foodCategoryRepository.findVisibleForSpace(spaceId)).thenReturn(List.of(breads));
-        when(foodItemRepository.countVisibleItemsGroupedByCategory(spaceId))
+        when(foodCategoryRepository.findVisibleForSpace(eq(spaceId), any())).thenReturn(List.of(breads));
+        when(foodItemRepository.countVisibleItemsGroupedByCategory(eq(spaceId), any()))
                 .thenReturn(List.of(categoryItemCount(breads.getId(), 8L)));
 
         var responses = foodCatalogService.listCategories(spaceId, callerId);
@@ -119,8 +120,8 @@ class FoodCatalogServiceTest {
         List<FoodCategoryEntity> globalCategories = java.util.stream.IntStream.rangeClosed(1, 12)
                 .mapToObj(i -> category("Category " + i, FoodScope.GLOBAL, i))
                 .toList();
-        when(foodCategoryRepository.findVisibleForSpace(spaceId)).thenReturn(globalCategories);
-        when(foodItemRepository.countVisibleItemsGroupedByCategory(spaceId))
+        when(foodCategoryRepository.findVisibleForSpace(eq(spaceId), any())).thenReturn(globalCategories);
+        when(foodItemRepository.countVisibleItemsGroupedByCategory(eq(spaceId), any()))
                 .thenReturn(globalCategories.stream()
                         .map(category -> categoryItemCount(category.getId(), 5L))
                         .toList());
@@ -145,7 +146,8 @@ class FoodCatalogServiceTest {
                         .isCustom(false)
                         .build())
                 .toList();
-        when(foodItemRepository.findAllVisibleForSpace(spaceId)).thenReturn(globalItems);
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space()));
+        when(foodItemRepository.findAllVisibleForSpace(eq(spaceId), any())).thenReturn(globalItems);
         when(spaceFoodItemSettingsRepository.findAllBySpaceId(spaceId)).thenReturn(List.of());
 
         var items = foodCatalogService.listItems(spaceId, callerId, null);
@@ -267,7 +269,8 @@ class FoodCatalogServiceTest {
                 .isCustom(true)
                 .build();
         when(foodCategoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
-        when(foodItemRepository.findActiveSpaceItemsInCategory(spaceId, categoryId)).thenReturn(List.of(item));
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        when(foodItemRepository.findActiveOwnerItemsInCategory(space.getOwner().getId(), categoryId)).thenReturn(List.of(item));
         when(foodCategoryRepository.save(category)).thenReturn(category);
         when(foodItemRepository.save(item)).thenReturn(item);
 
@@ -294,6 +297,7 @@ class FoodCatalogServiceTest {
                 .isCustom(true)
                 .build();
         item.setId(itemId);
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
         when(foodItemRepository.findByIdWithCategory(itemId)).thenReturn(Optional.of(item));
         when(foodItemRepository.save(item)).thenReturn(item);
 
@@ -336,10 +340,12 @@ class FoodCatalogServiceTest {
                 .name("Other Category")
                 .scope(FoodScope.SPACE)
                 .space(otherSpace)
+                .owner(otherSpace.getOwner())
                 .sortOrder(1)
                 .isActive(true)
                 .build();
         category.setId(categoryId);
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space()));
         when(foodCategoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
 
         assertThatThrownBy(() -> foodCatalogService.deactivateCategory(spaceId, categoryId, callerId))
@@ -351,11 +357,13 @@ class FoodCatalogServiceTest {
     void listItems_returnsSpaceSpecificDefaultPrices() {
         stubMembershipForSpace(spaceId, MembershipRole.OWNER);
         stubMembershipForSpace(otherSpaceId, MembershipRole.OWNER);
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space()));
+        when(spaceRepository.findById(otherSpaceId)).thenReturn(Optional.of(spaceForId(otherSpaceId)));
         UUID itemId = UUID.randomUUID();
         FoodItemEntity poha = globalItem(itemId, "Poha");
         when(foodCategoryRepository.countGlobalActive()).thenReturn(12L);
-        when(foodItemRepository.findAllVisibleForSpace(spaceId)).thenReturn(List.of(poha));
-        when(foodItemRepository.findAllVisibleForSpace(otherSpaceId)).thenReturn(List.of(poha));
+        when(foodItemRepository.findAllVisibleForSpace(eq(spaceId), any())).thenReturn(List.of(poha));
+        when(foodItemRepository.findAllVisibleForSpace(eq(otherSpaceId), any())).thenReturn(List.of(poha));
 
         SpaceFoodItemSettingsEntity spaceASettings = SpaceFoodItemSettingsEntity.builder()
                 .spaceId(spaceId)

@@ -19,6 +19,7 @@ class PaymentDueStatusCalculatorTest {
 
         assertThat(due.isOverdue()).isFalse();
         assertThat(due.getDaysOverdue()).isZero();
+        assertThat(due.isReminderEligible()).isTrue();
         assertThat(due.getOutstandingAmount()).isEqualByComparingTo("10000");
         assertThat(due.getSettlementStatus()).isEqualTo(PaymentSettlementStatus.UNPAID);
     }
@@ -103,6 +104,15 @@ class PaymentDueStatusCalculatorTest {
         assertThat(due.isOverdue()).isFalse();
         assertThat(due.isReminderEligible()).isFalse();
         assertThat(due.getDaysOverdue()).isZero();
+    }
+
+    @Test
+    void threeDaysBeforeDue_isReminderEligible() {
+        SpacePaymentEntity payment = unpaid(LocalDate.of(2026, 9, 8), "10000");
+        var due = PaymentDueStatusCalculator.calculate(payment, LocalDate.of(2026, 9, 5));
+
+        assertThat(due.isOverdue()).isFalse();
+        assertThat(due.isReminderEligible()).isTrue();
     }
 
     @Test

@@ -45,8 +45,9 @@ public class OtpProperties {
     private String sender = "none";
 
     /**
-     * When true, {@code REGISTER} send-otp returns a verification token immediately so local
-     * clients can skip the OTP UI. Allowed only on the {@code local} profile with {@code sender=dev}.
+     * When true, send-otp for {@code REGISTER}, {@code PROPERTY_REGISTRATION}, and
+     * {@code MESS_REGISTRATION} returns a verification token immediately so local clients can skip
+     * the OTP UI. Allowed only on the {@code local} profile with {@code sender=dev}.
      * Production must keep this false.
      */
     private boolean skipRegistrationOtp = false;

@@ -73,28 +73,21 @@ public final class PaymentReminderClickToChat {
     }
 
     public static String inAppMessage(PaymentReminderMessage reminder, String targetLabel) {
-        String type = chargeLabel(reminder);
-        String amount = formatAmount(reminder.getOutstandingAmount(), reminder.getCurrencyCode());
+        String description = chargeLabel(reminder);
         String period = periodLabel(reminder.getMonth());
-        String place = placeClause(reminder.getSpaceName(), targetLabel);
-        boolean overdue = reminder.getDaysOverdue() > 0;
-
-        StringBuilder body = new StringBuilder();
-        body.append(type);
+        if (period != null && !description.toLowerCase(Locale.ENGLISH).contains(period.toLowerCase(Locale.ENGLISH))) {
+            description = description + " (" + period + ")";
+        }
+        String amount = formatAmount(reminder.getOutstandingAmount(), reminder.getCurrencyCode());
+        StringBuilder body = new StringBuilder("You have a pending payment");
         if (amount != null) {
             body.append(" of ").append(amount);
         }
-        if (period != null) {
-            body.append(" for ").append(period);
-        }
-        body.append(overdue ? " is overdue" : " is pending");
-        if (place != null) {
-            body.append(" at ").append(place);
-        }
-        body.append('.');
+        body.append(" for ").append(description).append('.');
         if (reminder.getDueDate() != null) {
-            body.append(" Due ").append(DUE.format(reminder.getDueDate())).append('.');
+            body.append(" Due date: ").append(DUE.format(reminder.getDueDate())).append('.');
         }
+        body.append(" Open ACOMI to view details.");
         return body.toString();
     }
 
@@ -146,7 +139,7 @@ public final class PaymentReminderClickToChat {
             parts.add(space);
         }
         if (targetLabel != null) {
-            for (String raw : targetLabel.split("[·|]")) {
+            for (String raw : targetLabel.split("[·•|]")) {
                 String part = text(raw);
                 if (part == null) {
                     continue;

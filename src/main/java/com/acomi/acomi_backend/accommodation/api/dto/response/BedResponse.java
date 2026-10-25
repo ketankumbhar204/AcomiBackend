@@ -16,6 +16,7 @@ import lombok.Getter;
 public class BedResponse {
 
     private UUID bedId;
+    private String referenceCode;
     private UUID roomId;
     private String name;
     private String bedNumber;
@@ -40,6 +41,7 @@ public class BedResponse {
     public static BedResponse from(BedEntity bed, AccommodationActionMetadata actions, BedOccupantSummaryResponse occupant) {
         return BedResponse.builder()
                 .bedId(bed.getId())
+                .referenceCode(bed.getReferenceCode())
                 .roomId(bed.getRoom().getId())
                 .name(bed.getName())
                 .bedNumber(bed.getBedNumber())

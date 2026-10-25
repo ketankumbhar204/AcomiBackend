@@ -217,13 +217,13 @@ public class AccommodationSetupService {
                     throw new BusinessException("Only units configuration is allowed for Co-Living setup");
                 }
             }
-            case RENTAL -> {
+            case RENTAL, CORPORATE_STAY -> {
                 profileService.assertUnitsAllowed(spaceId);
                 if (request.getUnits() == null) {
-                    throw new BusinessException("units configuration is required for Rental setup");
+                    throw new BusinessException("units configuration is required for this space type");
                 }
                 if (request.getFloors() != null) {
-                    throw new BusinessException("Only units configuration is allowed for Rental setup");
+                    throw new BusinessException("Only units configuration is allowed for this space type");
                 }
             }
             default -> throw new BusinessException("Quick setup is not supported for this space type");
@@ -248,7 +248,7 @@ public class AccommodationSetupService {
         return switch (spaceType) {
             case PG, HOSTEL -> applyPgHostelSetup(request.getFloors(), layoutMode, building, dryRun);
             case CO_LIVING -> applyCoLivingSetup(request.getUnits(), building, dryRun);
-            case RENTAL -> applyRentalSetup(request.getUnits(), building, dryRun);
+            case RENTAL, CORPORATE_STAY -> applyRentalSetup(request.getUnits(), building, dryRun);
             default -> throw new BusinessException("Quick setup is not supported for this space type");
         };
     }
@@ -626,7 +626,7 @@ public class AccommodationSetupService {
         return switch (spaceType) {
             case PG, HOSTEL -> persistPgHostelStructure(layoutMode, request.getFloors(), structure, building);
             case CO_LIVING -> persistCoLivingStructure(request.getUnits(), structure, building);
-            case RENTAL -> persistRentalStructure(request.getUnits(), structure, building);
+            case RENTAL, CORPORATE_STAY -> persistRentalStructure(request.getUnits(), structure, building);
             default -> throw new BusinessException("Quick setup is not supported for this space type");
         };
     }

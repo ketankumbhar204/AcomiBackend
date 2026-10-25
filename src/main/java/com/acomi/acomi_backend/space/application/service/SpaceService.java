@@ -5,6 +5,7 @@ import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.common.security.SecurityUtils;
 import com.acomi.acomi_backend.config.security.UserPrincipal;
 import com.acomi.acomi_backend.inventory.application.service.InventorySeedService;
+import com.acomi.acomi_backend.listing.application.ListingRegistrationSync;
 import com.acomi.acomi_backend.meal.application.service.MealPlanService;
 import com.acomi.acomi_backend.meal.application.service.MealSpaceSetupService;
 import com.acomi.acomi_backend.member.application.service.MemberMasterService;
@@ -54,6 +55,7 @@ public class SpaceService {
     private final SpaceAmenityService spaceAmenityService;
     private final MembershipNotificationSyncService membershipNotificationSyncService;
     private final EntityPhotoService entityPhotoService;
+    private final ListingRegistrationSync listingRegistrationSync;
 
     @Transactional
     public SpaceResponse createSpace(CreateSpaceRequest request) {
@@ -172,6 +174,7 @@ public class SpaceService {
         if (request.getAmenities() != null) {
             spaceAmenityService.replaceForSpace(saved, request.getAmenities());
         }
+        listingRegistrationSync.syncFromSpace(saved);
         return SpaceMapper.toDetailsResponse(
                 SpaceMapper.toDomain(saved), spaceAmenityService.getForSpace(spaceId));
     }
@@ -218,12 +221,19 @@ public class SpaceService {
                         "Space membership", "spaceId", spaceId));
 
         spaceMembershipRepository.clearDefaultSpaceForUser(userId);
-
+        // The bulk clear updates the database but not this managed instance.
+        // If this membership was already default, setDefault(true) would not
+        // dirty it, and the clear would stick after opening the space.
+        if (membership.isDefault()) {
+            membership.setDefault(false);
+            spaceMembershipRepository.saveAndFlush(membership);
+        }
         membership.setDefault(true);
-        spaceMembershipRepository.save(membership);
+        spaceMembershipRepository.saveAndFlush(membership);
 
         return SetDefaultSpaceResponse.builder()
                 .spaceId(membership.getSpace().getId())
+                .referenceCode(membership.getSpace().getReferenceCode())
                 .spaceName(membership.getSpace().getName())
                 .isDefault(true)
                 .build();

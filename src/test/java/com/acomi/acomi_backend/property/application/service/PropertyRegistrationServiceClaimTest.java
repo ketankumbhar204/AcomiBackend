@@ -9,6 +9,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.acomi.acomi_backend.auth.application.service.OtpService;
+import com.acomi.acomi_backend.common.exception.BusinessException;
+import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
+import com.acomi.acomi_backend.listing.api.dto.UpdateOwnedPropertyLeadRequest;
 import com.acomi.acomi_backend.auth.domain.model.OtpPurpose;
 import com.acomi.acomi_backend.property.api.dto.request.AdminCreatePropertyRegistrationRequest;
 import com.acomi.acomi_backend.property.api.dto.request.CreatePropertyRegistrationRequest;
@@ -51,6 +54,9 @@ class PropertyRegistrationServiceClaimTest {
     @Mock
     private com.acomi.acomi_backend.registration.application.RegistrationPhotoService registrationPhotoService;
 
+    @Mock
+    private com.acomi.acomi_backend.registration.application.RegistrationOwnerLinker registrationOwnerLinker;
+
     private PropertyRegistrationService service;
 
     @BeforeEach
@@ -60,7 +66,8 @@ class PropertyRegistrationServiceClaimTest {
                 otpService,
                 userRepository,
                 spaceService,
-                registrationPhotoService);
+                registrationPhotoService,
+                registrationOwnerLinker);
     }
 
     @Test
@@ -111,6 +118,28 @@ class PropertyRegistrationServiceClaimTest {
         verify(propertyRegistrationRepository).save(captor.capture());
         assertThat(captor.getValue().getSource()).isEqualTo(PropertyRegistrationSource.PUBLIC_WEBSITE);
         assertThat(captor.getValue().getPropertyType()).isEqualTo(SpaceType.HOSTEL);
+    }
+
+    @Test
+    void publicRegister_linksVerifiedMobileToEligibleAccount() {
+        UUID ownerId = UUID.randomUUID();
+        CreatePropertyRegistrationRequest request = publicRequest(SpaceType.PG, "Sunrise PG", "9876543210");
+        when(propertyRegistrationRepository.findUnclaimedAdminLeads("9876543210", SpaceType.PG, "Sunrise PG"))
+                .thenReturn(Collections.emptyList());
+        when(propertyRegistrationRepository.existsLikelyDuplicate("9876543210", "411001", "Sunrise PG"))
+                .thenReturn(false);
+        when(propertyRegistrationRepository.nextReferenceNumber()).thenReturn(9L);
+        when(registrationOwnerLinker.linkForVerifiedMobile("9876543210")).thenReturn(ownerId);
+        when(propertyRegistrationRepository.save(any(PropertyRegistrationEntity.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.registerPublic(request, "127.0.0.1");
+
+        ArgumentCaptor<PropertyRegistrationEntity> captor = ArgumentCaptor.forClass(PropertyRegistrationEntity.class);
+        verify(propertyRegistrationRepository).save(captor.capture());
+        assertThat(captor.getValue().getLinkedOwnerUserId()).isEqualTo(ownerId);
+        assertThat(captor.getValue().getConvertedSpaceId()).isNull();
+        assertThat(captor.getValue().getStatus()).isEqualTo(PropertyRegistrationStatus.PENDING);
     }
 
     @Test
@@ -278,6 +307,33 @@ class PropertyRegistrationServiceClaimTest {
         var detail = com.acomi.acomi_backend.property.application.mapper.PropertyRegistrationMapper.toDetail(existing);
         assertThat(detail.getMobileNumber()).isEqualTo("9876543210");
         assertThat(detail.getAlternateMobileNumber()).isNull();
+    }
+
+    @Test
+    void updateOwnedLead_otherUserGetsNotFound() {
+        PropertyRegistrationEntity lead = adminLead(SpaceType.PG, "Sunrise PG", "9876543210");
+        lead.setLinkedOwnerUserId(UUID.randomUUID());
+        when(propertyRegistrationRepository.findById(lead.getId())).thenReturn(Optional.of(lead));
+
+        assertThatThrownBy(() -> service.updateOwnedLead(
+                        UUID.randomUUID(), lead.getId(), new UpdateOwnedPropertyLeadRequest()))
+                .isInstanceOf(ResourceNotFoundException.class);
+        verify(propertyRegistrationRepository, never()).save(any());
+    }
+
+    @Test
+    void updateOwnedLead_convertedLeadStaysLocked() {
+        UUID ownerId = UUID.randomUUID();
+        PropertyRegistrationEntity lead = adminLead(SpaceType.PG, "Sunrise PG", "9876543210");
+        lead.setLinkedOwnerUserId(ownerId);
+        lead.setConvertedSpaceId(UUID.randomUUID());
+        lead.setStatus(PropertyRegistrationStatus.CONVERTED);
+        when(propertyRegistrationRepository.findById(lead.getId())).thenReturn(Optional.of(lead));
+
+        assertThatThrownBy(() -> service.updateOwnedLead(ownerId, lead.getId(), new UpdateOwnedPropertyLeadRequest()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo("REGISTRATION_NOT_EDITABLE");
     }
 
     private static CreatePropertyRegistrationRequest publicRequest(

@@ -21,6 +21,7 @@ import com.acomi.acomi_backend.notification.infrastructure.persistence.repositor
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,10 +57,8 @@ class NotificationServiceTest {
         spaceId = UUID.randomUUID();
     }
 
-    private static EnumSet<NotificationType> currentUserInboxTypes() {
-        EnumSet<NotificationType> types = EnumSet.copyOf(NotificationService.REQUESTER_ENQUIRY_TYPES);
-        types.addAll(NotificationService.INQUIRY_CREDIT_USER_TYPES);
-        return types;
+    private static Set<NotificationType> currentUserInboxTypes() {
+        return NotificationService.inboxTypesFor(false);
     }
 
     private static EnumSet<NotificationType> adminInboxTypes() {
@@ -97,12 +96,12 @@ class NotificationServiceTest {
                 userA, NotificationType.CONTACT_ENQUIRY_RECEIVED, NotificationStatus.UNREAD);
         when(notificationRepository.findByUserIdAndNotificationTypeInAndStatusIn(
                         userA,
-                        NotificationService.RECEIVED_ENQUIRY_TYPES,
+                        NotificationService.inboxTypesFor(true),
                         EnumSet.of(NotificationStatus.UNREAD, NotificationStatus.READ),
                         PageRequest.of(0, 20)))
                 .thenReturn(new PageImpl<>(List.of(received), PageRequest.of(0, 20), 1));
         when(notificationRepository.countByUserIdAndNotificationTypeInAndStatus(
-                        userA, NotificationService.RECEIVED_ENQUIRY_TYPES, NotificationStatus.UNREAD))
+                        userA, NotificationService.inboxTypesFor(true), NotificationStatus.UNREAD))
                 .thenReturn(1L);
 
         UserNotificationListResponse response = service.listForCurrentUser(userA, PageRequest.of(0, 20));

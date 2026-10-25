@@ -11,6 +11,7 @@ import lombok.Getter;
 public class AdminRegisteredUserSpaceResponse {
 
     private UUID id;
+    private String referenceCode;
     private String name;
     private SpaceType type;
     private MembershipRole membershipRole;

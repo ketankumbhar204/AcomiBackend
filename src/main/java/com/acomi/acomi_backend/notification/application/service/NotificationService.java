@@ -139,6 +139,7 @@ public class NotificationService {
                 .title(saved.getTitle())
                 .body(saved.getMessage())
                 .actionRoute(saved.getActionRoute())
+                .suppressAsyncPush(command.isSuppressAsyncPush())
                 .build());
         return NotificationResponse.from(saved);
     }
@@ -350,13 +351,33 @@ public class NotificationService {
                 spaceId, userId, NotificationCategory.ACTION_REQUIRED, OPEN_STATUSES);
     }
 
-    private Set<NotificationType> inboxTypes(UUID userId) {
-        if (enquiryInboxAccess.managesListings(userId)) {
-            return RECEIVED_ENQUIRY_TYPES;
+    /** Inbox types for /notifications/me, including account-security notices. */
+    public static Set<NotificationType> inboxTypesFor(boolean managesListings) {
+        if (managesListings) {
+            EnumSet<NotificationType> types = EnumSet.copyOf(RECEIVED_ENQUIRY_TYPES);
+            types.add(NotificationType.PASSWORD_CHANGED);
+            types.add(NotificationType.PHOTO_REQUEST_RECEIVED);
+            return types;
         }
-        Set<NotificationType> userTypes = EnumSet.copyOf(REQUESTER_ENQUIRY_TYPES);
+        EnumSet<NotificationType> userTypes = EnumSet.copyOf(REQUESTER_ENQUIRY_TYPES);
         userTypes.addAll(INQUIRY_CREDIT_USER_TYPES);
+        userTypes.add(NotificationType.PASSWORD_CHANGED);
+        userTypes.add(NotificationType.PHOTO_REQUEST_RECEIVED);
         return userTypes;
+    }
+
+    @Transactional(readOnly = true)
+    public boolean hasOpenNotification(UUID spaceId, String dedupeKey) {
+        if (spaceId == null || dedupeKey == null || dedupeKey.isBlank()) {
+            return false;
+        }
+        return notificationRepository
+                .findBySpaceIdAndDedupeKeyAndStatusIn(spaceId, dedupeKey, OPEN_STATUSES)
+                .isPresent();
+    }
+
+    private Set<NotificationType> inboxTypes(UUID userId) {
+        return inboxTypesFor(enquiryInboxAccess.managesListings(userId));
     }
 
     private SpaceNotificationEntity loadOwned(UUID spaceId, UUID notificationId, UUID userId) {

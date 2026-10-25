@@ -3,6 +3,8 @@ package com.acomi.acomi_backend.mess.application.service;
 import com.acomi.acomi_backend.auth.application.service.OtpService;
 import com.acomi.acomi_backend.auth.domain.model.OtpPurpose;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
+import com.acomi.acomi_backend.common.exception.BusinessException;
+import com.acomi.acomi_backend.listing.api.dto.UpdateOwnedMessLeadRequest;
 import com.acomi.acomi_backend.mess.api.dto.request.AdminCreateMessRegistrationRequest;
 import com.acomi.acomi_backend.mess.api.dto.request.CreateMessRegistrationRequest;
 import com.acomi.acomi_backend.mess.api.dto.response.MessRegistrationResponse;
@@ -13,6 +15,7 @@ import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRe
 import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.registration.application.AdminLeadDefaults;
 import com.acomi.acomi_backend.registration.application.RegistrationMobiles;
+import com.acomi.acomi_backend.registration.application.RegistrationOwnerLinker;
 import com.acomi.acomi_backend.registration.application.RegistrationPhotoCodec;
 import com.acomi.acomi_backend.registration.application.RegistrationPhotoService;
 import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
@@ -21,6 +24,8 @@ import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.application.service.SpaceService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.math.BigDecimal;
+import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.Year;
@@ -43,6 +48,7 @@ public class MessRegistrationService {
     private final UserRepository userRepository;
     private final SpaceService spaceService;
     private final RegistrationPhotoService registrationPhotoService;
+    private final RegistrationOwnerLinker registrationOwnerLinker;
 
     @Transactional
     public MessRegistrationResponse registerPublic(CreateMessRegistrationRequest request, String requestIp) {
@@ -55,6 +61,15 @@ public class MessRegistrationService {
     @Transactional
     public MessRegistrationResponse registerAdmin(AdminCreateMessRegistrationRequest request) {
         return registerAdminPayload(MessRegistrationPayload.fromAdmin(request));
+    }
+
+    @Transactional
+    public MessRegistrationResponse registerImported(AdminCreateMessRegistrationRequest request) {
+        MessRegistrationPayload normalized =
+                AdminLeadDefaults.normalizeImportedMess(MessRegistrationPayload.fromAdmin(request));
+        MessRegistrationEntity saved = createNewLead(normalized, null, MessRegistrationSource.ADMIN, null);
+        log.info("Imported mess registration created reference={}", saved.getReference());
+        return toResponse(saved);
     }
 
     @Transactional
@@ -132,21 +147,25 @@ public class MessRegistrationService {
                 .reference(nextReference())
                 .messName(messName)
                 .buildingName(trimToNull(payload.getBuildingName()))
-                .ownerName(payload.getOwnerName().trim())
-                .mobileNumber(payload.getMobileNumber())
+                .ownerName(StringUtils.hasText(payload.getOwnerName())
+                        ? payload.getOwnerName().trim()
+                        : AdminLeadDefaults.UNKNOWN_OWNER)
+                .mobileNumber(trimToNull(payload.getMobileNumber()))
                 .alternateMobileNumber(alternateMobileNumber)
                 .additionalMobileNumber(additionalMobileNumber)
                 .mobileVerifiedAt(mobileVerifiedAt)
                 .description(trimToNull(payload.getDescription()))
-                .addressLine(payload.getAddressLine().trim())
+                .addressLine(trimToNull(payload.getAddressLine()))
                 .city(trimToNull(payload.getCity()))
                 .state(trimToNull(payload.getState()))
                 .pincode(pincode)
                 .latitude(location.latitude())
                 .longitude(location.longitude())
                 .mapUrl(location.mapUrl())
-                .monthlyPrice(normalizePrice(payload.getMonthlyPrice()))
-                .monthlyPriceBasis(PriceBasis.resolve(SpaceType.MESS, payload.getMonthlyPriceBasis()))
+                .monthlyPrice(payload.getMonthlyPrice() == null ? null : normalizePrice(payload.getMonthlyPrice()))
+                .monthlyPriceBasis(payload.getMonthlyPrice() == null && payload.getMonthlyPriceBasis() == null
+                        ? null
+                        : PriceBasis.resolve(SpaceType.MESS, payload.getMonthlyPriceBasis()))
                 .mealPrice(normalizePrice(payload.getMealPrice()))
                 .capacityEstimate(payload.getCapacityEstimate())
                 .status(
@@ -160,6 +179,9 @@ public class MessRegistrationService {
                 .unmappedAmenities(trimToNull(payload.getUnmappedAmenities()))
                 .build();
 
+        if (source == MessRegistrationSource.PUBLIC_WEBSITE && mobileVerifiedAt != null) {
+            entity.setLinkedOwnerUserId(registrationOwnerLinker.linkForVerifiedMobile(payload.getMobileNumber()));
+        }
         return messRegistrationRepository.save(entity);
     }
 
@@ -246,5 +268,81 @@ public class MessRegistrationService {
         return messRegistrationRepository
                 .findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Mess registration", "id", id));
+    }
+
+    @Transactional
+    public MessRegistrationEntity updateOwnedLead(UUID callerId, UUID id, UpdateOwnedMessLeadRequest request) {
+        MessRegistrationEntity entity = requireEntity(id);
+        if (entity.getLinkedOwnerUserId() == null || !entity.getLinkedOwnerUserId().equals(callerId)) {
+            throw new ResourceNotFoundException("Mess registration", "id", id);
+        }
+        if (entity.getConvertedSpaceId() != null || !ownerMayEdit(entity.getStatus())) {
+            throw new BusinessException(
+                    "REGISTRATION_NOT_EDITABLE",
+                    "This registration can no longer be edited.",
+                    HttpStatus.CONFLICT);
+        }
+        if (StringUtils.hasText(request.getMessName())) {
+            entity.setMessName(request.getMessName().trim());
+        }
+        if (request.getBuildingName() != null) {
+            entity.setBuildingName(trimToNull(request.getBuildingName()));
+        }
+        if (StringUtils.hasText(request.getOwnerName())) {
+            entity.setOwnerName(request.getOwnerName().trim());
+        }
+        if (request.getDescription() != null) {
+            entity.setDescription(trimToNull(request.getDescription()));
+        }
+        if (StringUtils.hasText(request.getAddressLine())) {
+            entity.setAddressLine(request.getAddressLine().trim());
+        }
+        if (request.getCity() != null) {
+            entity.setCity(trimToNull(request.getCity()));
+        }
+        if (request.getState() != null) {
+            entity.setState(trimToNull(request.getState()));
+        }
+        if (request.getPincode() != null) {
+            entity.setPincode(trimToNull(request.getPincode()));
+        }
+        if (request.getLatitude() != null) {
+            entity.setLatitude(request.getLatitude());
+        }
+        if (request.getLongitude() != null) {
+            entity.setLongitude(request.getLongitude());
+        }
+        if (request.getMapUrl() != null) {
+            entity.setMapUrl(trimToNull(request.getMapUrl()));
+        }
+        if (request.getMonthlyPrice() != null) {
+            entity.setMonthlyPrice(normalizePrice(request.getMonthlyPrice()));
+        }
+        if (request.getMonthlyPriceBasis() != null) {
+            entity.setMonthlyPriceBasis(request.getMonthlyPriceBasis());
+        }
+        if (request.getMealPrice() != null) {
+            entity.setMealPrice(normalizePrice(request.getMealPrice()));
+        }
+        if (request.getSharingNotes() != null) {
+            entity.setSharingNotes(trimToNull(request.getSharingNotes()));
+        }
+        if (request.getFoodIncludedListing() != null) {
+            entity.setFoodIncludedListing(request.getFoodIncludedListing());
+        }
+        if (request.getGenderPolicy() != null) {
+            entity.setGenderPolicy(request.getGenderPolicy());
+        }
+        MessRegistrationEntity saved = messRegistrationRepository.save(entity);
+        if (request.getPhotos() != null) {
+            registrationPhotoService.replaceForMess(saved.getId(), request.getPhotos());
+        }
+        return saved;
+    }
+
+    private static boolean ownerMayEdit(MessRegistrationStatus status) {
+        return status == MessRegistrationStatus.PENDING
+                || status == MessRegistrationStatus.IN_REVIEW
+                || status == MessRegistrationStatus.CONTACTED;
     }
 }

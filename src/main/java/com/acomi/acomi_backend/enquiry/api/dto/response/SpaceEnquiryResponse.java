@@ -14,9 +14,8 @@ import lombok.Builder;
 import lombok.Getter;
 
 /**
- * Member-facing enquiry record.
- * Owner contact is included only when status is SHARED and delivery is ANDROID (in-app).
- * WEB shared enquiries continue to deliver contact by email and do not expose owner contact here.
+ * Member-facing enquiry record for the signed-in requester.
+ * Owner contact is included when status is SHARED, including on the web enquiry list.
  */
 @Getter
 @Builder(toBuilder = true)
@@ -24,6 +23,7 @@ import lombok.Getter;
 public class SpaceEnquiryResponse {
 
     private UUID enquiryId;
+    private String referenceCode;
     private UUID spaceId;
     private String spaceName;
     private SpaceType spaceType;
@@ -50,7 +50,7 @@ public class SpaceEnquiryResponse {
     /** True when owner-contact email was (or for legacy WEB SHARED, should be treated as) sent. */
     private boolean contactEmailSent;
     /**
-     * Owner contact for ANDROID SHARED enquiries only. Always null for WEB.
+     * Owner contact when this SHARED enquiry belongs to the signed-in requester.
      */
     private OwnerContactResponse ownerContact;
     /** True when create reused an open enquiry and did not perform a new share delivery. */
@@ -106,14 +106,12 @@ public class SpaceEnquiryResponse {
             }
         }
         OwnerContactResponse memberContact = null;
-        if (shared
-                && channel == InquiryClientChannel.ANDROID
-                && ownerContact != null
-                && ownerContact.isAvailable()) {
+        if (shared && ownerContact != null && ownerContact.isAvailable()) {
             memberContact = ownerContact;
         }
         return SpaceEnquiryResponse.builder()
                 .enquiryId(entity.getId())
+                .referenceCode(entity.getReferenceCode())
                 .spaceId(entity.getSpaceId())
                 .spaceName(entity.getSpaceNameSnapshot())
                 .spaceType(spaceType)

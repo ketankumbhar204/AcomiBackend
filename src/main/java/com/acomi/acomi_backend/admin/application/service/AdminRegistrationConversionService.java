@@ -104,6 +104,7 @@ public class AdminRegistrationConversionService {
         return PropertyRegistrationMapper.toDetail(entity).toBuilder()
                 .linkedOwnerName(linked != null ? linked.getFullName() : null)
                 .linkedOwnerMobile(linked != null ? linked.getMobileNumber() : null)
+                .spaceReferenceCode(space != null ? space.getReferenceCode() : null)
                 .ownershipStatus(entity.getLinkedOwnerUserId() != null ? "LINKED" : "NOT_LINKED")
                 .autoShareEligible(listingDecision != null && listingDecision.isAllowed())
                 .autoShareReason(
@@ -120,6 +121,7 @@ public class AdminRegistrationConversionService {
         return MessRegistrationMapper.toDetail(entity).toBuilder()
                 .linkedOwnerName(linked != null ? linked.getFullName() : null)
                 .linkedOwnerMobile(linked != null ? linked.getMobileNumber() : null)
+                .spaceReferenceCode(space != null ? space.getReferenceCode() : null)
                 .ownershipStatus(entity.getLinkedOwnerUserId() != null ? "LINKED" : "NOT_LINKED")
                 .autoShareEligible(listingDecision != null && listingDecision.isAllowed())
                 .autoShareReason(
@@ -235,6 +237,7 @@ public class AdminRegistrationConversionService {
                 .registrationId(entity.getId())
                 .reference(entity.getReference())
                 .spaceId(space.getId())
+                .spaceReferenceCode(space.getReferenceCode())
                 .spaceName(space.getName())
                 .discoverable(discoverable)
                 .build();
@@ -287,6 +290,7 @@ public class AdminRegistrationConversionService {
                 .registrationId(entity.getId())
                 .reference(entity.getReference())
                 .spaceId(space.getId())
+                .spaceReferenceCode(space.getReferenceCode())
                 .spaceName(space.getName())
                 .discoverable(discoverable)
                 .build();
@@ -327,7 +331,7 @@ public class AdminRegistrationConversionService {
     @Transactional
     public SpaceEntity enableDiscovery(UUID spaceId) {
         SpaceEntity space = spaceRepository
-                .findById(spaceId)
+                .findWithOwnerById(spaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("Space", "id", spaceId));
         if (!space.isActive()) {
             throw new BusinessException("Inactive spaces cannot be made discoverable", HttpStatus.BAD_REQUEST);

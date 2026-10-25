@@ -59,7 +59,7 @@ public class PropertyRegistrationEntity extends BaseEntity {
     @Column(name = "owner_name", nullable = false, length = 120)
     private String ownerName;
 
-    @Column(name = "mobile_number", nullable = false, length = 15)
+    @Column(name = "mobile_number", length = 15)
     private String mobileNumber;
 
     @Column(name = "alternate_mobile_number", length = 15)
@@ -74,7 +74,7 @@ public class PropertyRegistrationEntity extends BaseEntity {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
-    @Column(name = "address_line", nullable = false, length = 255)
+    @Column(name = "address_line", length = 255)
     private String addressLine;
 
     @Column(name = "city", length = 80)
@@ -95,11 +95,11 @@ public class PropertyRegistrationEntity extends BaseEntity {
     @Column(name = "map_url", length = 512)
     private String mapUrl;
 
-    @Column(name = "starting_price", nullable = false, precision = 12, scale = 2)
+    @Column(name = "starting_price", precision = 12, scale = 2)
     private BigDecimal startingPrice;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "price_basis", nullable = false, length = 12)
+    @Column(name = "price_basis", length = 12)
     private PriceBasis priceBasis;
 
     @Column(name = "capacity_estimate")

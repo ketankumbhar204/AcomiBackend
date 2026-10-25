@@ -95,9 +95,9 @@ public class OccupancyTargetService {
                     throw new BusinessException("Only BED or ROOM allocation is allowed for Co-Living spaces");
                 }
             }
-            case RENTAL -> {
+            case RENTAL, CORPORATE_STAY -> {
                 if (targetType != AllocationTargetType.UNIT) {
-                    throw new BusinessException("Only UNIT allocation is allowed for Rental spaces");
+                    throw new BusinessException("Only UNIT allocation is allowed for this space type");
                 }
             }
             case MESS -> throw new BusinessException("Accommodation is not applicable for Mess spaces");

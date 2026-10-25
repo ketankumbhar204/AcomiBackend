@@ -38,6 +38,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -340,6 +341,56 @@ public class StoredFileService {
         if (nextFileId != null) {
             markAssociated(nextFileId);
         }
+    }
+
+    /**
+     * The inquiry payment QR is referenced by configuration, not by a row flag set at upload time.
+     * The unassociated-file sweep was marking that image for deletion, and the following content-url
+     * error rolled back the whole payment-config read. This repairs a not-yet-purged image and marks
+     * it associated so later sweeps keep it.
+     *
+     * <p>Uses a new transaction so a read-only config load can commit the repair without marking
+     * that read rollback-only.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean tryRetainInquiryPaymentQr(UUID fileId) {
+        if (fileId == null) {
+            return false;
+        }
+        StoredFileEntity file = storedFileRepository.findById(fileId).orElse(null);
+        if (file == null || file.getPurpose() != FilePurpose.INQUIRY_PAYMENT_QR) {
+            return false;
+        }
+        if (file.getStatus() == FileStatus.ACTIVE) {
+            if (!file.isAssociated()) {
+                file.setAssociated(true);
+                storedFileRepository.save(file);
+            }
+            return true;
+        }
+        if (file.getStatus() != FileStatus.PENDING_DELETE) {
+            return false;
+        }
+        ObjectMetadata metadata = storageProvider.head(file.getBucket(), file.getObjectKey());
+        if (!metadata.exists()) {
+            return false;
+        }
+        file.setStatus(FileStatus.ACTIVE);
+        file.setDeletedAt(null);
+        file.setPurgeAfter(null);
+        file.setAssociated(true);
+        storedFileRepository.save(file);
+        log.info("inquiry_payment_qr_restored fileId={}", fileId);
+        return true;
+    }
+
+    /**
+     * Resolves a download URL outside the caller's transaction. A missing or deleted QR must not
+     * mark the payment-config transaction rollback-only after the caller catches the error.
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public String resolveContentUrlIsolated(UUID callerId, UUID fileId) {
+        return createContentUrl(callerId, fileId).getContentUrl();
     }
 
     @Transactional

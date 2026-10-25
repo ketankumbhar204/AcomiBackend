@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.meal.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -180,7 +181,7 @@ class DailyMenuServiceTest {
 
         MealComboEntity combo = MealComboEntity.builder().name("Thali").isActive(true).build();
         combo.setId(comboId);
-        when(mealComboService.loadCombo(spaceId, comboId)).thenReturn(combo);
+        when(mealComboService.loadComboForSelection(eq(spaceId), eq(comboId), anyBoolean())).thenReturn(combo);
 
         FoodItemEntity item = FoodItemEntity.builder().name("Tea").isActive(true).build();
         item.setId(itemId);
@@ -211,7 +212,7 @@ class DailyMenuServiceTest {
                 .thenReturn(Optional.empty());
         when(dailyMenuRepository.save(any(DailyMenuEntity.class))).thenReturn(savedMenu);
         stubEmptySync(savedMenu.getId());
-        when(mealComboService.loadCombo(spaceId, comboId))
+        when(mealComboService.loadComboForSelection(eq(spaceId), eq(comboId), anyBoolean()))
                 .thenThrow(new BusinessException("Combo is not active", HttpStatus.BAD_REQUEST));
 
         UpsertDailyMenuRequest request = new UpsertDailyMenuRequest();
@@ -448,7 +449,7 @@ class DailyMenuServiceTest {
 
         MealComboEntity combo = MealComboEntity.builder().name("New combo").isActive(true).build();
         combo.setId(comboId);
-        when(mealComboService.loadCombo(spaceId, comboId)).thenReturn(combo);
+        when(mealComboService.loadComboForSelection(eq(spaceId), eq(comboId), anyBoolean())).thenReturn(combo);
         when(dailyMenuEntryRepository.save(any(DailyMenuEntryEntity.class)))
                 .thenAnswer(invocation -> {
                     DailyMenuEntryEntity entry = invocation.getArgument(0);

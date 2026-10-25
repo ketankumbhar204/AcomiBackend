@@ -75,6 +75,9 @@ public interface OccupancyRepository extends JpaRepository<OccupancyEntity, UUID
 
     boolean existsByRoomIdAndStatus(UUID roomId, OccupancyStatus status);
 
+    boolean existsByRoomIdAndTargetTypeAndStatus(
+            UUID roomId, AllocationTargetType targetType, OccupancyStatus status);
+
     boolean existsByUnitIdAndStatus(UUID unitId, OccupancyStatus status);
 
     @Query("SELECT COUNT(o) > 0 FROM OccupancyEntity o WHERE o.space.id = :spaceId")
@@ -208,4 +211,19 @@ public interface OccupancyRepository extends JpaRepository<OccupancyEntity, UUID
             @Param("spaceId") UUID spaceId,
             @Param("status") OccupancyStatus status,
             @Param("exitDate") LocalDate exitDate);
+
+    @Query("""
+            SELECT o FROM OccupancyEntity o
+            JOIN FETCH o.member
+            JOIN FETCH o.building
+            LEFT JOIN FETCH o.floor
+            LEFT JOIN FETCH o.unit
+            LEFT JOIN FETCH o.room
+            LEFT JOIN FETCH o.bed
+            WHERE o.space.id = :spaceId
+              AND o.status IN (
+                  com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus.ACTIVE,
+                  com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus.VACATED)
+            """)
+    List<OccupancyEntity> findStayTrailsBySpaceId(@Param("spaceId") UUID spaceId);
 }

@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.meal.application.support;
 
+import com.acomi.acomi_backend.meal.domain.model.MealPollStatus;
 import com.acomi.acomi_backend.meal.domain.model.MealType;
 import com.acomi.acomi_backend.meal.domain.model.PollCloseDayOffset;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
@@ -32,6 +33,41 @@ public final class MealPollCloseAtCalculator {
 
     public static LocalDateTime nowInSpace(SpaceEntity space) {
         return LocalDateTime.now(zoneOf(space));
+    }
+
+    /**
+     * A poll no longer accepts responses when it is already closed, its space-local
+     * {@code pollCloseAt} has passed, or its poll date is before today in the space timezone.
+     * Callers must pass {@code nowInSpace} from {@link #nowInSpace(SpaceEntity)} so clients
+     * do not invent a second timezone rule.
+     */
+    public static boolean isEffectivelyClosed(
+            MealPollStatus status,
+            LocalDate pollDate,
+            LocalDateTime pollCloseAt,
+            LocalDateTime nowInSpace) {
+        if (status == MealPollStatus.CLOSED) {
+            return true;
+        }
+        if (nowInSpace == null) {
+            return false;
+        }
+        if (pollCloseAt != null && !pollCloseAt.isAfter(nowInSpace)) {
+            return true;
+        }
+        return pollDate != null && pollDate.isBefore(nowInSpace.toLocalDate());
+    }
+
+    /** Status exposed to clients. Null only when there is no poll to describe. */
+    public static MealPollStatus effectiveStatus(
+            MealPollStatus status,
+            LocalDate pollDate,
+            LocalDateTime pollCloseAt,
+            LocalDateTime nowInSpace) {
+        if (isEffectivelyClosed(status, pollDate, pollCloseAt, nowInSpace)) {
+            return MealPollStatus.CLOSED;
+        }
+        return status;
     }
 
     public static LocalDateTime resolveDefaultCloseAt(

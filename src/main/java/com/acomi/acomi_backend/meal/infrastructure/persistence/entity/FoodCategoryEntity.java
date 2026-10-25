@@ -1,8 +1,12 @@
 package com.acomi.acomi_backend.meal.infrastructure.persistence.entity;
 
+import com.acomi.acomi_backend.common.reference.BusinessReferencePrefix;
+import com.acomi.acomi_backend.common.reference.BusinessReferenced;
+
 import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.meal.domain.model.FoodScope;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
+import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -21,13 +25,24 @@ import lombok.Setter;
 @Entity
 @Table(
         name = "food_categories",
-        indexes = {@Index(name = "idx_food_categories_space_id", columnList = "space_id")})
+        indexes = {
+            @Index(name = "idx_food_categories_space_id", columnList = "space_id"),
+            @Index(name = "idx_food_categories_owner_id", columnList = "owner_id")
+        })
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class FoodCategoryEntity extends BaseEntity {
+public class FoodCategoryEntity extends BaseEntity implements BusinessReferenced {
+    @Column(name = "reference_code", nullable = false, updatable = false, length = 24)
+    private String referenceCode;
+
+    @Override
+    public BusinessReferencePrefix businessReferencePrefix() {
+        return BusinessReferencePrefix.FDC;
+    }
+
 
     @Column(nullable = false, length = 100)
     private String name;
@@ -43,6 +58,11 @@ public class FoodCategoryEntity extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "space_id")
     private SpaceEntity space;
+
+    /** Owner of the space that created a custom category. Null for global categories. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id")
+    private UserEntity owner;
 
     @Builder.Default
     @Column(name = "is_active", nullable = false)

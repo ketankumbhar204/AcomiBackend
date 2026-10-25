@@ -12,5 +12,7 @@ public enum NotificationEntityType {
     SPACE,
     SPACE_ENQUIRY,
     /** User/admin inquiry-credit purchase — not scoped to a Space. */
-    INQUIRY_CREDIT_PURCHASE
+    INQUIRY_CREDIT_PURCHASE,
+    /** Account-level security event — not scoped to a Space. */
+    USER_ACCOUNT
 }

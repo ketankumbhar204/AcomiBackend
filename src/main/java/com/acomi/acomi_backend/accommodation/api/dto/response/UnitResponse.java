@@ -17,6 +17,7 @@ public class UnitResponse {
 
     private UUID unitId;
     private UUID buildingId;
+    private String referenceCode;
     private UUID floorId;
     private String name;
     private String unitNumber;
@@ -39,6 +40,7 @@ public class UnitResponse {
         return UnitResponse.builder()
                 .unitId(unit.getId())
                 .buildingId(unit.getBuilding().getId())
+                .referenceCode(unit.getReferenceCode())
                 .floorId(unit.getFloor() != null ? unit.getFloor().getId() : null)
                 .name(unit.getName())
                 .unitNumber(unit.getUnitNumber())

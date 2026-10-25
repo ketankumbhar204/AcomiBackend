@@ -11,6 +11,7 @@ import lombok.Getter;
 public class AdminRegisteredUserResponse {
 
     private UUID id;
+    private String referenceCode;
     private String fullName;
     private String mobileNumber;
     private String email;

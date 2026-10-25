@@ -22,6 +22,13 @@ public class NotificationCreatedListener {
     @Async("pushExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onNotificationCreated(NotificationCreatedEvent event) {
+        if (event != null && event.isSuppressAsyncPush()) {
+            log.info(
+                    "notification skipped channel=FCM reason=synchronous_test notificationId={} type={}",
+                    event.getNotificationId(),
+                    event.getNotificationType());
+            return;
+        }
         try {
             pushNotificationService.deliver(event);
         } catch (Exception ex) {

@@ -29,4 +29,5 @@ public class BedSpaceListItemResponse {
     private RoomType roomType;
     private BigDecimal defaultRent;
     private BigDecimal defaultDeposit;
+    private String referenceCode;
 }

@@ -15,6 +15,7 @@ import lombok.Getter;
 public class MemberDocumentResponse {
 
     private UUID documentId;
+    private String referenceCode;
     private MemberDocumentType documentType;
     private String documentNumber;
     private String fileUrl;
@@ -32,6 +33,7 @@ public class MemberDocumentResponse {
     public static MemberDocumentResponse from(MemberDocumentEntity document, String fileUrl) {
         return MemberDocumentResponse.builder()
                 .documentId(document.getId())
+                .referenceCode(document.getReferenceCode())
                 .documentType(document.getDocumentType())
                 .documentNumber(document.getDocumentNumber())
                 .fileUrl(fileUrl)

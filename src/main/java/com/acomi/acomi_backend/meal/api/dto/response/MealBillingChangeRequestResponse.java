@@ -13,6 +13,7 @@ import lombok.Getter;
 public class MealBillingChangeRequestResponse {
 
     private UUID requestId;
+    private String referenceCode;
     private UUID memberId;
     private String memberName;
     private MealBillingType requestedBillingType;
@@ -25,6 +26,7 @@ public class MealBillingChangeRequestResponse {
     public static MealBillingChangeRequestResponse from(MealBillingChangeRequestEntity entity) {
         return MealBillingChangeRequestResponse.builder()
                 .requestId(entity.getId())
+                .referenceCode(entity.getReferenceCode())
                 .memberId(entity.getMember().getId())
                 .memberName(entity.getMember().getFullName())
                 .requestedBillingType(entity.getRequestedBillingType())

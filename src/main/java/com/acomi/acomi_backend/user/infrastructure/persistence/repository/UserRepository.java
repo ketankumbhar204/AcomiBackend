@@ -104,7 +104,8 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
                    :q = '' OR
                    LOWER(u.fullName) LIKE LOWER(CONCAT('%', :q, '%')) OR
                    u.mobileNumber LIKE CONCAT('%', :q, '%') OR
-                   (u.email IS NOT NULL AND LOWER(u.email) LIKE LOWER(CONCAT('%', :q, '%')))
+                   (u.email IS NOT NULL AND LOWER(u.email) LIKE LOWER(CONCAT('%', :q, '%'))) OR
+                   UPPER(u.referenceCode) = UPPER(TRIM(:q))
               )
               AND (:applyFrom = FALSE OR COALESCE(u.mobileVerifiedAt, u.createdAt) >= :fromAt)
               AND (:applyTo = FALSE OR COALESCE(u.mobileVerifiedAt, u.createdAt) < :toAt)

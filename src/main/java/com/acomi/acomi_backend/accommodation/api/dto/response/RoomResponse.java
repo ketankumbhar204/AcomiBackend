@@ -16,6 +16,7 @@ import lombok.Getter;
 public class RoomResponse {
 
     private UUID roomId;
+    private String referenceCode;
     private UUID floorId;
     private UUID unitId;
 
@@ -35,12 +36,18 @@ public class RoomResponse {
     private UUID photoFileId;
 
     public static RoomResponse from(RoomEntity room) {
-        return from(room, null);
+        return from(room, null, room.getStatus());
     }
 
     public static RoomResponse from(RoomEntity room, AccommodationActionMetadata actions) {
+        return from(room, actions, room.getStatus());
+    }
+
+    public static RoomResponse from(
+            RoomEntity room, AccommodationActionMetadata actions, AccommodationStatus status) {
         return RoomResponse.builder()
                 .roomId(room.getId())
+                .referenceCode(room.getReferenceCode())
                 .floorId(room.getFloor() != null ? room.getFloor().getId() : null)
                 .unitId(room.getUnit() != null ? room.getUnit().getId() : null)
                 .buildingId(resolveBuildingId(room))
@@ -48,7 +55,7 @@ public class RoomResponse {
                 .roomNumber(room.getRoomNumber())
                 .roomType(room.getRoomType())
                 .capacity(room.getCapacity())
-                .status(room.getStatus())
+                .status(status)
                 .active(room.isActive())
                 .createdAt(room.getCreatedAt())
                 .updatedAt(room.getUpdatedAt())

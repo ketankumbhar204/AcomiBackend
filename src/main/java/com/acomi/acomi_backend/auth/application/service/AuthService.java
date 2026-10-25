@@ -173,7 +173,7 @@ public class AuthService {
                 purpose == OtpPurpose.REGISTER && otpProperties.isSkipRegistrationOtp();
         if (skipRegistrationOtp) {
             RegistrationVerification verification =
-                    otpService.issueRegistrationBypassToken(mobileNumber, requestIp);
+                    otpService.issueRegistrationBypassToken(mobileNumber, purpose, requestIp);
             return SendOtpResponse.builder()
                     .mobileNumber(mobileNumber)
                     .purpose(purpose)

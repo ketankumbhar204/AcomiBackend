@@ -598,10 +598,11 @@ public class DailyMenuService {
         DailyMenuEntryType entryType = resolveEntryType(option);
 
         if (entryType == DailyMenuEntryType.COMBO) {
-            combo = mealComboService.loadCombo(spaceId, option.getComboId());
-            if (!combo.isActive()) {
-                throw new BusinessException("Combo is not active", HttpStatus.BAD_REQUEST);
-            }
+            boolean alreadySelected = entry.getId() != null
+                    && entry.getCombo() != null
+                    && option.getComboId() != null
+                    && entry.getCombo().getId().equals(option.getComboId());
+            combo = mealComboService.loadComboForSelection(spaceId, option.getComboId(), alreadySelected);
         } else if (entryType == DailyMenuEntryType.ITEM) {
             item = foodCatalogService.loadEnabledItemForSpace(spaceId, option.getItemId());
         }

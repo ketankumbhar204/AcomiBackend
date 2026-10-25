@@ -4,6 +4,7 @@ import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import com.acomi.acomi_backend.space.domain.model.Space;
 import com.acomi.acomi_backend.space.domain.model.MealBillingType;
 import com.acomi.acomi_backend.space.domain.model.PrepaidBalanceUnit;
+import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.math.BigDecimal;
@@ -19,6 +20,7 @@ import lombok.Getter;
 public class SpaceDetailsResponse {
 
     private UUID id;
+    private String referenceCode;
 
     @Schema(example = "Sunrise PG")
     private String name;
@@ -34,6 +36,9 @@ public class SpaceDetailsResponse {
 
     @Schema(description = "When true, food is mandatory and included in rent (no separate food charge line)")
     private boolean foodIncludedInRent;
+
+    @Schema(description = "Who the listing is for", implementation = GenderPolicy.class)
+    private GenderPolicy genderPolicy;
 
     @Schema(description = "Default monthly food charge prefill when food is billed separately")
     private BigDecimal defaultFoodCharge;
@@ -61,6 +66,7 @@ public class SpaceDetailsResponse {
     public static SpaceDetailsResponse from(Space space, List<AmenityAssignmentDto> amenities) {
         return SpaceDetailsResponse.builder()
                 .id(space.getId())
+                .referenceCode(space.getReferenceCode())
                 .name(space.getName())
                 .type(space.getType())
                 .address(space.getAddress())
@@ -69,6 +75,7 @@ public class SpaceDetailsResponse {
                 .contactNumber(space.getContactNumber())
                 .ownerId(space.getOwnerId())
                 .foodIncludedInRent(space.isFoodIncludedInRent())
+                .genderPolicy(space.getGenderPolicy())
                 .defaultFoodCharge(space.getDefaultFoodCharge())
                 .mealBillingType(space.getMealBillingType())
                 .prepaidBalanceUnit(space.getPrepaidBalanceUnit())

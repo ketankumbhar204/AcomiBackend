@@ -8,13 +8,16 @@ import com.acomi.acomi_backend.enquiry.api.dto.request.DeliverEnquiryEmailReques
 import com.acomi.acomi_backend.enquiry.api.dto.response.EnquiryInboxResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.response.EnquiryEmailStatusResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.response.ReceivedEnquiryResponse;
+import com.acomi.acomi_backend.enquiry.api.dto.response.ReceivedEnquirySummaryResponse;
 import com.acomi.acomi_backend.enquiry.domain.model.SpaceEnquiryStatus;
 import java.time.LocalDate;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.RequestParam;
 import com.acomi.acomi_backend.enquiry.api.dto.response.MyInquiredListingIdsResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.response.OwnerContactResponse;
+import com.acomi.acomi_backend.enquiry.api.dto.response.PhotoRequestResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.response.SpaceEnquiryResponse;
+import com.acomi.acomi_backend.enquiry.application.service.PhotoRequestService;
 import com.acomi.acomi_backend.enquiry.application.service.SpaceEnquiryService;
 import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
 import io.swagger.v3.oas.annotations.Operation;
@@ -46,6 +49,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class SpaceEnquiryController {
 
     private final SpaceEnquiryService spaceEnquiryService;
+    private final PhotoRequestService photoRequestService;
 
     @PostMapping("/spaces/{spaceId}/enquiries")
     @Operation(summary = "Submit a contact enquiry for a Space")
@@ -71,6 +75,18 @@ public class SpaceEnquiryController {
         SpaceEnquiryResponse response = spaceEnquiryService.sendAgain(callerId, spaceId, channel);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("Enquiry sent", response));
+    }
+
+    @PostMapping("/spaces/{spaceId}/photo-requests")
+    @Operation(
+            summary = "Request listing photos",
+            description =
+                    "Notifies the listing owner or vendor and returns the authorized WhatsApp number. "
+                            + "Does not create a contact enquiry or consume inquiry credits. "
+                            + "fcmQueued means push will be attempted, not that it was delivered.")
+    public ResponseEntity<ApiResponse<PhotoRequestResponse>> requestPhotos(@PathVariable UUID spaceId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(photoRequestService.request(callerId, spaceId)));
     }
 
     @GetMapping("/spaces/{spaceId}/revealed-contact")
@@ -101,10 +117,19 @@ public class SpaceEnquiryController {
             @RequestParam(required = false) SpaceEnquiryStatus status,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String q,
             @PageableDefault(size = 20) Pageable pageable) {
         UUID callerId = SecurityUtils.getCurrentUserId();
         return ResponseEntity.ok(ApiResponse.success(
-                spaceEnquiryService.listReceived(callerId, spaceId, status, from, to, pageable)));
+                spaceEnquiryService.listReceived(callerId, spaceId, status, from, to, q, pageable)));
+    }
+
+    @GetMapping("/enquiries/received/summary")
+    @Operation(summary = "Status counts for enquiries on listings the caller owns or manages")
+    public ResponseEntity<ApiResponse<ReceivedEnquirySummaryResponse>> receivedSummary(
+            @RequestParam(required = false) UUID spaceId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(spaceEnquiryService.receivedSummary(callerId, spaceId)));
     }
 
     @GetMapping("/enquiries/received/{enquiryId}")

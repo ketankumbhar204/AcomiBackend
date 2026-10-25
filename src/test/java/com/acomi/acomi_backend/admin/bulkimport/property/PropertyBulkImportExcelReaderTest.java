@@ -75,6 +75,79 @@ class PropertyBulkImportExcelReaderTest {
         auditSample(Path.of("K:/Acomi_Leads_Data/Docs/chennai/Chennai.xlsx"));
     }
 
+    @Test
+    void parse_readsHeaderAfterBlankRows_andSkipsSummarySheet() throws IOException {
+        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Sheet summary = workbook.createSheet("Export List_Contact 1");
+            Row summaryHeader = summary.createRow(0);
+            summaryHeader.createCell(0).setCellValue("Count");
+            summaryHeader.createCell(1).setCellValue("Percent");
+            summary.createRow(1).createCell(0).setCellValue("10");
+
+            Sheet leads = workbook.createSheet("Leads");
+            leads.createRow(0);
+            Row header = leads.createRow(4);
+            header.createCell(0).setCellValue("Sr. No.");
+            header.createCell(1).setCellValue("Space type");
+            header.createCell(2).setCellValue("Property Name");
+            header.createCell(3).setCellValue("Contact 1");
+            header.createCell(4).setCellValue("Full Google Maps Link");
+            Row data = leads.createRow(5);
+            data.createCell(1).setCellValue("PG");
+            data.createCell(2).setCellValue("Sunrise PG");
+            data.createCell(3).setCellValue(9876543210d);
+
+            workbook.write(out);
+            MockMultipartFile file = new MockMultipartFile(
+                    "file", "late.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    new ByteArrayInputStream(out.toByteArray()));
+            var parsed = PropertyBulkImportExcelReader.parse(file);
+            assertThat(parsed.headerRowNumber()).isEqualTo(5);
+            assertThat(parsed.headers()).contains("Full Google Maps Link");
+            assertThat(parsed.dataRows()).hasSize(1);
+            assertThat(parsed.dataRows().get(0).get("Contact 1")).isEqualTo("9876543210");
+            assertThat(PropertyBulkImportField.MAP_URL.matchesHeader("Full Google Maps Link")).isTrue();
+        }
+    }
+
+    @Test
+    void parse_rejectsDuplicateHeaders() throws IOException {
+        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Sheet sheet = workbook.createSheet("Leads");
+            Row header = sheet.createRow(0);
+            header.createCell(0).setCellValue("Property Name");
+            header.createCell(1).setCellValue("Space type");
+            header.createCell(2).setCellValue("Contact 1");
+            header.createCell(3).setCellValue("Full Google Maps Link");
+            header.createCell(4).setCellValue("Google Maps Link");
+            workbook.write(out);
+            MockMultipartFile file = new MockMultipartFile(
+                    "file", "dup.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    new ByteArrayInputStream(out.toByteArray()));
+            assertThatThrownBy(() -> PropertyBulkImportExcelReader.parse(file))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("both map to MAP_URL");
+        }
+    }
+
+    @Test
+    void parse_rejectsWorkbookWithOnlyASummarySheet() throws IOException {
+        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Sheet summary = workbook.createSheet("Summary");
+            summary.createRow(0).createCell(0).setCellValue("Count");
+            workbook.write(out);
+            MockMultipartFile file = new MockMultipartFile(
+                    "file", "summary.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    new ByteArrayInputStream(out.toByteArray()));
+            assertThatThrownBy(() -> PropertyBulkImportExcelReader.parse(file))
+                    .isInstanceOf(BusinessException.class)
+                    .hasMessageContaining("No worksheet has the property import columns");
+        }
+    }
+
     private static long filledCount(PropertyBulkImportExcelReader.ParsedWorkbook parsed) {
         return parsed.dataRows().stream()
                 .filter(row -> row.values().stream().anyMatch(value -> value != null && !value.isBlank()))
@@ -159,6 +232,8 @@ class PropertyBulkImportExcelReaderTest {
             Sheet sheet = workbook.createSheet("Sheet1");
             Row header = sheet.createRow(0);
             header.createCell(0).setCellValue("Property Name");
+            header.createCell(1).setCellValue("Space type");
+            header.createCell(2).setCellValue("Contact 1");
             int excelRow = 1;
             for (int i = 0; i < filledRows; i++) {
                 if (insertBlank && i == 1) {

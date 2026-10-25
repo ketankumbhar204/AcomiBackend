@@ -140,6 +140,8 @@ public interface MessRegistrationRepository extends JpaRepository<MessRegistrati
 
     Optional<MessRegistrationEntity> findByConvertedSpaceId(UUID convertedSpaceId);
 
+    List<MessRegistrationEntity> findByLinkedOwnerUserIdAndConvertedSpaceIdIsNull(UUID linkedOwnerUserId);
+
     @Query(
             """
             SELECT r FROM MessRegistrationEntity r

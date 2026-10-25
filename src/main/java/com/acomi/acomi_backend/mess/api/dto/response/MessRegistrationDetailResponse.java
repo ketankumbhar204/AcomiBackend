@@ -39,6 +39,7 @@ public class MessRegistrationDetailResponse {
     private MessRegistrationStatus status;
     private MessRegistrationSource source;
     private UUID convertedSpaceId;
+    private String spaceReferenceCode;
     private UUID linkedOwnerUserId;
     private String linkedOwnerName;
     private String linkedOwnerMobile;

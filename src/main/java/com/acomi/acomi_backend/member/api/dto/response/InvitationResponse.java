@@ -13,6 +13,7 @@ import lombok.Getter;
 public class InvitationResponse {
 
     private UUID id;
+    private String referenceCode;
     private UUID spaceId;
     private String spaceName;
     private UUID invitedByUserId;
@@ -26,6 +27,7 @@ public class InvitationResponse {
     public static InvitationResponse from(InvitationEntity invitation) {
         return InvitationResponse.builder()
                 .id(invitation.getId())
+                .referenceCode(invitation.getReferenceCode())
                 .spaceId(invitation.getSpace().getId())
                 .spaceName(invitation.getSpace().getName())
                 .invitedByUserId(invitation.getInvitedBy().getId())

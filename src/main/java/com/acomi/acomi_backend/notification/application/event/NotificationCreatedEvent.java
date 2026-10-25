@@ -22,4 +22,7 @@ public class NotificationCreatedEvent {
     String title;
     String body;
     String actionRoute;
+    /** Caller already delivered push and will report that result itself. */
+    @Builder.Default
+    boolean suppressAsyncPush = false;
 }

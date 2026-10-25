@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 import com.acomi.acomi_backend.inventory.application.service.InventorySeedService;
+import com.acomi.acomi_backend.listing.application.ListingRegistrationSync;
 import com.acomi.acomi_backend.meal.application.service.MealPlanService;
 import com.acomi.acomi_backend.meal.application.service.MealSpaceSetupService;
 import com.acomi.acomi_backend.member.application.service.MemberMasterService;
@@ -52,6 +53,9 @@ class SpaceServiceDiscoverableDefaultTest {
 
     @Mock
     private SpaceAmenityService spaceAmenityService;
+
+    @Mock
+    private ListingRegistrationSync listingRegistrationSync;
 
     @InjectMocks
     private SpaceService spaceService;

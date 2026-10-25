@@ -391,6 +391,38 @@ class InquiryAccessServiceTest {
     }
 
     @Test
+    void getQuota_viewHereEnablementStaysIndependentPerChannel() {
+        config.setWebViewHereEnabled(false);
+        config.setAndroidViewHereEnabled(true);
+        when(walletService.getBalance(userId)).thenReturn(0);
+
+        assertThat(accessService.getQuota(userId, InquiryClientChannel.WEB).getViewHereDailyLimit())
+                .isZero();
+        assertThat(accessService.getQuota(userId, InquiryClientChannel.ANDROID).getViewHereDailyLimit())
+                .isEqualTo(3);
+        assertThat(accessService.getQuota(userId, InquiryClientChannel.ANDROID).getViewHereRemainingToday())
+                .isEqualTo(3);
+    }
+
+    @Test
+    void consumeViewHere_webDoesNotTouchAndroidUsage() {
+        LocalDate today = LocalDate.now(fixedClock);
+        InquiryDailyUsageEntity webUsage = buildUsage(userId, today, InquiryClientChannel.WEB, 4);
+        when(dailyUsageRepository.findByUserIdAndUsageDateAndChannel(
+                        userId, today, InquiryClientChannel.WEB))
+                .thenReturn(Optional.of(webUsage));
+        when(dailyUsageRepository.save(webUsage)).thenReturn(webUsage);
+
+        accessService.consumeViewHere(userId, InquiryClientChannel.WEB);
+
+        assertThat(webUsage.getViewHereUsed()).isEqualTo(1);
+        assertThat(webUsage.getFreeUsed()).isEqualTo(4);
+        verify(dailyUsageRepository, never())
+                .findByUserIdAndUsageDateAndChannel(userId, today, InquiryClientChannel.ANDROID);
+        verify(walletService, never()).consumeUsage(any(), any());
+    }
+
+    @Test
     void getQuota_disabledViewHere_reportsZeroLimit() {
         config.setWebViewHereEnabled(false);
         config.setAndroidViewHereEnabled(false);

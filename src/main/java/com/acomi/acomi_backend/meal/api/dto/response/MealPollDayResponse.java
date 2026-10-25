@@ -36,4 +36,9 @@ public class MealPollDayResponse {
      * Positive = additional due on next bill; negative = credit.
      */
     private BigDecimal myPaymentAdjustment;
+    /**
+     * Set when this member can see today's polls but cannot submit a choice.
+     * Null when they may respond, or when there is no open poll to respond to.
+     */
+    private String myChooseMealsBlockReason;
 }

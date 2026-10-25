@@ -13,7 +13,7 @@ public class PropertyLayoutModeResolver {
         return switch (spaceType) {
             case PG, HOSTEL -> PropertyLayoutMode.CORRIDOR_PG;
             case CO_LIVING -> PropertyLayoutMode.CO_LIVING;
-            case RENTAL -> PropertyLayoutMode.RENTAL;
+            case RENTAL, CORPORATE_STAY -> PropertyLayoutMode.RENTAL;
             default -> throw new BusinessException(
                     "Layout mode is not defined for space type " + spaceType, HttpStatus.BAD_REQUEST);
         };
@@ -35,10 +35,10 @@ public class PropertyLayoutModeResolver {
                             "Co-Living spaces require CO_LIVING layout mode", HttpStatus.BAD_REQUEST);
                 }
             }
-            case RENTAL -> {
+            case RENTAL, CORPORATE_STAY -> {
                 if (layoutMode != PropertyLayoutMode.RENTAL) {
                     throw new BusinessException(
-                            "Rental spaces require RENTAL layout mode", HttpStatus.BAD_REQUEST);
+                            "Rental and Corporate Stay spaces require RENTAL layout mode", HttpStatus.BAD_REQUEST);
                 }
             }
             default -> throw new BusinessException(

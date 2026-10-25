@@ -14,6 +14,7 @@ import lombok.Getter;
 public class InventoryTransactionResponse {
 
     private UUID transactionId;
+    private String referenceCode;
     private UUID spaceId;
     private UUID itemId;
     private String itemName;
@@ -31,6 +32,7 @@ public class InventoryTransactionResponse {
     public static InventoryTransactionResponse from(InventoryTransactionEntity entity) {
         return InventoryTransactionResponse.builder()
                 .transactionId(entity.getId())
+                .referenceCode(entity.getReferenceCode())
                 .spaceId(entity.getSpace().getId())
                 .itemId(entity.getItem().getId())
                 .itemName(entity.getItemName())

@@ -117,6 +117,22 @@ public class AdminMessRegistrationService {
     }
 
     @Transactional
+    public MessRegistrationResponse createImported(AdminCreateMessRegistrationRequest request) {
+        MessRegistrationResponse response = messRegistrationService.registerImported(request);
+        savedAddressService.rememberFromLead(
+                request.getAddressLine(),
+                request.getCity(),
+                request.getState(),
+                request.getPincode(),
+                request.getMapUrl(),
+                com.acomi.acomi_backend.address.domain.model.SavedAddressLeadKind.MESS);
+        messRegistrationRepository
+                .findByReference(response.getReference())
+                .ifPresent(entity -> adminRegistrationConversionService.convertMess(entity.getId()));
+        return response;
+    }
+
+    @Transactional
     public MessRegistrationResponse create(AdminCreateMessRegistrationRequest request) {
         MessRegistrationResponse response = messRegistrationService.registerAdmin(request);
         savedAddressService.rememberFromLead(

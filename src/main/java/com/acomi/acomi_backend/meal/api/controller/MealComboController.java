@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.meal.api.controller;
 import com.acomi.acomi_backend.common.security.SecurityUtils;
 import com.acomi.acomi_backend.common.web.ApiResponse;
 import com.acomi.acomi_backend.meal.api.dto.request.CreateMealComboRequest;
+import com.acomi.acomi_backend.meal.api.dto.request.UpdateMealComboEnabledRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.UpdateMealComboPriceRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.UpdateMealComboRequest;
 import com.acomi.acomi_backend.meal.api.dto.response.MealComboResponse;
@@ -70,6 +71,17 @@ public class MealComboController {
         return ResponseEntity.ok(ApiResponse.success(
                 "Meal combo price updated successfully",
                 mealComboService.updateComboPrice(spaceId, comboId, callerId, request)));
+    }
+
+    @PutMapping("/{comboId}/enabled")
+    public ResponseEntity<ApiResponse<MealComboResponse>> setComboEnabled(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID comboId,
+            @RequestBody @Valid UpdateMealComboEnabledRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Meal combo visibility updated",
+                mealComboService.setComboEnabled(spaceId, comboId, callerId, request)));
     }
 
     @PostMapping("/{comboId}/deactivate")

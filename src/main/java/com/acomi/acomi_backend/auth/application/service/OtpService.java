@@ -39,6 +39,8 @@ public class OtpService {
     static final String CONSUMED_VERIFICATION_TOKEN_MESSAGE =
             "This verification token has already been used.";
     static final String UNSUPPORTED_PURPOSE_MESSAGE = "OTP purpose is not supported.";
+    /** Accepted only when {@code acomi.otp.skip-registration-otp} is enabled (local+dev). */
+    public static final String LOCAL_LISTING_SKIP_TOKEN = "local-dev-listing-otp-skip";
 
     private static final Logger log = LoggerFactory.getLogger(OtpService.class);
     private static final int VERIFICATION_TOKEN_BYTES = 32;
@@ -100,39 +102,48 @@ public class OtpService {
     }
 
     /**
-     * Local-only registration shortcut: issues a verification token without SMS/OTP entry.
+     * Local-only shortcut: issues a verification token without SMS/OTP entry.
      * Gated by {@code acomi.otp.skip-registration-otp} (validated for local+dev only).
      */
     @Transactional
     public RegistrationVerification issueRegistrationBypassToken(String mobileNumber, String requestIp) {
+        return issueRegistrationBypassToken(mobileNumber, OtpPurpose.REGISTER, requestIp);
+    }
+
+    @Transactional
+    public RegistrationVerification issueRegistrationBypassToken(
+            String mobileNumber, OtpPurpose purpose, String requestIp) {
         if (!otpProperties.isSkipRegistrationOtp()) {
             throw new BusinessException("Registration OTP skip is not enabled.");
         }
-        requireSupportedPurpose(OtpPurpose.REGISTER);
-        otpRateLimiter.assertSendAllowed(mobileNumber, OtpPurpose.REGISTER, requestIp);
+        if (!isLocalSkipPurpose(purpose)) {
+            throw new BusinessException(UNSUPPORTED_PURPOSE_MESSAGE);
+        }
+        requireSupportedPurpose(purpose);
+        otpRateLimiter.assertSendAllowed(mobileNumber, purpose, requestIp);
 
         LocalDateTime now = LocalDateTime.now();
-        authOtpRepository.consumeUnusedOtps(now, mobileNumber, OtpPurpose.REGISTER);
-        authOtpRepository.consumeUnusedVerificationTokens(now, mobileNumber, OtpPurpose.REGISTER);
+        authOtpRepository.consumeUnusedOtps(now, mobileNumber, purpose);
+        authOtpRepository.consumeUnusedVerificationTokens(now, mobileNumber, purpose);
 
         String rawToken = generateVerificationToken();
         String placeholderOtp = "local-skip-" + UUID.randomUUID();
         AuthOtpEntity entity = AuthOtpEntity.builder()
                 .mobileNumber(mobileNumber)
-                .purpose(OtpPurpose.REGISTER)
-                .codeHash(otpHashService.hashOtp(mobileNumber, OtpPurpose.REGISTER, placeholderOtp))
+                .purpose(purpose)
+                .codeHash(otpHashService.hashOtp(mobileNumber, purpose, placeholderOtp))
                 .expiresAt(now.plusSeconds(otpProperties.getTtlSeconds()))
                 .attemptCount(0)
                 .maxAttempts(otpProperties.getMaxAttempts())
                 .requestIp(requestIp)
                 .consumedAt(now)
                 .verificationTokenHash(otpHashService.hashVerificationToken(
-                        mobileNumber, OtpPurpose.REGISTER, rawToken, null))
+                        mobileNumber, purpose, rawToken, null))
                 .verificationTokenExpiresAt(
                         now.plusSeconds(otpProperties.getVerificationTokenTtlSeconds()))
                 .build();
         authOtpRepository.save(entity);
-        log.warn("Registration OTP skipped for local development");
+        log.warn("OTP skipped for local development");
         return new RegistrationVerification(rawToken, otpProperties.getVerificationTokenTtlSeconds());
     }
 
@@ -188,6 +199,10 @@ public class OtpService {
         }
         if (!StringUtils.hasText(rawToken)) {
             throw new BusinessException(INVALID_VERIFICATION_TOKEN_MESSAGE);
+        }
+        if (isLocalListingSkip(rawToken, purpose)) {
+            log.warn("Listing OTP skipped for local development");
+            return;
         }
 
         String hash = otpHashService.hashVerificationToken(
@@ -265,6 +280,18 @@ public class OtpService {
         authOtpRepository.save(entity);
         log.info("OTP verified successfully");
         return entity;
+    }
+
+    private static boolean isLocalSkipPurpose(OtpPurpose purpose) {
+        return purpose == OtpPurpose.REGISTER
+                || purpose == OtpPurpose.PROPERTY_REGISTRATION
+                || purpose == OtpPurpose.MESS_REGISTRATION;
+    }
+
+    private boolean isLocalListingSkip(String rawToken, OtpPurpose purpose) {
+        return otpProperties.isSkipRegistrationOtp()
+                && LOCAL_LISTING_SKIP_TOKEN.equals(rawToken)
+                && (purpose == OtpPurpose.PROPERTY_REGISTRATION || purpose == OtpPurpose.MESS_REGISTRATION);
     }
 
     private void requireSupportedPurpose(OtpPurpose purpose) {

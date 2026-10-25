@@ -1,5 +1,8 @@
 package com.acomi.acomi_backend.meal.infrastructure.persistence.entity;
 
+import com.acomi.acomi_backend.common.reference.BusinessReferencePrefix;
+import com.acomi.acomi_backend.common.reference.BusinessReferenced;
+
 import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.meal.domain.model.MealBalanceLedgerEntryType;
 import com.acomi.acomi_backend.meal.domain.model.MealType;
@@ -31,7 +34,15 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class MemberMealBalanceLedgerEntryEntity extends BaseEntity {
+public class MemberMealBalanceLedgerEntryEntity extends BaseEntity implements BusinessReferenced {
+    @Column(name = "reference_code", nullable = false, updatable = false, length = 24)
+    private String referenceCode;
+
+    @Override
+    public BusinessReferencePrefix businessReferencePrefix() {
+        return BusinessReferencePrefix.MLB;
+    }
+
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "balance_id", nullable = false)

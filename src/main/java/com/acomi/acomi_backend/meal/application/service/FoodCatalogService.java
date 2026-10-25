@@ -10,6 +10,7 @@ import com.acomi.acomi_backend.meal.api.dto.request.UpdateFoodItemRequest;
 import com.acomi.acomi_backend.meal.api.dto.response.FoodCategoryResponse;
 import com.acomi.acomi_backend.meal.api.dto.response.FoodItemResponse;
 import com.acomi.acomi_backend.meal.application.support.MenuExtraClassifier;
+import com.acomi.acomi_backend.meal.application.support.MenuLibraryOwnership;
 import com.acomi.acomi_backend.meal.domain.model.FoodScope;
 import com.acomi.acomi_backend.meal.domain.model.FoodType;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.FoodCategoryEntity;
@@ -58,11 +59,13 @@ public class FoodCatalogService {
         SpaceEntity space = loadSpace(spaceId);
         ensureGlobalCatalogPresent();
         mealSpaceSetupService.ensureSampleCombos(space);
-        Map<UUID, Long> itemCountsByCategory = foodItemRepository.countVisibleItemsGroupedByCategory(spaceId).stream()
+        UUID ownerId = MenuLibraryOwnership.ownerId(space);
+        Map<UUID, Long> itemCountsByCategory =
+                foodItemRepository.countVisibleItemsGroupedByCategory(spaceId, ownerId).stream()
                 .collect(Collectors.toMap(
                         FoodItemRepository.CategoryItemCount::getCategoryId,
                         FoodItemRepository.CategoryItemCount::getItemCount));
-        return foodCategoryRepository.findVisibleForSpace(spaceId).stream()
+        return foodCategoryRepository.findVisibleForSpace(spaceId, ownerId).stream()
                 .map(category -> FoodCategoryResponse.from(
                         category, itemCountsByCategory.getOrDefault(category.getId(), 0L)))
                 .toList();
@@ -77,6 +80,7 @@ public class FoodCatalogService {
                 .sortOrder(request.getSortOrder())
                 .scope(FoodScope.SPACE)
                 .space(space)
+                .owner(space.getOwner())
                 .isActive(true)
                 .build());
         return FoodCategoryResponse.from(category, 0);
@@ -86,9 +90,11 @@ public class FoodCatalogService {
     public List<FoodItemResponse> listItems(UUID spaceId, UUID callerId, UUID categoryId) {
         mealAccessService.requireViewMeals(spaceId, callerId);
         ensureGlobalCatalogPresent();
+        SpaceEntity space = loadSpace(spaceId);
+        UUID ownerId = MenuLibraryOwnership.ownerId(space);
         List<FoodItemEntity> items = categoryId == null
-                ? foodItemRepository.findAllVisibleForSpace(spaceId)
-                : foodItemRepository.findVisibleForSpaceInCategory(spaceId, categoryId);
+                ? foodItemRepository.findAllVisibleForSpace(spaceId, ownerId)
+                : foodItemRepository.findVisibleForSpaceInCategory(spaceId, ownerId, categoryId);
         Map<UUID, SpaceFoodItemSettingsEntity> settingsByItemId =
                 spaceFoodItemSettingsRepository.findAllBySpaceId(spaceId).stream()
                         .collect(Collectors.toMap(SpaceFoodItemSettingsEntity::getItemId, settings -> settings));
@@ -107,6 +113,7 @@ public class FoodCatalogService {
                 .name(request.getName().trim())
                 .scope(FoodScope.SPACE)
                 .space(space)
+                .owner(space.getOwner())
                 .isActive(true)
                 .isCustom(true)
                 .foodType(resolveFoodType(request.getFoodType()))
@@ -189,11 +196,17 @@ public class FoodCatalogService {
     @Transactional
     public FoodItemResponse updateItem(UUID spaceId, UUID itemId, UUID callerId, UpdateFoodItemRequest request) {
         mealAccessService.requireManageMeals(spaceId, callerId);
+        SpaceEntity space = loadSpace(spaceId);
         FoodItemEntity item = foodItemRepository
-                .findSpaceItem(itemId, spaceId)
+                .findByIdWithCategory(itemId)
                 .orElseThrow(() -> new BusinessException("Only space custom items can be edited", HttpStatus.FORBIDDEN));
+        if (item.getScope() != FoodScope.SPACE || !item.isCustom()) {
+            throw new BusinessException("Only space custom items can be edited", HttpStatus.FORBIDDEN);
+        }
+        MenuLibraryOwnership.requireSameLibrary(
+                space, item.getOwner(), item.getSpace(), "Only space custom items can be edited");
         if (request.getCategoryId() != null) {
-            item.setCategory(resolveCategoryForSpaceItem(spaceId, request.getCategoryId()));
+            item.setCategory(resolveCategoryForSpaceItem(space, request.getCategoryId()));
         }
         item.setName(request.getName().trim());
         if (request.getFoodType() != null) {
@@ -228,13 +241,18 @@ public class FoodCatalogService {
             return;
         }
 
-        if (category.getSpace() == null || !category.getSpace().getId().equals(spaceId)) {
-            throw new BusinessException("Category does not belong to this space", HttpStatus.FORBIDDEN);
-        }
+        SpaceEntity space = loadSpace(spaceId);
+        MenuLibraryOwnership.requireSameLibrary(
+                space,
+                category.getOwner(),
+                category.getSpace(),
+                "Category does not belong to this space");
 
         category.setActive(false);
         foodCategoryRepository.save(category);
-        foodItemRepository.findActiveSpaceItemsInCategory(spaceId, categoryId).forEach(item -> {
+        foodItemRepository
+                .findActiveOwnerItemsInCategory(MenuLibraryOwnership.ownerId(space), categoryId)
+                .forEach(item -> {
             item.setActive(false);
             foodItemRepository.save(item);
         });
@@ -262,9 +280,9 @@ public class FoodCatalogService {
             return;
         }
 
-        if (item.getSpace() == null || !item.getSpace().getId().equals(spaceId)) {
-            throw new BusinessException("Item does not belong to this space", HttpStatus.FORBIDDEN);
-        }
+        SpaceEntity space = loadSpace(spaceId);
+        MenuLibraryOwnership.requireSameLibrary(
+                space, item.getOwner(), item.getSpace(), "Item does not belong to this space");
         item.setActive(false);
         foodItemRepository.save(item);
     }
@@ -276,8 +294,12 @@ public class FoodCatalogService {
         if (!item.isActive()) {
             throw new BusinessException("Food item is not active");
         }
-        if (item.getScope() == FoodScope.SPACE && !item.getSpace().getId().equals(spaceId)) {
-            throw new BusinessException("Food item does not belong to this space", HttpStatus.FORBIDDEN);
+        if (item.getScope() == FoodScope.SPACE) {
+            MenuLibraryOwnership.requireSameLibrary(
+                    loadSpace(spaceId),
+                    item.getOwner(),
+                    item.getSpace(),
+                    "Food item does not belong to this space");
         }
         if (item.getScope() == FoodScope.GLOBAL) {
             spaceFoodItemSettingsRepository
@@ -300,13 +322,17 @@ public class FoodCatalogService {
     }
 
     private FoodCategoryEntity resolveCategoryForSpaceItem(UUID spaceId, UUID categoryId) {
+        return resolveCategoryForSpaceItem(loadSpace(spaceId), categoryId);
+    }
+
+    private FoodCategoryEntity resolveCategoryForSpaceItem(SpaceEntity space, UUID categoryId) {
         return foodCategoryRepository
                 .findById(categoryId)
                 .filter(category -> category.isActive()
                         && (category.getScope() == FoodScope.GLOBAL
                                 || (category.getScope() == FoodScope.SPACE
-                                        && category.getSpace() != null
-                                        && category.getSpace().getId().equals(spaceId))))
+                                        && MenuLibraryOwnership.sameLibrary(
+                                                space, category.getOwner(), category.getSpace()))))
                 .orElseThrow(() -> new ResourceNotFoundException("FoodCategory", "id", categoryId));
     }
 
@@ -347,9 +373,12 @@ public class FoodCatalogService {
         if (!item.isActive()) {
             throw new BusinessException("Food item is not active");
         }
-        if (item.getScope() == FoodScope.SPACE
-                && (item.getSpace() == null || !item.getSpace().getId().equals(spaceId))) {
-            throw new BusinessException("Food item does not belong to this space", HttpStatus.FORBIDDEN);
+        if (item.getScope() == FoodScope.SPACE) {
+            MenuLibraryOwnership.requireSameLibrary(
+                    loadSpace(spaceId),
+                    item.getOwner(),
+                    item.getSpace(),
+                    "Food item does not belong to this space");
         }
         if (item.getScope() == FoodScope.GLOBAL) {
             spaceFoodItemSettingsRepository

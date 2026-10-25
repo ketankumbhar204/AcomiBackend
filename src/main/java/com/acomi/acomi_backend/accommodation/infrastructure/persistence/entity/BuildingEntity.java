@@ -1,5 +1,8 @@
 package com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity;
 
+import com.acomi.acomi_backend.common.reference.BusinessReferencePrefix;
+import com.acomi.acomi_backend.common.reference.BusinessReferenced;
+
 import com.acomi.acomi_backend.accommodation.domain.model.PropertyLayoutMode;
 import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
@@ -31,7 +34,15 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class BuildingEntity extends BaseEntity {
+public class BuildingEntity extends BaseEntity implements BusinessReferenced {
+    @Column(name = "reference_code", nullable = false, updatable = false, length = 24)
+    private String referenceCode;
+
+    @Override
+    public BusinessReferencePrefix businessReferencePrefix() {
+        return BusinessReferencePrefix.BLD;
+    }
+
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "space_id", nullable = false)

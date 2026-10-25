@@ -88,9 +88,16 @@ public interface SpaceEnquiryRepository
     @Query("""
             SELECT e FROM SpaceEnquiryEntity e
             WHERE e.spaceId IN :spaceIds
-              AND (:status IS NULL OR e.status = :status)
-              AND (:fromAt IS NULL OR e.requestedAt >= :fromAt)
-              AND (:toAt IS NULL OR e.requestedAt < :toAt)
+              AND (CAST(:status AS string) IS NULL OR e.status = :status)
+              AND (CAST(:fromAt AS timestamp) IS NULL OR e.requestedAt >= :fromAt)
+              AND (CAST(:toAt AS timestamp) IS NULL OR e.requestedAt < :toAt)
+              AND (
+                   CAST(:q AS string) IS NULL OR CAST(:q AS string) = '' OR
+                   LOWER(e.spaceNameSnapshot) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) OR
+                   LOWER(e.requesterNameSnapshot) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) OR
+                   LOWER(COALESCE(e.requesterEmail, '')) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) OR
+                   UPPER(e.referenceCode) = UPPER(TRIM(CAST(:q AS string)))
+              )
             ORDER BY e.requestedAt DESC
             """)
     Page<SpaceEnquiryEntity> searchReceived(
@@ -98,20 +105,30 @@ public interface SpaceEnquiryRepository
             @Param("status") SpaceEnquiryStatus status,
             @Param("fromAt") LocalDateTime fromAt,
             @Param("toAt") LocalDateTime toAt,
+            @Param("q") String query,
             Pageable pageable);
+
+    @Query("""
+            SELECT e.status, COUNT(e)
+            FROM SpaceEnquiryEntity e
+            WHERE e.spaceId IN :spaceIds
+            GROUP BY e.status
+            """)
+    List<Object[]> countReceivedByStatus(@Param("spaceIds") java.util.Collection<UUID> spaceIds);
 
     @Query(
             """
             SELECT e FROM SpaceEnquiryEntity e
-            WHERE (:status IS NULL OR e.status = :status)
-              AND (:requesterType IS NULL OR e.requesterType = :requesterType)
-              AND (:fromAt IS NULL OR e.requestedAt >= :fromAt)
-              AND (:toAt IS NULL OR e.requestedAt < :toAt)
+            WHERE (CAST(:status AS string) IS NULL OR e.status = :status)
+              AND (CAST(:requesterType AS string) IS NULL OR e.requesterType = :requesterType)
+              AND (CAST(:fromAt AS timestamp) IS NULL OR e.requestedAt >= :fromAt)
+              AND (CAST(:toAt AS timestamp) IS NULL OR e.requestedAt < :toAt)
               AND (
-                   :q IS NULL OR :q = '' OR
-                   LOWER(e.spaceNameSnapshot) LIKE LOWER(CONCAT('%', :q, '%')) OR
-                   LOWER(e.requesterNameSnapshot) LIKE LOWER(CONCAT('%', :q, '%')) OR
-                   LOWER(e.requesterEmail) LIKE LOWER(CONCAT('%', :q, '%'))
+                   CAST(:q AS string) IS NULL OR CAST(:q AS string) = '' OR
+                   LOWER(e.spaceNameSnapshot) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) OR
+                   LOWER(e.requesterNameSnapshot) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) OR
+                   LOWER(COALESCE(e.requesterEmail, '')) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')) OR
+                   UPPER(e.referenceCode) = UPPER(TRIM(CAST(:q AS string)))
               )
             ORDER BY e.requestedAt DESC
             """)

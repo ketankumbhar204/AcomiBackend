@@ -14,6 +14,7 @@ import lombok.Getter;
 public class FoodItemResponse {
 
     private UUID itemId;
+    private String referenceCode;
     private UUID categoryId;
     private String categoryName;
     private String name;
@@ -57,6 +58,7 @@ public class FoodItemResponse {
             UUID photoFileId) {
         return FoodItemResponse.builder()
                 .itemId(entity.getId())
+                .referenceCode(entity.getReferenceCode())
                 .categoryId(entity.getCategory().getId())
                 .categoryName(entity.getCategory().getName())
                 .name(entity.getName())

@@ -17,6 +17,7 @@ import lombok.Getter;
 public class MemberResponse {
 
     private UUID memberId;
+    private String referenceCode;
     private String fullName;
     private String mobileNumber;
 
@@ -28,6 +29,9 @@ public class MemberResponse {
 
     @Schema(description = "Linked app user id when linkedUser is true")
     private UUID linkedUserId;
+
+    @Schema(description = "Linked account reference when linkedUser is true")
+    private String linkedUserReferenceCode;
 
     @Schema(description = "Operational member status (distinct from soft-delete isActive)")
     private MemberStatus status;
@@ -43,19 +47,29 @@ public class MemberResponse {
     @Schema(description = "Active space membership when the member has Acomi access in this space")
     private UUID membershipId;
 
+    @Schema(description = "Building · floor · unit · room · bed for a moved-in or vacated tenant. Null when there is no stay location.")
+    private String stayLabel;
+
     public static MemberResponse from(MemberEntity member) {
+        return from(member, null);
+    }
+
+    public static MemberResponse from(MemberEntity member, String stayLabel) {
         return MemberResponse.builder()
                 .memberId(member.getId())
+                .referenceCode(member.getReferenceCode())
                 .fullName(member.getFullName())
                 .mobileNumber(resolveMobileNumber(member))
                 .role(member.getRole())
                 .linkedUser(member.getUser() != null)
                 .linkedUserId(member.getUser() != null ? member.getUser().getId() : null)
+                .linkedUserReferenceCode(member.getUser() != null ? member.getUser().getReferenceCode() : null)
                 .membershipId(member.getMembership() != null ? member.getMembership().getId() : null)
                 .status(member.getStatus())
                 .occupancyStatus(member.getOccupancyStatus())
                 .gender(member.getGender())
                 .createdAt(member.getCreatedAt())
+                .stayLabel(stayLabel)
                 .build();
     }
 

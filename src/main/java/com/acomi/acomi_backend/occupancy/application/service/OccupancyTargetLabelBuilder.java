@@ -6,12 +6,9 @@ import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.B
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.FloorEntity;
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.RoomEntity;
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.UnitEntity;
-import com.acomi.acomi_backend.accommodation.infrastructure.persistence.repository.BuildingRepository;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
-import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import java.util.ArrayList;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
 import org.hibernate.Hibernate;
 import org.springframework.stereotype.Service;
 
@@ -20,12 +17,9 @@ import org.springframework.stereotype.Service;
  * Mirrors the visible hierarchy from accommodation UI profiles (layout-mode aware).
  */
 @Service
-@RequiredArgsConstructor
 public class OccupancyTargetLabelBuilder {
 
     private static final String SEPARATOR = " • ";
-
-    private final BuildingRepository buildingRepository;
 
     public String build(OccupancyEntity occupancy) {
         if (occupancy == null || occupancy.getBuilding() == null) {
@@ -34,26 +28,18 @@ public class OccupancyTargetLabelBuilder {
 
         BuildingEntity building = occupancy.getBuilding();
         PropertyLayoutMode layoutMode = building.getLayoutMode();
-        boolean singleBuilding = !shouldShowBuilding(occupancy.getSpace(), building);
         List<String> parts = new ArrayList<>();
-
-        if (!singleBuilding) {
-            addSegment(parts, building.getName());
-        }
 
         FloorEntity floor = resolveFloor(occupancy);
         UnitEntity unit = occupancy.getUnit();
         RoomEntity room = occupancy.getRoom();
 
+        addSegment(parts, building.getName());
+        addSegment(parts, formatFloorLabel(floor));
+
         switch (layoutMode) {
-            case CORRIDOR_PG -> {
-                addSegment(parts, formatFloorLabel(floor));
-                addSleepingSegment(parts, room, occupancy.getBed());
-            }
+            case CORRIDOR_PG -> addSleepingSegment(parts, room, occupancy.getBed());
             case APARTMENT_PG -> {
-                if (!singleBuilding) {
-                    addSegment(parts, formatFloorLabel(floor));
-                }
                 if (unit != null && !unit.isSynthetic()) {
                     addSegment(parts, unit.getName());
                 }
@@ -71,7 +57,6 @@ public class OccupancyTargetLabelBuilder {
                 }
             }
             default -> {
-                addSegment(parts, formatFloorLabel(floor));
                 if (unit != null && !unit.isSynthetic()) {
                     addSegment(parts, unit.getName());
                 }
@@ -80,13 +65,6 @@ public class OccupancyTargetLabelBuilder {
         }
 
         return parts.isEmpty() ? null : String.join(SEPARATOR, parts);
-    }
-
-    private boolean shouldShowBuilding(SpaceEntity space, BuildingEntity building) {
-        if (space == null || building == null) {
-            return false;
-        }
-        return buildingRepository.findActiveBySpaceId(space.getId()).size() > 1;
     }
 
     private FloorEntity resolveFloor(OccupancyEntity occupancy) {
@@ -111,12 +89,14 @@ public class OccupancyTargetLabelBuilder {
     }
 
     private void addSleepingSegment(List<String> parts, RoomEntity room, BedEntity bed) {
-        if (bed != null && bed.getName() != null) {
-            addSegment(parts, formatRoomLabel(bed.getName()));
-            return;
-        }
         if (room != null && room.getName() != null) {
-            addSegment(parts, formatRoomLabel(room.getName()));
+            addSegment(parts, formatPrefixed(room.getName(), "Room "));
+        }
+        if (bed != null) {
+            String bedLabel = bed.getBedNumber() != null && !bed.getBedNumber().isBlank()
+                    ? bed.getBedNumber()
+                    : bed.getName();
+            addSegment(parts, formatPrefixed(bedLabel, "Bed "));
         }
     }
 
@@ -135,12 +115,18 @@ public class OccupancyTargetLabelBuilder {
         return "Floor " + trimmed;
     }
 
-    private String formatRoomLabel(String name) {
+    private String formatPrefixed(String name, String prefix) {
+        if (name == null) {
+            return null;
+        }
         String trimmed = name.trim();
-        if (trimmed.regionMatches(true, 0, "Room ", 0, 5)) {
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        if (trimmed.regionMatches(true, 0, prefix, 0, prefix.length())) {
             return trimmed;
         }
-        return "Room " + trimmed;
+        return prefix + trimmed;
     }
 
     private void addSegment(List<String> parts, String value) {

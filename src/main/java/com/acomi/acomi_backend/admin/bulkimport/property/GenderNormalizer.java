@@ -68,6 +68,15 @@ public final class GenderNormalizer {
         } else {
             boolean male = hasAny(key, MALE_WORDS);
             boolean female = hasAny(key, FEMALE_WORDS);
+            if ((male || female) && hasMixedWord(key)) {
+                return new Result(
+                        value,
+                        null,
+                        false,
+                        "Gender \"" + value
+                                + "\" mixes a specific group with Unisex or Both. It was not changed.",
+                        null);
+            }
             if (male && female) {
                 policy = GenderPolicy.MIXED;
             } else if (male || female) {
@@ -76,12 +85,39 @@ public final class GenderNormalizer {
                     warning = "Gender inferred from \"" + value + "\" as "
                             + BulkImportLabels.gender(policy) + ". Please verify.";
                 }
+            } else if (hasMixedWord(key)) {
+                policy = GenderPolicy.MIXED;
+                if (!leftover(key).isBlank()) {
+                    warning = "Gender \"" + value + "\" was read as Both. Please verify.";
+                }
+            } else if (looksLikeSharing(key)) {
+                return new Result(
+                        value,
+                        null,
+                        false,
+                        null,
+                        "\"" + value + "\" looks like a sharing value, not a gender policy.");
             } else {
                 return new Result(value, null, false, null, "Unknown gender policy: " + value);
             }
         }
         boolean normalized = !BulkImportLabels.gender(policy).equalsIgnoreCase(value.trim());
         return new Result(value, policy, normalized, warning, null);
+    }
+
+    private static boolean hasMixedWord(String key) {
+        return PropertyBulkImportValueParser.hasWord(key, "unisex")
+                || PropertyBulkImportValueParser.hasWord(key, "both")
+                || PropertyBulkImportValueParser.hasWord(key, "mixed");
+    }
+
+    private static boolean looksLikeSharing(String key) {
+        return PropertyBulkImportValueParser.hasWord(key, "single")
+                || PropertyBulkImportValueParser.hasWord(key, "double")
+                || PropertyBulkImportValueParser.hasWord(key, "triple")
+                || PropertyBulkImportValueParser.hasWord(key, "twin")
+                || PropertyBulkImportValueParser.hasWord(key, "bhk")
+                || PropertyBulkImportValueParser.hasWord(key, "sharing");
     }
 
     private static boolean hasAny(String key, String[] words) {
@@ -104,7 +140,7 @@ public final class GenderNormalizer {
         stripped = stripWord(stripped, "only");
         stripped = stripWord(stripped, "and");
         stripped = stripWord(stripped, "the");
-        return stripped.trim();
+        return stripped.replaceAll("[^a-z0-9]+", " ").trim();
     }
 
     private static String stripWord(String key, String word) {

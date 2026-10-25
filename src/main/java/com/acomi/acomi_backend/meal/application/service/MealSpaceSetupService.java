@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.meal.application.service;
 
+import com.acomi.acomi_backend.meal.application.support.MenuLibraryOwnership;
 import com.acomi.acomi_backend.meal.domain.model.FoodType;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MealComboEntity;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MealComboItemEntity;
@@ -44,24 +45,28 @@ public class MealSpaceSetupService {
         }
         ensureCombo(
                 space,
+                "standard-lunch-thali",
                 "Standard Lunch Thali",
                 "Daily lunch combo",
                 FoodType.VEG,
                 List.of(CHAPATI_ID, DAL_FRY_ID, PLAIN_RICE_ID, GREEN_SALAD_ID));
         ensureCombo(
                 space,
+                "dal-rice-combo",
                 "Dal Rice Combo",
                 "Simple dal rice",
                 FoodType.VEG,
                 List.of(DAL_FRY_ID, PLAIN_RICE_ID));
         ensureCombo(
                 space,
+                "chicken-thali",
                 "Chicken Thali",
                 "Non-veg lunch combo",
                 FoodType.NON_VEG,
                 List.of(CHAPATI_ID, CHICKEN_CURRY_ID, PLAIN_RICE_ID));
         ensureCombo(
                 space,
+                "egg-combo",
                 "Egg Combo",
                 "Egg meal combo",
                 FoodType.EGG,
@@ -70,21 +75,32 @@ public class MealSpaceSetupService {
 
     private void ensureCombo(
             SpaceEntity space,
+            String sampleKey,
             String name,
             String description,
             FoodType foodType,
             List<UUID> itemIds) {
-        if (mealComboRepository.existsBySpaceIdAndNameIgnoreCaseAndIsActiveTrue(space.getId(), name)) {
+        UUID ownerId = MenuLibraryOwnership.ownerId(space);
+        if (mealComboRepository.existsListedSample(ownerId, sampleKey)
+                || mealComboRepository.existsListedName(ownerId, name)) {
             return;
         }
-        log.info("Seeding meal combo '{}' for space {} ({})", name, space.getId(), space.getType());
-        createCombo(space, name, description, foodType, itemIds);
+        log.info("Seeding shared meal combo '{}' for owner {}", name, ownerId);
+        createCombo(space, sampleKey, name, description, foodType, itemIds);
     }
 
     private void createCombo(
-            SpaceEntity space, String name, String description, FoodType foodType, List<UUID> itemIds) {
+            SpaceEntity space,
+            String sampleKey,
+            String name,
+            String description,
+            FoodType foodType,
+            List<UUID> itemIds) {
         MealComboEntity combo = mealComboRepository.save(MealComboEntity.builder()
                 .space(space)
+                .owner(space.getOwner())
+                .sampleKey(sampleKey)
+                .libraryListed(true)
                 .name(name)
                 .description(description)
                 .foodType(foodType)

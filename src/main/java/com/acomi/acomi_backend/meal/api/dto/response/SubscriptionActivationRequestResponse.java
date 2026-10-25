@@ -12,6 +12,7 @@ import lombok.Getter;
 public class SubscriptionActivationRequestResponse {
 
     private UUID requestId;
+    private String referenceCode;
     private UUID memberId;
     private String memberName;
     private UUID planId;
@@ -33,6 +34,7 @@ public class SubscriptionActivationRequestResponse {
             SubscriptionActivationRequestEntity entity, String resolvedProofUrl) {
         return SubscriptionActivationRequestResponse.builder()
                 .requestId(entity.getId())
+                .referenceCode(entity.getReferenceCode())
                 .memberId(entity.getMember().getId())
                 .memberName(entity.getMember().getFullName())
                 .planId(entity.getPlan().getId())

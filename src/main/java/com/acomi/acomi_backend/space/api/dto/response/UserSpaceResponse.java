@@ -15,6 +15,7 @@ import lombok.Getter;
 public class UserSpaceResponse {
 
     private UUID spaceId;
+    private String referenceCode;
     private String spaceName;
 
     @Schema(description = "Space address; use to disambiguate spaces with the same name")
@@ -31,6 +32,7 @@ public class UserSpaceResponse {
     public static UserSpaceResponse from(SpaceMembershipEntity membership) {
         return UserSpaceResponse.builder()
                 .spaceId(membership.getSpace().getId())
+                .referenceCode(membership.getSpace().getReferenceCode())
                 .spaceName(membership.getSpace().getName())
                 .address(membership.getSpace().getAddress())
                 .spaceType(membership.getSpace().getType())

@@ -163,6 +163,19 @@ public interface SpacePaymentRepository extends JpaRepository<SpacePaymentEntity
             @Param("spaceId") UUID spaceId, @Param("month") String month);
 
     /**
+     * Tenant "payment requires update" actions are not limited to the month
+     * the Action Center happens to be viewing.
+     */
+    @Query("""
+            SELECT p FROM SpacePaymentEntity p
+            JOIN FETCH p.member m
+            LEFT JOIN FETCH m.user
+            WHERE p.space.id = :spaceId
+              AND p.paymentStatus = com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus.UPDATE_REQUESTED
+            """)
+    List<SpacePaymentEntity> findUpdateRequestedBySpaceId(@Param("spaceId") UUID spaceId);
+
+    /**
      * Overdue candidates: due before business date, not PAID, active member.
      * Outstanding is derived in service (PAID = settled; no partial column yet).
      */

@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.registration.infrastructure.persistence.repository;
 
 import com.acomi.acomi_backend.registration.infrastructure.persistence.entity.RegistrationPhotoEntity;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
@@ -18,6 +19,10 @@ public interface RegistrationPhotoRepository extends JpaRepository<RegistrationP
     @Modifying
     @Query("delete from RegistrationPhotoEntity p where p.messRegistrationId = :id")
     void deleteByMessRegistrationId(@Param("id") UUID id);
+
+    List<RegistrationPhotoEntity> findByPropertyRegistrationIdOrderByDisplayOrderAsc(UUID propertyRegistrationId);
+
+    List<RegistrationPhotoEntity> findByMessRegistrationIdOrderByDisplayOrderAsc(UUID messRegistrationId);
 
     int countByPropertyRegistrationId(UUID propertyRegistrationId);
 

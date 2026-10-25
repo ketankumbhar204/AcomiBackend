@@ -11,4 +11,5 @@ public class EnquiryInboxListingResponse {
     private UUID spaceId;
     private String name;
     private SpaceType spaceType;
+    private String locationLabel;
 }

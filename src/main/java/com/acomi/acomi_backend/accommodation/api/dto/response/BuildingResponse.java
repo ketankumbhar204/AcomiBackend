@@ -15,6 +15,7 @@ public class BuildingResponse {
 
     private UUID buildingId;
     private UUID spaceId;
+    private String referenceCode;
     private String name;
     private String code;
     private PropertyLayoutMode layoutMode;
@@ -32,6 +33,7 @@ public class BuildingResponse {
         return BuildingResponse.builder()
                 .buildingId(building.getId())
                 .spaceId(building.getSpace().getId())
+                .referenceCode(building.getReferenceCode())
                 .name(building.getName())
                 .code(building.getCode())
                 .layoutMode(building.getLayoutMode())

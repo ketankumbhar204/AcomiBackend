@@ -12,6 +12,7 @@ import lombok.Getter;
 public class FoodCategoryResponse {
 
     private UUID categoryId;
+    private String referenceCode;
     private String name;
     private int sortOrder;
     private FoodScope scope;
@@ -24,6 +25,7 @@ public class FoodCategoryResponse {
     public static FoodCategoryResponse from(FoodCategoryEntity entity, long itemCount) {
         return FoodCategoryResponse.builder()
                 .categoryId(entity.getId())
+                .referenceCode(entity.getReferenceCode())
                 .name(entity.getName())
                 .sortOrder(entity.getSortOrder())
                 .scope(entity.getScope())

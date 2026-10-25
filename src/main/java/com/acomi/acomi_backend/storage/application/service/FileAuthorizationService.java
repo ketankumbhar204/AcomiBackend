@@ -200,7 +200,11 @@ public class FileAuthorizationService {
                     "File is not valid for this purpose",
                     HttpStatus.BAD_REQUEST);
         }
-        requireUploader(file, callerId);
+        if (expectedPurpose == FilePurpose.INQUIRY_PAYMENT_QR) {
+            requireAdmin(callerId);
+        } else {
+            requireUploader(file, callerId);
+        }
         if (expectedPurpose.requiresSpace()
                 && spaceId != null
                 && file.getSpaceId() != null

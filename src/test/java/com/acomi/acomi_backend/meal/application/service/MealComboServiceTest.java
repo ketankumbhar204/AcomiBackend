@@ -18,6 +18,7 @@ import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MealComboE
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MealComboItemEntity;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealComboItemRepository;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.MealComboRepository;
+import com.acomi.acomi_backend.meal.infrastructure.persistence.repository.SpaceMealComboSettingsRepository;
 import com.acomi.acomi_backend.member.application.service.SpaceMembershipResolver;
 import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
@@ -48,6 +49,9 @@ class MealComboServiceTest {
     private MealComboItemRepository mealComboItemRepository;
 
     @Mock
+    private SpaceMealComboSettingsRepository spaceMealComboSettingsRepository;
+
+    @Mock
     private FoodCatalogService foodCatalogService;
 
     @Mock
@@ -75,6 +79,7 @@ class MealComboServiceTest {
         mealComboService = new MealComboService(
                 mealComboRepository,
                 mealComboItemRepository,
+                spaceMealComboSettingsRepository,
                 foodCatalogService,
                 mealSpaceSetupService,
                 spaceRepository,
@@ -137,7 +142,7 @@ class MealComboServiceTest {
                 .isActive(true)
                 .build();
         combo.setId(comboId);
-        when(mealComboRepository.findByIdAndSpaceId(comboId, spaceId)).thenReturn(Optional.of(combo));
+        when(mealComboRepository.findByIdAndOwnerId(eq(comboId), any())).thenReturn(Optional.of(combo));
         when(mealComboRepository.save(combo)).thenReturn(combo);
         when(foodCatalogService.loadEnabledItemForSpace(spaceId, rotiId))
                 .thenReturn(FoodItemEntity.builder().name("Roti").build());
@@ -161,6 +166,7 @@ class MealComboServiceTest {
     void updateComboPrice_persistsPerSpaceCombo() {
         stubOwnerMembership();
         SpaceEntity space = space();
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
         UUID comboId = UUID.randomUUID();
         MealComboEntity combo = MealComboEntity.builder()
                 .space(space)
@@ -168,7 +174,7 @@ class MealComboServiceTest {
                 .isActive(true)
                 .build();
         combo.setId(comboId);
-        when(mealComboRepository.findByIdAndSpaceId(comboId, spaceId)).thenReturn(Optional.of(combo));
+        when(mealComboRepository.findByIdAndOwnerId(eq(comboId), any())).thenReturn(Optional.of(combo));
         when(mealComboRepository.save(combo)).thenReturn(combo);
         when(mealComboItemRepository.findByComboIdWithItems(comboId)).thenReturn(List.of());
 
@@ -187,6 +193,7 @@ class MealComboServiceTest {
     void deactivateCombo_setsInactive() {
         stubOwnerMembership();
         SpaceEntity space = space();
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
         UUID comboId = UUID.randomUUID();
         MealComboEntity combo = MealComboEntity.builder()
                 .space(space)
@@ -195,7 +202,7 @@ class MealComboServiceTest {
                 .isActive(true)
                 .build();
         combo.setId(comboId);
-        when(mealComboRepository.findByIdAndSpaceId(comboId, spaceId)).thenReturn(Optional.of(combo));
+        when(mealComboRepository.findByIdAndOwnerId(eq(comboId), any())).thenReturn(Optional.of(combo));
         when(mealComboRepository.save(combo)).thenReturn(combo);
 
         mealComboService.deactivateCombo(spaceId, comboId, callerId);
@@ -234,7 +241,8 @@ class MealComboServiceTest {
                 .build();
         dalRice.setId(UUID.randomUUID());
 
-        when(mealComboRepository.findBySpaceIdAndIsActiveTrueOrderByNameAsc(spaceId))
+        when(spaceMealComboSettingsRepository.findAllBySpaceId(spaceId)).thenReturn(List.of());
+        when(mealComboRepository.findListedForOwner(space.getOwner().getId()))
                 .thenReturn(List.of(dalRice, thali));
         when(mealComboItemRepository.findByComboIdWithItems(thali.getId())).thenReturn(List.of());
         when(mealComboItemRepository.findByComboIdWithItems(dalRice.getId())).thenReturn(List.of());
@@ -245,6 +253,82 @@ class MealComboServiceTest {
         assertThat(combos).hasSizeGreaterThanOrEqualTo(2);
         assertThat(combos).extracting("name").contains("Standard Lunch Thali", "Dal Rice Combo");
         assertThat(combos).allMatch(combo -> combo.getScope() == FoodScope.SPACE);
+    }
+
+    @Test
+    void setComboEnabled_hidesComboInThisSpaceOnly() {
+        stubOwnerMembership();
+        SpaceEntity space = space();
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        UUID comboId = UUID.randomUUID();
+        MealComboEntity combo = MealComboEntity.builder()
+                .space(space)
+                .owner(space.getOwner())
+                .name("Combo 1 test")
+                .price(new java.math.BigDecimal("80.00"))
+                .isActive(true)
+                .libraryListed(true)
+                .build();
+        combo.setId(comboId);
+        when(mealComboRepository.findByIdAndOwnerId(comboId, space.getOwner().getId()))
+                .thenReturn(Optional.of(combo));
+        when(spaceMealComboSettingsRepository.findBySpaceIdAndComboId(spaceId, comboId))
+                .thenReturn(Optional.empty());
+        when(spaceMealComboSettingsRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(mealComboItemRepository.findByComboIdWithItems(comboId)).thenReturn(List.of());
+
+        var request = new com.acomi.acomi_backend.meal.api.dto.request.UpdateMealComboEnabledRequest();
+        request.setEnabled(false);
+        var response = mealComboService.setComboEnabled(spaceId, comboId, callerId, request);
+
+        assertThat(response.isEnabledForSpace()).isFalse();
+        assertThat(combo.isActive()).isTrue();
+        assertThat(combo.getPrice()).isEqualByComparingTo("80.00");
+        verify(spaceMealComboSettingsRepository).save(org.mockito.ArgumentMatchers.argThat(settings ->
+                settings.getSpaceId().equals(spaceId)
+                        && settings.getComboId().equals(comboId)
+                        && !settings.isEnabled()));
+    }
+
+    @Test
+    void loadComboForSelection_rejectsHiddenComboUntilItIsAlreadyOnTheMenu() {
+        SpaceEntity space = space();
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        UUID comboId = UUID.randomUUID();
+        MealComboEntity combo = MealComboEntity.builder()
+                .space(space)
+                .owner(space.getOwner())
+                .name("Combo 1 test")
+                .isActive(true)
+                .build();
+        combo.setId(comboId);
+        when(mealComboRepository.findByIdAndOwnerId(comboId, space.getOwner().getId()))
+                .thenReturn(Optional.of(combo));
+        when(spaceMealComboSettingsRepository.findBySpaceIdAndComboId(spaceId, comboId))
+                .thenReturn(Optional.of(com.acomi.acomi_backend.meal.infrastructure.persistence.entity.SpaceMealComboSettingsEntity.builder()
+                        .spaceId(spaceId)
+                        .comboId(comboId)
+                        .isEnabled(false)
+                        .updatedAt(java.time.LocalDateTime.now())
+                        .build()));
+
+        assertThatThrownBy(() -> mealComboService.loadComboForSelection(spaceId, comboId, false))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Combo is hidden in this space");
+        assertThat(mealComboService.loadComboForSelection(spaceId, comboId, true).getId()).isEqualTo(comboId);
+    }
+
+    @Test
+    void loadComboForSelection_rejectsAnotherOwnersCombo() {
+        SpaceEntity space = space();
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        UUID comboId = UUID.randomUUID();
+        when(mealComboRepository.findByIdAndOwnerId(comboId, space.getOwner().getId()))
+                .thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> mealComboService.loadComboForSelection(spaceId, comboId, false))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Combo does not belong to this owner");
     }
 
     private void stubOwnerMembership() {

@@ -1,5 +1,8 @@
 package com.acomi.acomi_backend.member.infrastructure.persistence.entity;
 
+import com.acomi.acomi_backend.common.reference.BusinessReferencePrefix;
+import com.acomi.acomi_backend.common.reference.BusinessReferenced;
+
 import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.member.domain.model.DocumentVerificationStatus;
 import com.acomi.acomi_backend.member.domain.model.MemberDocumentType;
@@ -29,7 +32,15 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class MemberDocumentEntity extends BaseEntity {
+public class MemberDocumentEntity extends BaseEntity implements BusinessReferenced {
+    @Column(name = "reference_code", nullable = false, updatable = false, length = 24)
+    private String referenceCode;
+
+    @Override
+    public BusinessReferencePrefix businessReferencePrefix() {
+        return BusinessReferencePrefix.DOC;
+    }
+
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "member_id", nullable = false)

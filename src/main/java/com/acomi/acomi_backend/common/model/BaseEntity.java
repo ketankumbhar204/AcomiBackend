@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.common.model;
 
+import com.acomi.acomi_backend.common.reference.BusinessReferenceEntityListener;
 import jakarta.persistence.Column;
 import jakarta.persistence.EntityListeners;
 import jakarta.persistence.GeneratedValue;
@@ -17,7 +18,7 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 @Getter
 @Setter
 @MappedSuperclass
-@EntityListeners(AuditingEntityListener.class)
+@EntityListeners({AuditingEntityListener.class, BusinessReferenceEntityListener.class})
 public abstract class BaseEntity {
 
     @Id

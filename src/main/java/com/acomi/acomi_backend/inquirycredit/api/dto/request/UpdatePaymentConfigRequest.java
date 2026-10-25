@@ -12,6 +12,13 @@ public class UpdatePaymentConfigRequest {
 
     private String upiId;
     private UUID qrFileId;
+
+    /**
+     * Explicit removal. A null {@link #qrFileId} leaves the stored image unchanged so a partial
+     * update, or a client that has not loaded the config, cannot wipe it.
+     */
+    private Boolean clearQr;
+
     private String whatsappNumber;
     private String instructions;
     private Boolean enabled;

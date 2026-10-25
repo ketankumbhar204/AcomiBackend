@@ -9,8 +9,8 @@ import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.entity.InquiryPaymentConfigEntity;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.repository.InquiryCreditPackageRepository;
 import com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.repository.InquiryPaymentConfigRepository;
-import com.acomi.acomi_backend.storage.api.dto.response.ContentUrlResponse;
 import com.acomi.acomi_backend.storage.application.service.StoredFileService;
+import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
@@ -38,7 +38,7 @@ public class InquiryPaymentConfigService {
                 .map(InquiryCreditPackageResponse::from)
                 .toList();
 
-        return toResponse(config, packages, resolveQrUrl(callerId, config.getQrFileId()));
+        return toResponse(config, packages, resolveQr(callerId, config.getQrFileId()));
     }
 
     @Transactional(readOnly = true)
@@ -48,7 +48,7 @@ public class InquiryPaymentConfigService {
                 .sorted((a, b) -> Integer.compare(a.getDisplayOrder(), b.getDisplayOrder()))
                 .map(InquiryCreditPackageResponse::from)
                 .toList();
-        return toResponse(config, packages, resolveQrUrl(callerId, config.getQrFileId()));
+        return toResponse(config, packages, resolveQr(callerId, config.getQrFileId()));
     }
 
     @Transactional
@@ -59,7 +59,16 @@ public class InquiryPaymentConfigService {
             config.setUpiId(request.getUpiId().isBlank() ? null : request.getUpiId().trim());
         }
         if (request.getQrFileId() != null) {
+            if (request.getQrFileId().equals(config.getQrFileId())) {
+                storedFileService.tryRetainInquiryPaymentQr(request.getQrFileId());
+            }
+            storedFileService.requireActiveForAssociation(
+                    adminId, request.getQrFileId(), FilePurpose.INQUIRY_PAYMENT_QR, null);
+            storedFileService.replaceAssociation(config.getQrFileId(), request.getQrFileId());
             config.setQrFileId(request.getQrFileId());
+        } else if (Boolean.TRUE.equals(request.getClearQr()) && config.getQrFileId() != null) {
+            storedFileService.scheduleDelete(config.getQrFileId());
+            config.setQrFileId(null);
         }
         if (request.getWhatsappNumber() != null) {
             config.setWhatsappNumber(
@@ -148,13 +157,13 @@ public class InquiryPaymentConfigService {
     private InquiryPaymentConfigResponse toResponse(
             InquiryPaymentConfigEntity config,
             List<InquiryCreditPackageResponse> packages,
-            String qrUrl) {
+            ResolvedQr qr) {
         return InquiryPaymentConfigResponse.builder()
                 .configId(config.getId())
                 .enabled(config.isEnabled())
                 .upiId(config.getUpiId())
-                .qrFileId(config.getQrFileId())
-                .qrUrl(qrUrl)
+                .qrFileId(qr.fileId())
+                .qrUrl(qr.url())
                 .whatsappNumber(config.getWhatsappNumber())
                 .instructions(config.getInstructions())
                 .webFreeDailyLimit(config.getWebFreeDailyLimit())
@@ -169,16 +178,30 @@ public class InquiryPaymentConfigService {
                 .build();
     }
 
-    private String resolveQrUrl(UUID callerId, UUID qrFileId) {
+    private ResolvedQr resolveQr(UUID callerId, UUID qrFileId) {
         if (qrFileId == null || callerId == null) {
-            return null;
+            return ResolvedQr.none();
         }
         try {
-            ContentUrlResponse response = storedFileService.createContentUrl(callerId, qrFileId);
-            return response.getContentUrl();
+            if (!storedFileService.tryRetainInquiryPaymentQr(qrFileId)) {
+                log.warn("inquiry_qr_unavailable qrFileId={}", qrFileId);
+                return ResolvedQr.none();
+            }
+            String url = storedFileService.resolveContentUrlIsolated(callerId, qrFileId);
+            return new ResolvedQr(qrFileId, url);
         } catch (RuntimeException ex) {
-            log.warn("inquiry_qr_url_resolution_failed callerId={} qrFileId={}", callerId, qrFileId);
-            return null;
+            log.warn(
+                    "inquiry_qr_url_resolution_failed callerId={} qrFileId={}",
+                    callerId,
+                    qrFileId,
+                    ex);
+            return new ResolvedQr(qrFileId, null);
+        }
+    }
+
+    private record ResolvedQr(UUID fileId, String url) {
+        static ResolvedQr none() {
+            return new ResolvedQr(null, null);
         }
     }
 }

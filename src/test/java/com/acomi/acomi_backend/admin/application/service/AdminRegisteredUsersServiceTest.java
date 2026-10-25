@@ -13,6 +13,9 @@ import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUserRespons
 import com.acomi.acomi_backend.admin.application.AdminSecurityAudit;
 import com.acomi.acomi_backend.admin.application.LoggingAdminSecurityAudit;
 import com.acomi.acomi_backend.common.exception.BusinessException;
+import com.acomi.acomi_backend.notification.application.port.in.PublishNotificationCommand;
+import com.acomi.acomi_backend.notification.application.service.NotificationService;
+import com.acomi.acomi_backend.notification.domain.model.NotificationType;
 import com.acomi.acomi_backend.auth.application.service.AccountDeletionService;
 import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
@@ -30,6 +33,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
@@ -55,6 +59,9 @@ class AdminRegisteredUsersServiceTest {
     @Mock
     private AdminSecurityAudit adminSecurityAudit;
 
+    @Mock
+    private NotificationService notificationService;
+
     private final PasswordEncoder passwordEncoder =
             PasswordEncoderFactories.createDelegatingPasswordEncoder();
 
@@ -76,7 +83,8 @@ class AdminRegisteredUsersServiceTest {
                         com.acomi.acomi_backend.member.application.service.InvitationProvisioner.class),
                 org.mockito.Mockito.mock(
                         com.acomi.acomi_backend.member.application.service.InvitationService.class),
-                adminSecurityAudit);
+                adminSecurityAudit,
+                notificationService);
     }
 
     @Test
@@ -292,6 +300,16 @@ class AdminRegisteredUsersServiceTest {
         verify(spaceMembershipRepository, never()).save(any());
         verify(adminSecurityAudit)
                 .record(actorId, user.getId(), LoggingAdminSecurityAudit.PASSWORD_RESET, "SUCCESS");
+        ArgumentCaptor<PublishNotificationCommand> notification =
+                ArgumentCaptor.forClass(PublishNotificationCommand.class);
+        verify(notificationService).publish(notification.capture());
+        PublishNotificationCommand command = notification.getValue();
+        assertThat(command.getNotificationType()).isEqualTo(NotificationType.PASSWORD_CHANGED);
+        assertThat(command.getUserId()).isEqualTo(user.getId());
+        assertThat(command.getSpaceId()).isNull();
+        assertThat(command.getTitle()).doesNotContain("NewSecret1").doesNotContain("OldSecret1");
+        assertThat(command.getMessage()).doesNotContain("NewSecret1").doesNotContain("OldSecret1");
+        assertThat(command.getDedupeKey()).doesNotContain("NewSecret1").doesNotContain("OldSecret1");
     }
 
     @Test
@@ -318,6 +336,7 @@ class AdminRegisteredUsersServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("Passwords do not match");
         assertThat(passwordEncoder.matches("OldSecret1", user.getPasswordHash())).isTrue();
+        verify(notificationService, never()).publish(any());
     }
 
     private static UserEntity verifiedUser(String name, String mobile) {

@@ -14,7 +14,9 @@ import javax.xml.stream.XMLStreamConstants;
 import javax.xml.stream.XMLStreamReader;
 import org.apache.poi.openxml4j.opc.OPCPackage;
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.DateUtil;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -57,7 +59,7 @@ public final class PropertyBulkImportExcelReader {
         }
     }
 
-    public record ParsedWorkbook(List<String> headers, List<Map<String, String>> dataRows) {}
+    public record ParsedWorkbook(List<String> headers, List<Map<String, String>> dataRows, int headerRowNumber) {}
 
     public static String dataRowLimitMessage() {
         return "File exceeds maximum of " + MAX_DATA_ROWS
@@ -92,22 +94,19 @@ public final class PropertyBulkImportExcelReader {
     public static ParsedWorkbook parse(MultipartFile file) {
         assertWithinDataRowLimit(file);
         try (InputStream in = file.getInputStream(); Workbook workbook = new XSSFWorkbook(in)) {
-            Sheet sheet = workbook.getSheetAt(0);
-            if (sheet == null) {
-                throw new BusinessException("Workbook has no sheets", HttpStatus.BAD_REQUEST);
+            Sheet sheet = findLeadSheet(workbook);
+            int headerIndex = findHeaderRow(sheet);
+            if (headerIndex < 0) {
+                throw new BusinessException(
+                        "No worksheet has the property import columns", HttpStatus.BAD_REQUEST);
             }
-            Row headerRow = sheet.getRow(0);
-            if (headerRow == null) {
-                throw new BusinessException("Header row is missing", HttpStatus.BAD_REQUEST);
-            }
+            Row headerRow = sheet.getRow(headerIndex);
             List<String> headers = readHeaderCells(headerRow);
-            if (headers.stream().allMatch(h -> h == null || h.isBlank())) {
-                throw new BusinessException("Header row is empty", HttpStatus.BAD_REQUEST);
-            }
+            rejectDuplicateHeaders(headers);
 
             List<Map<String, String>> dataRows = new ArrayList<>();
-            int lastRow = lastNonEmptyRow(sheet, headers);
-            for (int r = 1; r <= lastRow; r++) {
+            int lastRow = lastNonEmptyRow(sheet, headers, headerIndex);
+            for (int r = headerIndex + 1; r <= lastRow; r++) {
                 Row row = sheet.getRow(r);
                 dataRows.add(readDataRow(row, headers));
             }
@@ -115,7 +114,7 @@ public final class PropertyBulkImportExcelReader {
             if (filledRows > MAX_DATA_ROWS) {
                 throw new BusinessException(dataRowLimitMessage(), HttpStatus.BAD_REQUEST);
             }
-            return new ParsedWorkbook(headers, dataRows);
+            return new ParsedWorkbook(headers, dataRows, headerIndex + 1);
         } catch (BusinessException ex) {
             throw ex;
         } catch (IOException ex) {
@@ -126,9 +125,76 @@ public final class PropertyBulkImportExcelReader {
         }
     }
 
-    private static int lastNonEmptyRow(Sheet sheet, List<String> headers) {
+    private static Sheet findLeadSheet(Workbook workbook) {
+        if (workbook.getNumberOfSheets() == 0) {
+            throw new BusinessException("Workbook has no sheets", HttpStatus.BAD_REQUEST);
+        }
+        for (int i = 0; i < workbook.getNumberOfSheets(); i++) {
+            Sheet sheet = workbook.getSheetAt(i);
+            if (findHeaderRow(sheet) >= 0) {
+                return sheet;
+            }
+        }
+        throw new BusinessException("No worksheet has the property import columns", HttpStatus.BAD_REQUEST);
+    }
+
+    /** First row that matches at least three known import columns. Summary sheets do not. */
+    static int findHeaderRow(Sheet sheet) {
+        if (sheet == null) {
+            return -1;
+        }
+        int last = Math.min(sheet.getLastRowNum(), 499);
+        for (int r = 0; r <= last; r++) {
+            Row row = sheet.getRow(r);
+            if (row == null) {
+                continue;
+            }
+            int matches = 0;
+            java.util.Set<PropertyBulkImportField> seen = java.util.EnumSet.noneOf(PropertyBulkImportField.class);
+            int lastCell = row.getLastCellNum();
+            for (int c = 0; c < lastCell; c++) {
+                String text = cellAsString(row.getCell(c)).trim();
+                if (text.isEmpty()) {
+                    continue;
+                }
+                for (PropertyBulkImportField field : PropertyBulkImportField.values()) {
+                    if (field.matchesHeader(text) && seen.add(field)) {
+                        matches++;
+                        break;
+                    }
+                }
+            }
+            if (matches >= 3) {
+                return r;
+            }
+        }
+        return -1;
+    }
+
+    private static void rejectDuplicateHeaders(List<String> headers) {
+        java.util.Map<PropertyBulkImportField, String> used = new java.util.EnumMap<>(PropertyBulkImportField.class);
+        for (String header : headers) {
+            if (header == null || header.isBlank()) {
+                continue;
+            }
+            for (PropertyBulkImportField field : PropertyBulkImportField.values()) {
+                if (!field.matchesHeader(header)) {
+                    continue;
+                }
+                String previous = used.putIfAbsent(field, header);
+                if (previous != null && !previous.equalsIgnoreCase(header)) {
+                    throw new BusinessException(
+                            "Columns \"" + previous + "\" and \"" + header + "\" both map to " + field.name(),
+                            HttpStatus.BAD_REQUEST);
+                }
+                break;
+            }
+        }
+    }
+
+    private static int lastNonEmptyRow(Sheet sheet, List<String> headers, int headerIndex) {
         int last = sheet.getLastRowNum();
-        while (last >= 1 && isEmptyRow(readDataRow(sheet.getRow(last), headers))) {
+        while (last > headerIndex && isEmptyRow(readDataRow(sheet.getRow(last), headers))) {
             last--;
         }
         return last;
@@ -257,6 +323,12 @@ public final class PropertyBulkImportExcelReader {
     static String cellAsString(Cell cell) {
         if (cell == null) {
             return "";
+        }
+        if (cell.getCellType() == CellType.NUMERIC && !DateUtil.isCellDateFormatted(cell)) {
+            double number = cell.getNumericCellValue();
+            if (Double.isFinite(number) && number == Math.rint(number) && Math.abs(number) < 1e15d) {
+                return String.format(Locale.US, "%.0f", number);
+            }
         }
         return FORMATTER.formatCellValue(cell);
     }

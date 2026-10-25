@@ -5,7 +5,7 @@ import java.util.Set;
 
 /**
  * Maps food-included text onto the existing boolean.
- * Included phrases become Yes. Optional, extra-cost, and availability phrases become No with a warning.
+ * Exact yes and no phrases become true or false. Other food text stays unknown and is not stored as No.
  */
 public final class FoodIncludedNormalizer {
 
@@ -103,14 +103,14 @@ public final class FoodIncludedNormalizer {
         }
         String warning = NO_WITH_WARNING.get(key);
         if (warning != null) {
-            return decided(value, Boolean.FALSE, warning);
+            return new Result(value, null, false, warning + " It was not stored as No.", null);
         }
         return new Result(
                 value,
                 null,
                 false,
-                null,
-                "Food included must be yes/no or true/false (got: " + value + ")");
+                "Food included text \"" + value + "\" is not an exact yes or no. It was not stored as Yes or No.",
+                null);
     }
 
     private static Result decided(String original, Boolean value, String warning) {

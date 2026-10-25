@@ -26,6 +26,7 @@ import com.acomi.acomi_backend.payment.domain.model.PaymentTimelineEventType;
 import com.acomi.acomi_backend.payment.domain.model.ReminderChannel;
 import com.acomi.acomi_backend.payment.domain.model.ReminderDeliveryStatus;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentType;
+import com.acomi.acomi_backend.payment.infrastructure.delivery.FcmPaymentReminderDeliveryProvider;
 import com.acomi.acomi_backend.payment.infrastructure.delivery.WhatsAppMessageDeliveryProvider;
 import com.acomi.acomi_backend.payment.infrastructure.delivery.WhatsAppPhoneNormalizer;
 import com.acomi.acomi_backend.payment.infrastructure.delivery.WhatsAppReminderProperties;
@@ -71,6 +72,7 @@ public class PaymentReminderService {
     private final SpacePaymentRepository paymentRepository;
     private final PaymentReminderDeliveryRepository deliveryRepository;
     private final WhatsAppMessageDeliveryProvider whatsAppProvider;
+    private final FcmPaymentReminderDeliveryProvider fcmProvider;
     private final WhatsAppReminderProperties whatsAppProperties;
     private final SpacePaymentTimelineService timelineService;
     private final NotificationService notificationService;
@@ -119,19 +121,16 @@ public class PaymentReminderService {
         SpaceEntity space = loadSpace(spaceId);
         LocalDate businessDate = PaymentDueStatusCalculator.businessDate(space);
 
-        OverduePaymentResponse target = eligibilityService.findObligationsNeedingReminderInternal(spaceId).stream()
-                .filter(row -> paymentId.equals(row.getPaymentId()))
-                .findFirst()
-                .orElseThrow(() -> new BusinessException(
-                        "Payment is not reminder-eligible", HttpStatus.CONFLICT));
-
         SpacePaymentEntity payment = paymentRepository
                 .findByIdAndSpaceId(paymentId, spaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("SpacePayment", "id", paymentId));
+        OverduePaymentResponse target = ownerReminderTarget(space, payment, businessDate);
 
+        UserEntity clickToChatUser = payment.getMember() != null ? payment.getMember().getUser() : null;
         PaymentReminderMessage reminder = buildMessage(
                 space, target, PaymentReminderType.fromPaymentType(target.getPaymentType()),
-                ReminderChannel.WHATSAPP, businessDate);
+                ReminderChannel.WHATSAPP, businessDate,
+                clickToChatUser != null ? clickToChatUser.getId() : null);
         String targetLabel = payment.getTargetLabel();
         String messageText = PaymentReminderClickToChat.message(reminder, targetLabel);
         String inAppText = PaymentReminderClickToChat.inAppMessage(reminder, targetLabel);
@@ -157,7 +156,7 @@ public class PaymentReminderService {
                         .notificationType(NotificationType.PAYMENT_REMINDER_SENT)
                         .category(NotificationCategory.WARNING)
                         .priority(NotificationPriority.MEDIUM)
-                        .title("Payment reminder")
+                        .title("Payment Reminder")
                         .message(inAppText)
                         .actionLabel("View Payment")
                         .actionRoute("PaymentDetail")
@@ -211,6 +210,52 @@ public class PaymentReminderService {
                 .internationalPhone(digits)
                 .inAppRecorded(inAppRecorded)
                 .inAppFailureCode(inAppFailureCode)
+                .build();
+    }
+
+    private OverduePaymentResponse ownerReminderTarget(
+            SpaceEntity space, SpacePaymentEntity payment, LocalDate businessDate) {
+        OverduePaymentResponse listed = eligibilityService.findObligationsNeedingReminderInternal(space.getId())
+                .stream()
+                .filter(row -> row.getPaymentId() != null && row.getPaymentId().equals(payment.getId()))
+                .findFirst()
+                .orElse(null);
+        if (listed != null) {
+            return listed;
+        }
+        PaymentDueStatusCalculator.DueStatus due = PaymentDueStatusCalculator.calculate(payment, businessDate);
+        if (!due.isReminderEligible() || payment.getMember() == null) {
+            String reason = reminderIneligibilityReason(payment, due);
+            log.info(
+                    "Payment reminder rejected stage=eligibility payment={} reason={} fcmAttempted=false",
+                    payment.getId(),
+                    reason);
+            throw new BusinessException(
+                    "Payment is not reminder-eligible (" + reason + ")", HttpStatus.CONFLICT);
+        }
+        return OverduePaymentResponse.builder()
+                .paymentId(payment.getId())
+                .spaceId(space.getId())
+                .spaceName(space.getName())
+                .memberId(payment.getMember().getId())
+                .memberName(payment.getMember().getFullName())
+                .memberMobile(payment.getMember().getMobileNumber())
+                .paymentType(payment.getPaymentType())
+                .paymentCategory(payment.getPaymentCategory())
+                .title(payment.getTitle())
+                .month(payment.getMonth())
+                .billingPeriodStart(payment.getBillingPeriodStart())
+                .billingPeriodEnd(payment.getBillingPeriodEnd())
+                .dueDate(payment.getDueDate())
+                .totalAmount(due.getTotalAmount())
+                .paidAmount(due.getPaidAmount())
+                .outstandingAmount(due.getOutstandingAmount())
+                .currencyCode(payment.getCurrencyCode())
+                .paymentStatus(payment.getPaymentStatus())
+                .settlementStatus(due.getSettlementStatus())
+                .overdue(due.isOverdue())
+                .daysOverdue(due.getDaysOverdue())
+                .reminderEligible(true)
                 .build();
     }
 
@@ -281,8 +326,8 @@ public class PaymentReminderService {
 
         return PaymentReminderProcessResultResponse.builder()
                 .businessDate(businessDate)
-                .providerConfigured(whatsAppProvider.isConfigured())
-                .providerMode(whatsAppProvider.getMode())
+                .providerConfigured(activeProviderConfigured())
+                .providerMode(activeProviderMode())
                 .candidatesFound(candidates.size())
                 .remindersCreated(created)
                 .remindersSkippedDuplicate(skipped)
@@ -299,7 +344,7 @@ public class PaymentReminderService {
             UUID actorId) {
         PaymentReminderType reminderType =
                 PaymentReminderType.fromPaymentType(candidate.getPaymentType());
-        ReminderChannel channel = ReminderChannel.WHATSAPP;
+        ReminderChannel channel = activeChannel();
 
         ClaimResult claim = claimDelivery(space, candidate, reminderType, channel, businessDate);
         if (claim.kind() == ClaimKind.SKIP_SENT || claim.kind() == ClaimKind.SKIP_PENDING) {
@@ -315,10 +360,19 @@ public class PaymentReminderService {
                     claim.entity());
         }
 
-        PaymentReminderMessage message = buildMessage(space, candidate, reminderType, channel, businessDate);
+        PaymentReminderMessage message = buildMessage(
+                space,
+                candidate,
+                reminderType,
+                channel,
+                businessDate,
+                claim.entity().getRecipientUserId());
 
         // External call outside long-lived payment mutation TX (delivery row already PENDING).
-        MessageDeliveryProvider.MessageDeliveryResult result = whatsAppProvider.deliver(message);
+        // WhatsApp stays available for a future live mode, but a disabled provider is not called.
+        MessageDeliveryProvider.MessageDeliveryResult result = channel == ReminderChannel.WHATSAPP
+                ? whatsAppProvider.deliver(message)
+                : fcmProvider.deliver(message);
 
         PaymentReminderDeliveryEntity updated = transactionTemplate.execute(status ->
                 finalizeDeliveryInTx(
@@ -479,7 +533,10 @@ public class PaymentReminderService {
                 timelineService.record(
                         payment,
                         PaymentTimelineEventType.REMINDER_SENT,
-                        "WhatsApp reminder · " + row.getBusinessDate(),
+                        (row.getChannel() == ReminderChannel.PUSH
+                                        ? "Push notification accepted · "
+                                        : "WhatsApp reminder · ")
+                                + row.getBusinessDate(),
                         actorId);
                 publishInAppReminderSent(payment, row, actorId);
             } else if (firstAttempt || row.getAttemptCount() <= 3) {
@@ -645,7 +702,7 @@ public class PaymentReminderService {
                             + delivery.getBusinessDate()
                             + ":"
                             + managerId)
-                    .deliveryChannels(List.of("IN_APP", "WHATSAPP"))
+                    .deliveryChannels(List.of("IN_APP", "PUSH"))
                     .build());
         }
 
@@ -681,12 +738,14 @@ public class PaymentReminderService {
             OverduePaymentResponse candidate,
             PaymentReminderType reminderType,
             ReminderChannel channel,
-            LocalDate businessDate) {
+            LocalDate businessDate,
+            UUID recipientUserId) {
         return PaymentReminderMessage.builder()
                 .paymentId(candidate.getPaymentId())
                 .spaceId(space.getId())
                 .spaceName(space.getName())
                 .memberId(candidate.getMemberId())
+                .recipientUserId(recipientUserId)
                 .memberName(candidate.getMemberName())
                 .recipientMobile(candidate.getMemberMobile())
                 .paymentType(candidate.getPaymentType())
@@ -702,6 +761,33 @@ public class PaymentReminderService {
                 .outstandingAmount(candidate.getOutstandingAmount())
                 .currencyCode(candidate.getCurrencyCode())
                 .build();
+    }
+
+    /**
+     * Explains a calculator rejection. Does not change who is eligible.
+     * The first matching rule is the one the owner sees.
+     */
+    private static String reminderIneligibilityReason(
+            SpacePaymentEntity payment, PaymentDueStatusCalculator.DueStatus due) {
+        if (payment.getMember() == null) {
+            return "no active member";
+        }
+        if (!payment.getMember().isActive()) {
+            return "member is inactive";
+        }
+        if (!PaymentDueStatusCalculator.REMINDER_ELIGIBLE_STATUSES.contains(payment.getPaymentStatus())) {
+            return "status is " + payment.getPaymentStatus();
+        }
+        if (due.getOutstandingAmount() == null || due.getOutstandingAmount().signum() <= 0) {
+            return "nothing is outstanding";
+        }
+        if (payment.getDueDate() == null
+                || due.getBusinessDate() == null
+                || payment.getDueDate().isAfter(
+                        due.getBusinessDate().plusDays(PaymentDueStatusCalculator.REMINDER_APPROACHING_DAYS))) {
+            return "due date is outside the reminder window";
+        }
+        return "not eligible";
     }
 
     private SpaceEntity loadSpace(UUID spaceId) {
@@ -722,7 +808,9 @@ public class PaymentReminderService {
                 .providerMessageId(entity.getProviderMessageId())
                 .failureReason(failureReason)
                 .failureCode(failureCode)
-                .providerConfigured(whatsAppProvider.isConfigured())
+                .providerConfigured(entity.getChannel() == ReminderChannel.PUSH
+                        ? fcmProvider.isConfigured()
+                        : whatsAppProvider.isConfigured())
                 .retryable(isRetryableFailure(failureCode) && entity.getDeliveryStatus() == ReminderDeliveryStatus.FAILED)
                 .sentAt(entity.getSentAt())
                 .lastAttemptAt(entity.getLastAttemptAt())
@@ -732,7 +820,8 @@ public class PaymentReminderService {
 
     private static boolean isPermanentFailure(String failureReason) {
         String code = extractFailureCode(failureReason);
-        return "INVALID_RECIPIENT".equals(code)
+        return "MEMBER_NOT_ON_ACOMI".equals(code)
+                || "INVALID_RECIPIENT".equals(code)
                 || "RECIPIENT_MOBILE_MISSING".equals(code)
                 || "TEMPLATE_ERROR".equals(code)
                 || "PROVIDER_AUTH_FAILED".equals(code)
@@ -756,6 +845,20 @@ public class PaymentReminderService {
             return failureReason.substring(0, idx).trim();
         }
         return failureReason.trim();
+    }
+
+    private ReminderChannel activeChannel() {
+        return whatsAppProvider.isConfigured() ? ReminderChannel.WHATSAPP : ReminderChannel.PUSH;
+    }
+
+    private boolean activeProviderConfigured() {
+        return activeChannel() == ReminderChannel.WHATSAPP
+                ? whatsAppProvider.isConfigured()
+                : fcmProvider.isConfigured();
+    }
+
+    private String activeProviderMode() {
+        return activeChannel() == ReminderChannel.WHATSAPP ? whatsAppProvider.getMode() : "fcm";
     }
 
     private static String truncate(String value, int max) {

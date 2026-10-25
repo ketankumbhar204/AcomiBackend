@@ -39,6 +39,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockMultipartFile;
 
@@ -73,6 +74,7 @@ class PropertyBulkImportServiceTest {
                 adminMessRegistrationService,
                 propertyRegistrationRepository,
                 messRegistrationRepository,
+                Mockito.mock(com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository.class),
                 duplicateDetector,
                 validator,
                 objectMapper);
@@ -124,7 +126,7 @@ class PropertyBulkImportServiceTest {
                 .convertedSpaceId(spaceId)
                 .build();
 
-        when(adminPropertyRegistrationService.create(any(AdminCreatePropertyRegistrationRequest.class)))
+        when(adminPropertyRegistrationService.createImported(any(AdminCreatePropertyRegistrationRequest.class)))
                 .thenAnswer(invocation -> {
                     AdminCreatePropertyRegistrationRequest req = invocation.getArgument(0);
                     if ("Beta Hostel".equals(req.getPropertyName())) {
@@ -151,7 +153,7 @@ class PropertyBulkImportServiceTest {
                 .containsExactly("CONVERTED", "INVALID", "BLANK", "FAILED");
         assertThat(result.getRows().get(0).getSpaceId()).isEqualTo(spaceId.toString());
 
-        verify(adminPropertyRegistrationService, times(2)).create(any());
+        verify(adminPropertyRegistrationService, times(2)).createImported(any());
     }
 
     @Test
@@ -165,7 +167,7 @@ class PropertyBulkImportServiceTest {
                 .convertedSpaceId(spaceId)
                 .build();
 
-        when(adminMessRegistrationService.create(any()))
+        when(adminMessRegistrationService.createImported(any()))
                 .thenReturn(com.acomi.acomi_backend.mess.api.dto.response.MessRegistrationResponse.builder()
                         .reference("MR-2026-000001")
                         .submittedAt(LocalDateTime.now())
@@ -178,24 +180,48 @@ class PropertyBulkImportServiceTest {
         assertThat(result.getImported()).isEqualTo(1);
         assertThat(result.getConverted()).isEqualTo(1);
         assertThat(result.getRows().get(0).getStatus()).isEqualTo("CONVERTED");
-        verify(adminMessRegistrationService, times(1)).create(any());
-        verify(adminPropertyRegistrationService, never()).create(any());
+        verify(adminMessRegistrationService, times(1)).createImported(any());
+        verify(adminPropertyRegistrationService, never()).createImported(any());
     }
 
     @Test
     void import_doesNotCallCreateForInvalidOrBlank() throws Exception {
         MockMultipartFile file = xlsxFile(
                 new String[] {"Property Type", "Property Name", "Mobile Number", "City"},
-                new String[] {"Villa", "Nope", "9876543210", "Pune"},
-                new String[] {"", "", "", ""});
+                new String[] {"", "", "", ""},
+                new String[] {"Villa", "Nope", "9876543210", "Pune"});
 
         PropertyBulkImportResultResponse result = service.importRows(file, mappingJson, false);
 
         assertThat(result.getImported()).isZero();
         assertThat(result.getFailed()).isEqualTo(1);
         assertThat(result.getBlankSkipped()).isEqualTo(1);
-        verify(adminPropertyRegistrationService, never()).create(any());
-        verify(adminMessRegistrationService, never()).create(any());
+        verify(adminPropertyRegistrationService, never()).createImported(any());
+        verify(adminMessRegistrationService, never()).createImported(any());
+    }
+
+    @Test
+    void import_skipsReviewedRowsWithoutCreatingThem() throws Exception {
+        MockMultipartFile file = xlsxFile(
+                new String[] {"Property Type", "Property Name", "Mobile Number", "City"},
+                new String[] {"PG", "Alpha PG", "9876543210", "Pune"},
+                new String[] {"PG", "Beta PG", "9123456780", "Pune"});
+
+        when(adminPropertyRegistrationService.createImported(any(AdminCreatePropertyRegistrationRequest.class)))
+                .thenReturn(PropertyRegistrationResponse.builder()
+                        .reference("PR-2026-000002")
+                        .priceBasis(com.acomi.acomi_backend.property.domain.model.PriceBasis.PER_BED)
+                        .submittedAt(LocalDateTime.now())
+                        .build());
+        when(propertyRegistrationRepository.findByReference("PR-2026-000002")).thenReturn(Optional.empty());
+
+        PropertyBulkImportResultResponse result =
+                service.importRows(file, mappingJson, false, null, null, "[2]");
+
+        assertThat(result.getReviewSkipped()).isEqualTo(1);
+        assertThat(result.getImported()).isEqualTo(1);
+        assertThat(result.getRows()).extracting(r -> r.getStatus()).containsExactly("SKIPPED", "IMPORTED");
+        verify(adminPropertyRegistrationService, times(1)).createImported(any());
     }
 
     @Test

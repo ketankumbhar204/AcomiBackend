@@ -11,6 +11,7 @@ import lombok.Getter;
 public class InventorySupplierResponse {
 
     private UUID supplierId;
+    private String referenceCode;
     private UUID spaceId;
     private String name;
     private String phone;
@@ -22,6 +23,7 @@ public class InventorySupplierResponse {
     public static InventorySupplierResponse from(InventorySupplierEntity entity) {
         return InventorySupplierResponse.builder()
                 .supplierId(entity.getId())
+                .referenceCode(entity.getReferenceCode())
                 .spaceId(entity.getSpace().getId())
                 .name(entity.getName())
                 .phone(entity.getPhone())

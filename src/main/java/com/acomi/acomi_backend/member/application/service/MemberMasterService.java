@@ -38,6 +38,10 @@ import com.acomi.acomi_backend.member.infrastructure.persistence.repository.Spac
 import com.acomi.acomi_backend.notification.application.service.InvitationNotificationSyncService;
 import com.acomi.acomi_backend.notification.application.service.MembershipNotificationSyncService;
 import com.acomi.acomi_backend.occupancy.application.service.OccupancyService;
+import com.acomi.acomi_backend.occupancy.application.service.OccupancyTargetLabelBuilder;
+import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
+import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
+import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
 import com.acomi.acomi_backend.storage.application.service.FileAuthorizationService;
 import com.acomi.acomi_backend.storage.application.service.StoredFileService;
 import com.acomi.acomi_backend.storage.application.support.FileLegacySupport;
@@ -53,7 +57,9 @@ import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRe
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -73,11 +79,16 @@ public class MemberMasterService {
             List.of(MembershipRole.OWNER, MembershipRole.MANAGER);
 
     private static final List<SpaceType> ACCOMMODATION_SPACE_TYPES = List.of(
-            SpaceType.PG, SpaceType.HOSTEL, SpaceType.CO_LIVING, SpaceType.RENTAL);
+            SpaceType.PG, SpaceType.HOSTEL, SpaceType.CO_LIVING, SpaceType.RENTAL, SpaceType.CORPORATE_STAY);
 
     /** Portfolio scope for Mess customer import: all space types the owner may manage. */
     private static final List<SpaceType> MESS_IMPORT_SOURCE_TYPES = List.of(
-            SpaceType.MESS, SpaceType.PG, SpaceType.HOSTEL, SpaceType.CO_LIVING, SpaceType.RENTAL);
+            SpaceType.MESS,
+            SpaceType.PG,
+            SpaceType.HOSTEL,
+            SpaceType.CO_LIVING,
+            SpaceType.RENTAL,
+            SpaceType.CORPORATE_STAY);
 
     private static final Set<MemberStatus> IMPORTABLE_MEMBER_STATUSES =
             EnumSet.of(MemberStatus.ACTIVE, MemberStatus.VACATED);
@@ -98,6 +109,8 @@ public class MemberMasterService {
     private final InvitationNotificationSyncService invitationNotificationSyncService;
     private final MembershipNotificationSyncService membershipNotificationSyncService;
     private final MemberDepositLedger memberDepositLedger;
+    private final OccupancyRepository occupancyRepository;
+    private final OccupancyTargetLabelBuilder occupancyTargetLabelBuilder;
 
     @Transactional
     public MemberResponse createMember(UUID spaceId, UUID callerId, CreateMemberRequest request) {
@@ -158,7 +171,68 @@ public class MemberMasterService {
                 ? memberRepository.searchActiveMembers(spaceId, normalizedSearch, occupancyStatus)
                 : memberRepository.findBySpaceIdAndActiveTrue(spaceId);
 
-        return members.stream().map(MemberResponse::from).toList();
+        Map<UUID, String> stayLabels = stayLabels(spaceId);
+        return members.stream()
+                .map(member -> MemberResponse.from(member, stayLabelFor(member, stayLabels)))
+                .toList();
+    }
+
+    private Map<UUID, String> stayLabels(UUID spaceId) {
+        List<OccupancyEntity> occupancies = occupancyRepository.findStayTrailsBySpaceId(spaceId);
+        if (occupancies == null || occupancies.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, OccupancyEntity> chosen = new HashMap<>();
+        for (OccupancyEntity occupancy : occupancies) {
+            if (occupancy.getMember() == null || occupancy.getMember().getId() == null) {
+                continue;
+            }
+            UUID memberId = occupancy.getMember().getId();
+            OccupancyEntity current = chosen.get(memberId);
+            if (current == null || preferStay(occupancy, current)) {
+                chosen.put(memberId, occupancy);
+            }
+        }
+        Map<UUID, String> labels = new HashMap<>();
+        chosen.forEach((memberId, occupancy) -> {
+            String label = occupancyTargetLabelBuilder.build(occupancy);
+            if (StringUtils.hasText(label)) {
+                labels.put(memberId, label);
+            }
+        });
+        return labels;
+    }
+
+    private static boolean preferStay(OccupancyEntity candidate, OccupancyEntity current) {
+        boolean candidateActive = candidate.getStatus() == OccupancyStatus.ACTIVE;
+        boolean currentActive = current.getStatus() == OccupancyStatus.ACTIVE;
+        if (candidateActive != currentActive) {
+            return candidateActive;
+        }
+        LocalDateTime candidateAt = candidate.getVacatedAt() != null
+                ? candidate.getVacatedAt()
+                : candidate.getUpdatedAt();
+        LocalDateTime currentAt = current.getVacatedAt() != null
+                ? current.getVacatedAt()
+                : current.getUpdatedAt();
+        if (candidateAt == null) {
+            return false;
+        }
+        if (currentAt == null) {
+            return true;
+        }
+        return candidateAt.isAfter(currentAt);
+    }
+
+    private static String stayLabelFor(MemberEntity member, Map<UUID, String> labels) {
+        if (member.getRole() != MembershipRole.TENANT) {
+            return null;
+        }
+        if (member.getOccupancyStatus() != MemberOccupancyStatus.ALLOCATED
+                && member.getOccupancyStatus() != MemberOccupancyStatus.VACATED) {
+            return null;
+        }
+        return labels.get(member.getId());
     }
 
     /**
@@ -826,7 +900,7 @@ public class MemberMasterService {
             return;
         }
         if (!propertyReadinessService.isPropertyReady(space.getId(), type)) {
-            String message = type == SpaceType.RENTAL
+            String message = type == SpaceType.RENTAL || type == SpaceType.CORPORATE_STAY
                     ? "Add at least one unit before adding members"
                     : "Add accommodation (building with beds) before adding members";
             throw new BusinessException("PROPERTY_NOT_READY", message, HttpStatus.CONFLICT);

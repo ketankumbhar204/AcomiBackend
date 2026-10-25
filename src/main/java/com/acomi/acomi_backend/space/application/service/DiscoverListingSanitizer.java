@@ -3,7 +3,12 @@ package com.acomi.acomi_backend.space.application.service;
 import com.acomi.acomi_backend.registration.application.AdminLeadDefaults;
 import java.math.BigDecimal;
 import java.net.URI;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.util.StringUtils;
 
 /**
@@ -16,6 +21,7 @@ public final class DiscoverListingSanitizer {
     private static final BigDecimal MAX_LAT = BigDecimal.valueOf(90);
     private static final BigDecimal MIN_LNG = BigDecimal.valueOf(-180);
     private static final BigDecimal MAX_LNG = BigDecimal.valueOf(180);
+    private static final Pattern PLACE_ID = Pattern.compile("(?i)place_id[:=]([A-Za-z0-9_-]+)");
 
     private DiscoverListingSanitizer() {}
 
@@ -112,9 +118,32 @@ public final class DiscoverListingSanitizer {
             if (!"http".equals(lower) && !"https".equals(lower)) {
                 return null;
             }
-            return trimmed;
+            return openableMapsUrl(trimmed);
         } catch (IllegalArgumentException ex) {
             return null;
         }
+    }
+
+    /**
+     * Android Google Maps treats {@code q=place_id:ChIJ...} as a text search.
+     * The Maps URL API opens the place when {@code query_place_id} is set.
+     */
+    static String openableMapsUrl(String url) {
+        if (url.toLowerCase(Locale.ROOT).contains("query_place_id=")) {
+            return url;
+        }
+        String decoded = url;
+        try {
+            decoded = URLDecoder.decode(url, StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException ignored) {
+            decoded = url;
+        }
+        Matcher matcher = PLACE_ID.matcher(decoded);
+        if (!matcher.find()) {
+            return url;
+        }
+        String placeId = matcher.group(1);
+        String encoded = URLEncoder.encode(placeId, StandardCharsets.UTF_8);
+        return "https://www.google.com/maps/search/?api=1&query=" + encoded + "&query_place_id=" + encoded;
     }
 }

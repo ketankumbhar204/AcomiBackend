@@ -24,6 +24,13 @@ public interface SpaceRepository extends JpaRepository<SpaceEntity, UUID>, JpaSp
             SELECT s FROM SpaceEntity s
             JOIN FETCH s.owner
             WHERE s.id = :id
+            """)
+    Optional<SpaceEntity> findWithOwnerById(@Param("id") UUID id);
+
+    @Query("""
+            SELECT s FROM SpaceEntity s
+            JOIN FETCH s.owner
+            WHERE s.id = :id
               AND s.isActive = true
             """)
     Optional<SpaceEntity> findActiveWithOwnerById(@Param("id") UUID id);

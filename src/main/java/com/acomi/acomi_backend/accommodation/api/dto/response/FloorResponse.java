@@ -14,6 +14,7 @@ public class FloorResponse {
 
     private UUID floorId;
     private UUID buildingId;
+    private String referenceCode;
     private String name;
     private int floorNumber;
     private int sortOrder;
@@ -31,6 +32,7 @@ public class FloorResponse {
         return FloorResponse.builder()
                 .floorId(floor.getId())
                 .buildingId(floor.getBuilding().getId())
+                .referenceCode(floor.getReferenceCode())
                 .name(floor.getName())
                 .floorNumber(floor.getFloorNumber())
                 .sortOrder(floor.getSortOrder())

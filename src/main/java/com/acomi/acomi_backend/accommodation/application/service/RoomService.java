@@ -13,6 +13,8 @@ import com.acomi.acomi_backend.accommodation.infrastructure.persistence.reposito
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.repository.UnitRepository;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
+import com.acomi.acomi_backend.occupancy.application.service.AccommodationStatusSyncService;
+import com.acomi.acomi_backend.occupancy.domain.model.AllocationTargetType;
 import com.acomi.acomi_backend.storage.application.service.EntityPhotoService;
 import com.acomi.acomi_backend.storage.domain.model.FilePurpose;
 import java.util.List;
@@ -37,6 +39,7 @@ public class RoomService {
     private final AccommodationLayoutService layoutService;
     private final SyntheticUnitService syntheticUnitService;
     private final EntityPhotoService entityPhotoService;
+    private final AccommodationStatusSyncService statusSyncService;
 
     @Transactional
     public RoomResponse createRoomUnderFloor(
@@ -119,7 +122,10 @@ public class RoomService {
         RoomEntity room = roomRepository.findActiveByIdAndSpaceId(roomId, spaceId)
                 .orElseThrow(() -> ResourceNotFoundException.notInSpace("Room", roomId));
 
-        return RoomResponse.from(room, actionService.forRoom(spaceId, room, callerId));
+        return RoomResponse.from(
+                room,
+                actionService.forRoom(spaceId, room, callerId),
+                statusSyncService.displayedRoomStatus(room.getStatus(), room.getId()));
     }
 
     @Transactional
@@ -140,7 +146,19 @@ public class RoomService {
         room.setDefaultRent(request.getDefaultRent());
         room.setDefaultDeposit(request.getDefaultDeposit());
 
-        return RoomResponse.from(roomRepository.save(room));
+        RoomEntity saved = roomRepository.save(room);
+        if (request.getStatus() != AccommodationStatus.MAINTENANCE
+                && request.getStatus() != AccommodationStatus.BLOCKED) {
+            statusSyncService.syncTarget(
+                    AllocationTargetType.ROOM,
+                    null,
+                    roomId,
+                    saved.getUnit() != null ? saved.getUnit().getId() : null);
+        }
+        return RoomResponse.from(
+                saved,
+                null,
+                statusSyncService.displayedRoomStatus(saved.getStatus(), saved.getId()));
     }
 
     @Transactional

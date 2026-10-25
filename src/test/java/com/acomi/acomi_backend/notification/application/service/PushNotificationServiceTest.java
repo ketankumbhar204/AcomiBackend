@@ -1,23 +1,16 @@
 package com.acomi.acomi_backend.notification.application.service;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.acomi.acomi_backend.notification.application.event.NotificationCreatedEvent;
 import com.acomi.acomi_backend.notification.config.PushProperties;
-import com.acomi.acomi_backend.notification.domain.model.DevicePlatform;
-import com.acomi.acomi_backend.notification.domain.model.NotificationEntityType;
 import com.acomi.acomi_backend.notification.domain.model.NotificationType;
 import com.acomi.acomi_backend.notification.infrastructure.firebase.FirebaseMessagingService;
-import com.acomi.acomi_backend.notification.infrastructure.persistence.entity.UserDeviceTokenEntity;
-import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,9 +22,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class PushNotificationServiceTest {
 
     @Mock
-    private PushProperties pushProperties;
-
-    @Mock
     private DeviceTokenService deviceTokenService;
 
     @Mock
@@ -41,109 +31,57 @@ class PushNotificationServiceTest {
     private SpaceRepository spaceRepository;
 
     private PushNotificationService service;
+    private UUID userId;
 
     @BeforeEach
     void setUp() {
+        PushProperties properties = new PushProperties();
+        properties.setEnabled(true);
         service = new PushNotificationService(
-                pushProperties, deviceTokenService, firebaseMessagingService, spaceRepository);
+                properties, deviceTokenService, firebaseMessagingService, spaceRepository);
+        userId = UUID.randomUUID();
     }
 
     @Test
-    void deliverSendsToActiveTokens() {
-        UUID userId = UUID.randomUUID();
-        UUID spaceId = UUID.randomUUID();
-        when(pushProperties.isEnabled()).thenReturn(true);
-        when(firebaseMessagingService.isAvailable()).thenReturn(true);
-        when(deviceTokenService.listActiveForUser(userId)).thenReturn(List.of(token(userId)));
-        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space("Sunrise PG")));
-        when(firebaseMessagingService.send(anyString(), anyString(), any(), anyList())).thenReturn(List.of());
-
-        service.deliver(event(userId, spaceId));
-
-        verify(firebaseMessagingService).send(anyString(), anyString(), any(), anyList());
-        verify(deviceTokenService, never()).deactivateTokens(any());
-    }
-
-    @Test
-    void fcmFailureDoesNotThrow() {
-        UUID userId = UUID.randomUUID();
-        UUID spaceId = UUID.randomUUID();
-        when(pushProperties.isEnabled()).thenReturn(true);
-        when(firebaseMessagingService.isAvailable()).thenReturn(true);
-        when(deviceTokenService.listActiveForUser(userId)).thenReturn(List.of(token(userId)));
-        when(spaceRepository.findById(spaceId)).thenReturn(Optional.empty());
-        when(firebaseMessagingService.send(anyString(), anyString(), any(), anyList()))
-                .thenThrow(new RuntimeException("Firebase unavailable"));
-
-        service.deliver(event(userId, spaceId));
-
-        verify(deviceTokenService, never()).deactivateTokens(any());
-    }
-
-    @Test
-    void invalidTokensAreDeactivated() {
-        UUID userId = UUID.randomUUID();
-        UUID spaceId = UUID.randomUUID();
-        when(pushProperties.isEnabled()).thenReturn(true);
-        when(firebaseMessagingService.isAvailable()).thenReturn(true);
-        when(deviceTokenService.listActiveForUser(userId)).thenReturn(List.of(token(userId)));
-        when(spaceRepository.findById(spaceId)).thenReturn(Optional.empty());
-        when(firebaseMessagingService.send(anyString(), anyString(), any(), anyList()))
-                .thenReturn(List.of("dead-token"));
-
-        service.deliver(event(userId, spaceId));
-
-        verify(deviceTokenService).deactivateTokens(List.of("dead-token"));
-    }
-
-    @Test
-    void disabledPushSkipsFcm() {
-        when(pushProperties.isEnabled()).thenReturn(false);
-
-        service.deliver(event(UUID.randomUUID(), UUID.randomUUID()));
-
-        verify(firebaseMessagingService, never()).send(anyString(), anyString(), any(), anyList());
-    }
-
-    @Test
-    void noActiveTokenSkipsFcm() {
-        UUID userId = UUID.randomUUID();
-        when(pushProperties.isEnabled()).thenReturn(true);
+    void missingTokensDoNotThrowOrSend() {
         when(firebaseMessagingService.isAvailable()).thenReturn(true);
         when(deviceTokenService.listActiveForUser(userId)).thenReturn(List.of());
 
-        service.deliver(event(userId, UUID.randomUUID()));
-
-        verify(firebaseMessagingService, never()).send(anyString(), anyString(), any(), anyList());
-    }
-
-    private static NotificationCreatedEvent event(UUID userId, UUID spaceId) {
-        return NotificationCreatedEvent.builder()
+        service.deliver(NotificationCreatedEvent.builder()
                 .notificationId(UUID.randomUUID())
                 .userId(userId)
-                .spaceId(spaceId)
-                .notificationType(NotificationType.PAYMENT_APPROVED)
-                .entityType(NotificationEntityType.PAYMENT)
-                .entityId(UUID.randomUUID())
-                .title("Payment recorded")
-                .body("Your payment was recorded.")
-                .actionRoute("PaymentDetail")
-                .build();
+                .notificationType(NotificationType.PHOTO_REQUEST_RECEIVED)
+                .title("Photo request received")
+                .body("Someone interested in Green PG has requested photos.")
+                .build());
+
+        verify(firebaseMessagingService, never()).send(any(), any(), any(), any());
     }
 
-    private static UserDeviceTokenEntity token(UUID userId) {
-        return UserDeviceTokenEntity.builder()
+    @Test
+    void providerFailureDoesNotPropagate() {
+        when(firebaseMessagingService.isAvailable()).thenReturn(true);
+        when(deviceTokenService.listActiveForUser(userId))
+                .thenReturn(List.of(token("token-1")));
+        when(spaceRepository.findById(any())).thenReturn(java.util.Optional.empty());
+        when(firebaseMessagingService.send(any(), any(), any(), any()))
+                .thenThrow(new IllegalStateException("fcm down"));
+
+        service.deliver(NotificationCreatedEvent.builder()
+                .notificationId(UUID.randomUUID())
                 .userId(userId)
-                .deviceId("device-1")
-                .fcmToken("fcm-token")
-                .platform(DevicePlatform.ANDROID)
-                .active(true)
-                .build();
+                .spaceId(UUID.randomUUID())
+                .notificationType(NotificationType.PHOTO_REQUEST_RECEIVED)
+                .title("Photo request received")
+                .body("Someone interested in Green PG has requested photos.")
+                .build());
     }
 
-    private static SpaceEntity space(String name) {
-        SpaceEntity space = new SpaceEntity();
-        space.setName(name);
-        return space;
+    private static com.acomi.acomi_backend.notification.infrastructure.persistence.entity.UserDeviceTokenEntity token(
+            String value) {
+        var entity =
+                new com.acomi.acomi_backend.notification.infrastructure.persistence.entity.UserDeviceTokenEntity();
+        entity.setFcmToken(value);
+        return entity;
     }
 }

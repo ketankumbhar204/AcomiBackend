@@ -12,6 +12,7 @@ import lombok.Getter;
 public class InquiryCreditPackageResponse {
 
     private UUID id;
+    private String referenceCode;
     private String name;
     private BigDecimal priceAmount;
     private String currency;
@@ -24,6 +25,7 @@ public class InquiryCreditPackageResponse {
     public static InquiryCreditPackageResponse from(InquiryCreditPackageEntity pkg) {
         return InquiryCreditPackageResponse.builder()
                 .id(pkg.getId())
+                .referenceCode(pkg.getReferenceCode())
                 .name(pkg.getName())
                 .priceAmount(pkg.getPriceAmount())
                 .currency(pkg.getCurrency())

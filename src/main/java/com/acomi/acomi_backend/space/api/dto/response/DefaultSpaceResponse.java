@@ -13,6 +13,7 @@ import lombok.Getter;
 public class DefaultSpaceResponse {
 
     private UUID spaceId;
+    private String referenceCode;
     private String spaceName;
 
     @Schema(description = "Space category", implementation = SpaceType.class)
@@ -21,6 +22,7 @@ public class DefaultSpaceResponse {
     public static DefaultSpaceResponse from(SpaceMembershipEntity membership) {
         return DefaultSpaceResponse.builder()
                 .spaceId(membership.getSpace().getId())
+                .referenceCode(membership.getSpace().getReferenceCode())
                 .spaceName(membership.getSpace().getName())
                 .spaceType(membership.getSpace().getType())
                 .build();

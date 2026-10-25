@@ -64,10 +64,11 @@ public class PropertyBulkImportController {
             @RequestParam(value = "markAsTestLead", defaultValue = "false") boolean markAsTestLead,
             @RequestPart(value = "keepDuplicateRowNumbers", required = false)
                     String keepDuplicateRowNumbers,
-            @RequestPart(value = "fieldOverrides", required = false) String fieldOverrides) {
+            @RequestPart(value = "fieldOverrides", required = false) String fieldOverrides,
+            @RequestPart(value = "skipRowNumbers", required = false) String skipRowNumbers) {
         return ResponseEntity.ok(ApiResponse.success(
                 "Bulk import completed",
                 propertyBulkImportService.importRows(
-                        file, mapping, markAsTestLead, keepDuplicateRowNumbers, fieldOverrides)));
+                        file, mapping, markAsTestLead, keepDuplicateRowNumbers, fieldOverrides, skipRowNumbers)));
     }
 }

@@ -19,6 +19,7 @@ import com.acomi.acomi_backend.enquiry.api.dto.response.EnquiryInboxListingRespo
 import com.acomi.acomi_backend.enquiry.api.dto.response.EnquiryInboxResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.response.OwnerContactResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.response.ReceivedEnquiryResponse;
+import com.acomi.acomi_backend.enquiry.api.dto.response.ReceivedEnquirySummaryResponse;
 import com.acomi.acomi_backend.enquiry.api.dto.response.SpaceEnquiryResponse;
 import com.acomi.acomi_backend.enquiry.domain.model.EnquiryInboxMode;
 import com.acomi.acomi_backend.enquiry.domain.model.EnquiryDeliveryChannel;
@@ -368,9 +369,6 @@ public class SpaceEnquiryService {
      */
     /** Instant website views stay on the listing page and must not look like an email was sent. */
     private static boolean viewHereOnly(SpaceEnquiryEntity enquiry, Set<EnquiryDeliveryChannel> deliveries) {
-        if (enquiry.getClientChannel() == InquiryClientChannel.ANDROID) {
-            return false;
-        }
         if (enquiry.getContactEmailSentAt() != null) {
             return false;
         }
@@ -509,6 +507,9 @@ public class SpaceEnquiryService {
                         .spaceId(space.getId())
                         .name(space.getName())
                         .spaceType(space.getType())
+                        .locationLabel(space.getAddress() == null || space.getAddress().isBlank()
+                                ? null
+                                : firstTwoParts(space.getAddress().trim()))
                         .build())
                 .sorted((left, right) -> String.CASE_INSENSITIVE_ORDER.compare(
                         left.getName() == null ? "" : left.getName(),
@@ -527,6 +528,7 @@ public class SpaceEnquiryService {
             SpaceEnquiryStatus status,
             LocalDate from,
             LocalDate to,
+            String query,
             Pageable pageable) {
         expirePendingAndNotify(LocalDateTime.now(clock));
         Pageable safe = safePage(pageable);
@@ -544,9 +546,39 @@ public class SpaceEnquiryService {
         }
         LocalDateTime fromAt = from == null ? null : from.atStartOfDay();
         LocalDateTime toAt = to == null ? null : to.plusDays(1).atStartOfDay();
-        Page<SpaceEnquiryEntity> page = enquiryRepository.searchReceived(scope, status, fromAt, toAt, safe);
+        Page<SpaceEnquiryEntity> page = enquiryRepository.searchReceived(
+                scope, status, fromAt, toAt, blankToNull(query), safe);
         Map<UUID, SpaceEntity> spaces = loadSpaces(page.getContent());
         return PagedResponse.from(page.map(entity -> toReceived(entity, spaces.get(entity.getSpaceId()))));
+    }
+
+    @Transactional(readOnly = true)
+    public ReceivedEnquirySummaryResponse receivedSummary(UUID userId, UUID spaceId) {
+        java.util.Collection<UUID> scope = enquiryInboxAccess.requireScope(userId, spaceId);
+        long pending = 0;
+        long shared = 0;
+        long closed = 0;
+        if (!scope.isEmpty()) {
+            for (Object[] row : enquiryRepository.countReceivedByStatus(scope)) {
+                if (row == null || row.length < 2 || row[0] == null || row[1] == null) {
+                    continue;
+                }
+                long count = ((Number) row[1]).longValue();
+                if (row[0] == SpaceEnquiryStatus.PENDING) {
+                    pending += count;
+                } else if (row[0] == SpaceEnquiryStatus.SHARED) {
+                    shared += count;
+                } else {
+                    closed += count;
+                }
+            }
+        }
+        return ReceivedEnquirySummaryResponse.builder()
+                .total(pending + shared + closed)
+                .pending(pending)
+                .shared(shared)
+                .closed(closed)
+                .build();
     }
 
     @Transactional
@@ -1277,23 +1309,37 @@ public class SpaceEnquiryService {
         }
     }
 
+    private static String firstText(String preferred, String fallback) {
+        if (preferred != null && !preferred.isBlank()) {
+            return preferred.trim();
+        }
+        if (fallback != null && !fallback.isBlank()) {
+            return fallback.trim();
+        }
+        return null;
+    }
+
     private ReceivedEnquiryResponse toReceived(SpaceEnquiryEntity entity, SpaceEntity space) {
         UserEntity requester = userRepository.findById(entity.getRequesterUserId()).orElse(null);
-        EnquiryListingDetails listing =
+        EnquiryListingDetails resolved =
                 space == null ? EnquiryListingDetails.empty() : listingDetailsResolver.resolve(space);
-        String name = entity.getRequesterNameSnapshot();
-        if ((name == null || name.isBlank()) && requester != null) {
-            name = requester.getFullName();
-        }
+        EnquiryListingDetails listing = resolved == null ? EnquiryListingDetails.empty() : resolved;
+        String name = firstText(entity.getRequesterNameSnapshot(), requester != null ? requester.getFullName() : null);
+        String email = firstText(entity.getRequesterEmail(), requester != null ? requester.getEmail() : null);
         return ReceivedEnquiryResponse.builder()
                 .enquiryId(entity.getId())
+                .referenceCode(entity.getReferenceCode())
                 .spaceId(entity.getSpaceId())
                 .spaceName(entity.getSpaceNameSnapshot() != null ? entity.getSpaceNameSnapshot() : space != null ? space.getName() : null)
                 .spaceType(space != null ? space.getType() : null)
                 .locationLabel(locationLabel(space, listing))
+                .sharingNotes(listing.sharingNotes())
+                .foodIncludedLabel(listing.foodIncluded())
+                .listingAvailable(space != null && space.isActive())
                 .requesterName(name)
-                .requesterEmail(entity.getRequesterEmail())
+                .requesterEmail(email)
                 .requesterMobile(requester != null ? requester.getMobileNumber() : null)
+                .requesterType(entity.getRequesterType())
                 .status(entity.getStatus())
                 .requestedAt(entity.getRequestedAt())
                 .expiresAt(entity.getExpiresAt())
@@ -1536,17 +1582,7 @@ public class SpaceEnquiryService {
             SpaceEnquiryEntity entity, SpaceEntity space, EnquiryListingDetails listing) {
         EnquiryListingDetails safe = listing == null ? EnquiryListingDetails.empty() : listing;
         OwnerContactResponse memberContact = null;
-        InquiryClientChannel channel =
-                entity.getClientChannel() != null ? entity.getClientChannel() : InquiryClientChannel.WEB;
-        boolean appDeliveryActive = false;
-        if (entity.getStatus() == SpaceEnquiryStatus.SHARED) {
-            appDeliveryActive = deliveryRepository
-                    .findActiveAppDelivery(
-                            entity.getSpaceId(), entity.getRequesterUserId(), LocalDateTime.now(clock))
-                    .isPresent();
-        }
-        if (entity.getStatus() == SpaceEnquiryStatus.SHARED
-                && (channel == InquiryClientChannel.ANDROID || appDeliveryActive)) {
+        if (entity.getStatus() == SpaceEnquiryStatus.SHARED && space != null) {
             memberContact = ownerContactResolver.resolveOrEmpty(space);
         }
         SpaceEnquiryResponse base = SpaceEnquiryResponse.from(

@@ -13,6 +13,7 @@ import com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus;
 import com.acomi.acomi_backend.payment.infrastructure.persistence.entity.SpacePaymentEntity;
 import com.acomi.acomi_backend.payment.infrastructure.persistence.repository.SpacePaymentRepository;
 import java.time.YearMonth;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
@@ -133,8 +134,31 @@ public class PaymentNotificationSyncService {
             }
         }
 
+        List<SpacePaymentEntity> tenantScope = new ArrayList<>(payments);
+        Set<UUID> monthPaymentIds = new HashSet<>();
+        for (SpacePaymentEntity payment : payments) {
+            if (payment.getId() != null) {
+                monthPaymentIds.add(payment.getId());
+            }
+        }
+        for (SpacePaymentEntity payment : paymentRepository.findUpdateRequestedBySpaceId(spaceId)) {
+            if (payment.getId() != null && !monthPaymentIds.add(payment.getId())) {
+                continue;
+            }
+            tenantScope.add(payment);
+            UUID tenantUserId = linkedUserId(payment);
+            if (tenantUserId == null) {
+                continue;
+            }
+            String tenantKey = actionDedupeKey(
+                    NotificationType.PAYMENT_UPDATE_REQUESTED, payment.getId(), tenantUserId);
+            expectedTenantKeys.add(tenantKey);
+            publishTenantUpdateAction(
+                    spaceId, tenantUserId, null, payment, payment.getRejectionReason(), tenantKey);
+        }
+
         resolveStaleOwnerPaymentActions(spaceId, managerIds, expectedOwnerKeys);
-        resolveStaleTenantUpdateActions(spaceId, payments, expectedTenantKeys);
+        resolveStaleTenantUpdateActions(spaceId, tenantScope, expectedTenantKeys);
         for (SpacePaymentEntity payment : payments) {
             if (REVIEW_STATUSES.contains(payment.getPaymentStatus())
                     || payment.getPaymentStatus() == SpacePaymentStatus.UPDATE_REQUESTED) {

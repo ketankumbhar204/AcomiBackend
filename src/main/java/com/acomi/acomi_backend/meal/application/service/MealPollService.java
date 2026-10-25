@@ -198,6 +198,10 @@ public class MealPollService {
                     loadPreferredDeliveryLocationIds(spaceId, memberId, activeDeliveryEntities);
         }
 
+        String myChooseMealsBlockReason = memberId == null
+                ? null
+                : chooseMealsBlockReason(space, memberId, pollDate, polls);
+
         return MealPollDayResponse.builder()
                 .pollDate(pollDate)
                 .polls(polls)
@@ -214,7 +218,44 @@ public class MealPollService {
                 .myPrepaidOverflowPayment(myPrepaidOverflowPayment)
                 .myPaymentChargedAmount(myPaymentChargedAmount)
                 .myPaymentAdjustment(myPaymentAdjustment)
+                .myChooseMealsBlockReason(myChooseMealsBlockReason)
                 .build();
+    }
+
+    /**
+     * Open polls are visible to anyone who can view meals. Submitting still requires a
+     * non-stopped meal participation and date eligibility, so the client must be told
+     * up front when Save would be rejected.
+     */
+    private String chooseMealsBlockReason(
+            SpaceEntity space, UUID memberId, LocalDate pollDate, List<MealPollResponse> polls) {
+        boolean anyOpen = polls.stream().anyMatch(poll -> poll.getStatus() == MealPollStatus.OPEN);
+        if (!anyOpen) {
+            return null;
+        }
+        MealParticipationEntity participation = participationRepository
+                .findBySpaceIdAndMemberIdAndStatus(space.getId(), memberId, MealParticipationStatus.ACTIVE)
+                .or(() -> participationRepository.findBySpaceIdAndMemberIdAndStatus(
+                        space.getId(), memberId, MealParticipationStatus.PAUSED))
+                .orElse(null);
+        if (participation == null) {
+            return noMealParticipationMessage(space.getType());
+        }
+        boolean eligibleForAnOpenMeal = polls.stream()
+                .filter(poll -> poll.getStatus() == MealPollStatus.OPEN)
+                .anyMatch(poll -> pollEligibilityPolicy.isPollEligible(
+                        participation, pollDate, poll.getMealType()));
+        if (!eligibleForAnOpenMeal) {
+            return "You are not eligible to choose meals for this date.";
+        }
+        return null;
+    }
+
+    private static String noMealParticipationMessage(SpaceType spaceType) {
+        if (spaceType == SpaceType.MESS) {
+            return "Meals are not enabled for your account yet. Ask the owner to turn on meal access.";
+        }
+        return "Move in to a bed before choosing meals. The owner has to allocate your stay and turn on meals.";
     }
 
     private Map<MealType, UUID> loadPreferredDeliveryLocationIds(
@@ -467,9 +508,14 @@ public class MealPollService {
 
         BigDecimal prepaidOverflowCurrency = BigDecimal.ZERO;
 
+        LocalDateTime nowInSpace = MealPollCloseAtCalculator.nowInSpace(space);
         for (SubmitMealPollSelectionRequest selection : selections) {
             MealPollEntity poll = loadPoll(spaceId, pollDate, selection.getMealType());
-            if (poll.getStatus() != MealPollStatus.OPEN) {
+            if (MealPollCloseAtCalculator.isEffectivelyClosed(
+                    poll.getStatus(), poll.getPollDate(), poll.getPollCloseAt(), nowInSpace)) {
+                if (poll.getStatus() == MealPollStatus.OPEN) {
+                    closePollEntity(poll, MealPollCloseSource.AUTOMATIC);
+                }
                 throw new BusinessException(
                         "Poll is closed for " + formatMealType(selection.getMealType()), HttpStatus.BAD_REQUEST);
             }
@@ -477,7 +523,8 @@ public class MealPollService {
             MealParticipationEntity participation = participations.stream()
                     .filter(p -> p.getMember().getId().equals(memberId))
                     .findFirst()
-                    .orElseThrow(() -> new BusinessException("No meal participation found", HttpStatus.FORBIDDEN));
+                    .orElseThrow(() -> new BusinessException(
+                            noMealParticipationMessage(space.getType()), HttpStatus.FORBIDDEN));
 
             if (!pollEligibilityPolicy.isPollEligible(participation, pollDate, selection.getMealType())) {
                 throw new BusinessException(
@@ -1029,9 +1076,12 @@ public class MealPollService {
             throw new BusinessException("Select a meal option", HttpStatus.BAD_REQUEST);
         }
 
-        MealPollOptionEntity option = loadOptionForPoll(poll, selection.getSelectedOptionId());
+        UUID pollId = poll.getId();
+        UUID memberId = member.getId();
+        UUID optionId = selection.getSelectedOptionId();
+        MealPollOptionEntity option = loadOptionForPoll(poll, optionId);
         List<MealPollResponseEntity> existing =
-                responseRepository.findAllByPollIdAndMemberId(poll.getId(), member.getId());
+                responseRepository.findAllByPollIdAndMemberId(pollId, memberId);
         if (existing.size() == 1
                 && existing.get(0).getSelectedOption().getId().equals(option.getId())) {
             MealPollResponseEntity response = existing.get(0);
@@ -1042,15 +1092,10 @@ public class MealPollService {
             return;
         }
 
-        responseRepository.deleteByPollIdAndMemberId(poll.getId(), member.getId());
-        responseRepository.save(MealPollResponseEntity.builder()
-                .poll(poll)
-                .member(member)
-                .selectedOption(option)
-                .quantity(1)
-                .respondedAt(LocalDateTime.now())
-                .source(MealPollResponseSource.APP)
-                .build());
+        responseRepository.deleteByPollIdAndMemberId(pollId, memberId);
+        // The bulk delete clears the persistence context. Saving the pre-delete
+        // option leaves a detached menu-entry proxy and the transaction rolls back.
+        responseRepository.save(newManagedResponse(pollId, memberId, optionId, 1));
     }
 
     private void submitMultiQuantityResponses(
@@ -1076,8 +1121,10 @@ public class MealPollService {
             totalPlates += optionQuantity.getQuantity();
         }
 
+        UUID pollId = poll.getId();
+        UUID memberId = member.getId();
         // Zero plates = intentional skip / no response for this meal.
-        responseRepository.deleteByPollIdAndMemberId(poll.getId(), member.getId());
+        responseRepository.deleteByPollIdAndMemberId(pollId, memberId);
         if (totalPlates <= 0) {
             return;
         }
@@ -1086,16 +1133,33 @@ public class MealPollService {
             if (optionQuantity.getQuantity() == null || optionQuantity.getQuantity() <= 0) {
                 continue;
             }
-            MealPollOptionEntity option = loadOptionForPoll(poll, optionQuantity.getOptionId());
-            responseRepository.save(MealPollResponseEntity.builder()
-                    .poll(poll)
-                    .member(member)
-                    .selectedOption(option)
-                    .quantity(optionQuantity.getQuantity())
-                    .respondedAt(LocalDateTime.now())
-                    .source(MealPollResponseSource.APP)
-                    .build());
+            responseRepository.save(newManagedResponse(
+                    pollId, memberId, optionQuantity.getOptionId(), optionQuantity.getQuantity()));
         }
+    }
+
+    /**
+     * Reload poll, member, and option after {@code deleteByPollIdAndMemberId}.
+     * That query clears the persistence context, so entities loaded before it
+     * are detached and their lazy menu entries have no session.
+     */
+    private MealPollResponseEntity newManagedResponse(
+            UUID pollId, UUID memberId, UUID optionId, int quantity) {
+        MealPollEntity poll = pollRepository
+                .findById(pollId)
+                .orElseThrow(() -> new BusinessException("Poll not found for this meal slot", HttpStatus.NOT_FOUND));
+        MemberEntity member = memberRepository
+                .findById(memberId)
+                .orElseThrow(() -> new BusinessException("Member not found", HttpStatus.NOT_FOUND));
+        MealPollOptionEntity option = loadOptionForPoll(poll, optionId);
+        return MealPollResponseEntity.builder()
+                .poll(poll)
+                .member(member)
+                .selectedOption(option)
+                .quantity(quantity)
+                .respondedAt(LocalDateTime.now())
+                .source(MealPollResponseSource.APP)
+                .build();
     }
 
     private boolean selectionHasPlates(SubmitMealPollSelectionRequest selection) {
@@ -1190,6 +1254,7 @@ public class MealPollService {
                         .add(packageItem);
             }
         }
+        boolean includePrices = poll.getSpace() != null && poll.getSpace().getType() == SpaceType.MESS;
         List<MealPollOptionResponse> options = new ArrayList<>(optionEntities.size());
         for (MealPollOptionEntity option : optionEntities) {
             DailyMenuEntryEntity entry = option.getDailyMenuEntry();
@@ -1197,7 +1262,7 @@ public class MealPollService {
                     ? List.of()
                     : packageItemsByEntryId.getOrDefault(entry.getId(), List.of());
             boolean extra = MenuExtraClassifier.isPresentedAsExtra(entry, packageItems, catalogExtraIds);
-            options.add(MealPollOptionResponse.from(option, extra));
+            options.add(MealPollOptionResponse.from(option, extra, includePrices));
         }
 
         boolean multiQuantityEnabled = poll.getSpace().getType() == SpaceType.MESS;
@@ -1232,11 +1297,16 @@ public class MealPollService {
 
         int responseCount = responseRepository.countDistinctRespondingMembers(poll.getId());
 
+        LocalDateTime nowInSpace = poll.getSpace() != null
+                ? MealPollCloseAtCalculator.nowInSpace(poll.getSpace())
+                : null;
         return MealPollResponse.builder()
                 .id(poll.getId())
+                .referenceCode(poll.getReferenceCode())
                 .pollDate(poll.getPollDate())
                 .mealType(poll.getMealType())
-                .status(poll.getStatus())
+                .status(MealPollCloseAtCalculator.effectiveStatus(
+                        poll.getStatus(), poll.getPollDate(), poll.getPollCloseAt(), nowInSpace))
                 .dailyMenuId(poll.getDailyMenu().getId())
                 .options(options)
                 .mySelectedOptionId(selectedOptionId)

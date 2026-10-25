@@ -15,6 +15,7 @@ public final class SpaceMapper {
     public static Space toDomain(SpaceEntity entity) {
         return Space.builder()
                 .id(entity.getId())
+                .referenceCode(entity.getReferenceCode())
                 .name(entity.getName())
                 .type(entity.getType())
                 .address(entity.getAddress())
@@ -25,6 +26,7 @@ public final class SpaceMapper {
                 .active(entity.isActive())
                 .defaultFoodCharge(entity.getDefaultFoodCharge())
                 .foodIncludedInRent(entity.isFoodIncludedInRent())
+                .genderPolicy(entity.getGenderPolicy())
                 .mealBillingType(entity.getMealBillingType())
                 .prepaidBalanceUnit(entity.getPrepaidBalanceUnit())
                 .prepaidFallbackToPayPerMeal(entity.isPrepaidFallbackToPayPerMeal())
@@ -45,6 +47,11 @@ public final class SpaceMapper {
         if (request.getFoodIncludedInRent() != null) {
             builder.foodIncludedInRent(request.getFoodIncludedInRent());
         }
+        if (request.getGenderPolicy() != null) {
+            builder.genderPolicy(request.getGenderPolicy());
+        } else {
+            builder.genderPolicy(space.getGenderPolicy());
+        }
         return builder.build();
     }
 
@@ -56,6 +63,7 @@ public final class SpaceMapper {
         entity.setContactNumber(space.getContactNumber());
         entity.setDefaultFoodCharge(space.getDefaultFoodCharge());
         entity.setFoodIncludedInRent(space.isFoodIncludedInRent());
+        entity.setGenderPolicy(space.getGenderPolicy());
         entity.setMealBillingType(space.getMealBillingType());
         entity.setPrepaidBalanceUnit(space.getPrepaidBalanceUnit());
         entity.setPrepaidFallbackToPayPerMeal(space.isPrepaidFallbackToPayPerMeal());

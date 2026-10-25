@@ -1,5 +1,8 @@
 package com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity;
 
+import com.acomi.acomi_backend.common.reference.BusinessReferencePrefix;
+import com.acomi.acomi_backend.common.reference.BusinessReferenced;
+
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.BuildingEntity;
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.BedEntity;
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.FloorEntity;
@@ -46,7 +49,15 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class OccupancyEntity extends BaseEntity {
+public class OccupancyEntity extends BaseEntity implements BusinessReferenced {
+    @Column(name = "reference_code", nullable = false, updatable = false, length = 24)
+    private String referenceCode;
+
+    @Override
+    public BusinessReferencePrefix businessReferencePrefix() {
+        return BusinessReferencePrefix.STY;
+    }
+
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "space_id", nullable = false)

@@ -30,7 +30,7 @@ public class PropertyReadinessService {
         if (buildings <= 0) {
             return false;
         }
-        if (spaceType == SpaceType.RENTAL) {
+        if (spaceType == SpaceType.RENTAL || spaceType == SpaceType.CORPORATE_STAY) {
             return unitRepository.countVisibleActiveBySpaceId(spaceId) > 0;
         }
         // PG / HOSTEL / CO_LIVING — allocatable beds required

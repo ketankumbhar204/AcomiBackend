@@ -121,6 +121,12 @@ class MemberMasterServiceTest {
     @Mock
     private FileAuthorizationService fileAuthorizationService;
 
+    @Mock
+    private com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository occupancyRepository;
+
+    @Mock
+    private com.acomi.acomi_backend.occupancy.application.service.OccupancyTargetLabelBuilder occupancyTargetLabelBuilder;
+
     @InjectMocks
     private MemberMasterService memberMasterService;
 

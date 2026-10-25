@@ -11,6 +11,7 @@ import lombok.Getter;
 public class AdminActiveSpaceResponse {
 
     private UUID id;
+    private String referenceCode;
     private String name;
     private SpaceType type;
     private String address;

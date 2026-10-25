@@ -24,6 +24,7 @@ import lombok.Getter;
 public class MemberDetailsResponse {
 
     private UUID memberId;
+    private String referenceCode;
     private UUID spaceId;
     private String fullName;
     private String mobileNumber;
@@ -106,6 +107,7 @@ public class MemberDetailsResponse {
         BigDecimal depositBalance = member.getDepositPaid().subtract(member.getDepositRefunded());
         return MemberDetailsResponse.builder()
                 .memberId(member.getId())
+                .referenceCode(member.getReferenceCode())
                 .spaceId(member.getSpace().getId())
                 .fullName(member.getFullName())
                 .mobileNumber(resolveMobileNumber(member))

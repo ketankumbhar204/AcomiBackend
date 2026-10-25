@@ -12,6 +12,7 @@ import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.occupancy.domain.model.AllocationTargetType;
 import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -171,17 +172,44 @@ public class AccommodationStatusSyncService {
         return AccommodationStatus.AVAILABLE;
     }
 
+    /** Status shown for a room: occupied only when every bookable bed is occupied. */
+    public AccommodationStatus displayedRoomStatus(AccommodationStatus stored, UUID roomId) {
+        if (isOperatorLocked(stored)) {
+            return stored;
+        }
+        return deriveRoomStatus(roomId);
+    }
+
     private AccommodationStatus deriveRoomStatus(UUID roomId) {
-        if (occupancyRepository.existsByRoomIdAndStatus(roomId, OccupancyStatus.ACTIVE)
-                || bedRepository.findActiveByRoomId(roomId).stream()
-                        .anyMatch(bed -> occupancyRepository.existsByBedIdAndStatus(
-                                bed.getId(), OccupancyStatus.ACTIVE))) {
+        if (occupancyRepository.existsByRoomIdAndTargetTypeAndStatus(
+                roomId, AllocationTargetType.ROOM, OccupancyStatus.ACTIVE)) {
             return AccommodationStatus.OCCUPIED;
         }
-        if (occupancyRepository.existsByRoomIdAndStatus(roomId, OccupancyStatus.RESERVED)
-                || bedRepository.findActiveByRoomId(roomId).stream()
-                        .anyMatch(bed -> occupancyRepository.existsByBedIdAndStatus(
-                                bed.getId(), OccupancyStatus.RESERVED))) {
+        if (occupancyRepository.existsByRoomIdAndTargetTypeAndStatus(
+                roomId, AllocationTargetType.ROOM, OccupancyStatus.RESERVED)) {
+            return AccommodationStatus.RESERVED;
+        }
+
+        List<BedEntity> beds = bedRepository.findActiveByRoomId(roomId);
+        int bookable = 0;
+        int occupied = 0;
+        int reserved = 0;
+        for (BedEntity bed : beds) {
+            if (isOperatorLocked(bed.getStatus())) {
+                continue;
+            }
+            bookable++;
+            if (occupancyRepository.existsByBedIdAndStatus(bed.getId(), OccupancyStatus.ACTIVE)) {
+                occupied++;
+            } else if (occupancyRepository.existsByBedIdAndStatus(bed.getId(), OccupancyStatus.RESERVED)) {
+                reserved++;
+            }
+        }
+        if (bookable > 0 && occupied == bookable) {
+            return AccommodationStatus.OCCUPIED;
+        }
+        int free = bookable - occupied - reserved;
+        if (bookable > 0 && free == 0 && reserved > 0) {
             return AccommodationStatus.RESERVED;
         }
         return AccommodationStatus.AVAILABLE;

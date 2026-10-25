@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.meal.application.support;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.acomi.acomi_backend.meal.domain.model.MealPollStatus;
 import com.acomi.acomi_backend.meal.domain.model.MealType;
 import com.acomi.acomi_backend.meal.domain.model.PollCloseDayOffset;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
@@ -93,5 +94,65 @@ class MealPollCloseAtCalculatorTest {
             org.junit.jupiter.api.Assertions.assertFalse(openCloseAt.isBefore(minimumClose.minusSeconds(1)));
             org.junit.jupiter.api.Assertions.assertTrue(openCloseAt.isAfter(configured));
         }
+    }
+
+    @Test
+    void pastPollDateIsClosedEvenWhenStatusIsStillOpen() {
+        LocalDateTime now = LocalDateTime.of(2026, 10, 17, 16, 0);
+        assertEquals(
+                MealPollStatus.CLOSED,
+                MealPollCloseAtCalculator.effectiveStatus(
+                        MealPollStatus.OPEN,
+                        LocalDate.of(2026, 10, 11),
+                        LocalDateTime.of(2026, 10, 11, 13, 0),
+                        now));
+    }
+
+    @Test
+    void currentPollStaysOpenBeforeItsDeadline() {
+        LocalDateTime now = LocalDateTime.of(2026, 10, 17, 7, 0);
+        assertEquals(
+                MealPollStatus.OPEN,
+                MealPollCloseAtCalculator.effectiveStatus(
+                        MealPollStatus.OPEN,
+                        LocalDate.of(2026, 10, 17),
+                        LocalDateTime.of(2026, 10, 17, 13, 0),
+                        now));
+    }
+
+    @Test
+    void currentPollClosesOnceTheDeadlineHasPassed() {
+        LocalDateTime now = LocalDateTime.of(2026, 10, 17, 13, 0);
+        assertEquals(
+                MealPollStatus.CLOSED,
+                MealPollCloseAtCalculator.effectiveStatus(
+                        MealPollStatus.OPEN,
+                        LocalDate.of(2026, 10, 17),
+                        now,
+                        now));
+    }
+
+    @Test
+    void futurePollStaysOpenBeforeItsDeadline() {
+        LocalDateTime now = LocalDateTime.of(2026, 10, 17, 16, 0);
+        assertEquals(
+                MealPollStatus.OPEN,
+                MealPollCloseAtCalculator.effectiveStatus(
+                        MealPollStatus.OPEN,
+                        LocalDate.of(2026, 10, 18),
+                        LocalDateTime.of(2026, 10, 18, 13, 0),
+                        now));
+    }
+
+    @Test
+    void alreadyClosedPollStaysClosed() {
+        LocalDateTime now = LocalDateTime.of(2026, 10, 17, 8, 0);
+        assertEquals(
+                MealPollStatus.CLOSED,
+                MealPollCloseAtCalculator.effectiveStatus(
+                        MealPollStatus.CLOSED,
+                        LocalDate.of(2026, 10, 17),
+                        LocalDateTime.of(2026, 10, 17, 20, 0),
+                        now));
     }
 }

@@ -1,5 +1,8 @@
 package com.acomi.acomi_backend.enquiry.infrastructure.persistence.entity;
 
+import com.acomi.acomi_backend.common.reference.BusinessReferencePrefix;
+import com.acomi.acomi_backend.common.reference.BusinessReferenced;
+
 import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.enquiry.domain.model.EnquiryRequesterType;
 import com.acomi.acomi_backend.enquiry.domain.model.SpaceEnquiryStatus;
@@ -30,7 +33,15 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class SpaceEnquiryEntity extends BaseEntity {
+public class SpaceEnquiryEntity extends BaseEntity implements BusinessReferenced {
+    @Column(name = "reference_code", nullable = false, updatable = false, length = 24)
+    private String referenceCode;
+
+    @Override
+    public BusinessReferencePrefix businessReferencePrefix() {
+        return BusinessReferencePrefix.ENQ;
+    }
+
 
     @Column(name = "space_id", nullable = false)
     private UUID spaceId;

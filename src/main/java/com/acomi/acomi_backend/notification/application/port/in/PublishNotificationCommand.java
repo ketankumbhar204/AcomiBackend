@@ -28,4 +28,10 @@ public class PublishNotificationCommand {
     String dedupeKey;
     @Builder.Default
     List<String> deliveryChannels = List.of("IN_APP");
+    /**
+     * When true, the after-commit listener does not also send FCM.
+     * Used by the admin test center, which reports the synchronous send result.
+     */
+    @Builder.Default
+    boolean suppressAsyncPush = false;
 }

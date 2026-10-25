@@ -24,5 +24,7 @@ public class PropertyBulkImportResultResponse {
     private int blankSkipped;
     /** Duplicate rows the admin chose to skip (never persisted). */
     private int duplicateSkipped;
+    /** Rows the admin skipped during review, other than duplicate decisions. */
+    private int reviewSkipped;
     private List<PropertyBulkImportResultRow> rows;
 }

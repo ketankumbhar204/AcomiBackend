@@ -67,9 +67,13 @@ public class PendingActionService {
             NotificationType.MOVE_OUT_SCHEDULED_TODAY,
             NotificationType.RESERVATION_STARTING_TODAY);
 
-    private static final Set<NotificationType> TENANT_HIDDEN_ACTION_TYPES = EnumSet.of(
-            NotificationType.COMPLAINT_PENDING,
-            NotificationType.COMPLAINT_OVERDUE);
+    /**
+     * The only Action Center rows a tenant or customer may see.
+     * {@link NotificationType#PENDING_INVITATION} is further limited to the invitee route.
+     */
+    private static final Set<NotificationType> TENANT_MEMBER_ACTION_TYPES = EnumSet.of(
+            NotificationType.PAYMENT_UPDATE_REQUESTED,
+            NotificationType.PENDING_INVITATION);
 
     private static final String INVITEE_INVITATION_ROUTE = "AcceptInvitations";
 
@@ -95,8 +99,7 @@ public class PendingActionService {
         List<SpaceNotificationEntity> open = notificationService.listOpenActions(spaceId, userId);
         if (isTenantOrCustomer) {
             open = open.stream()
-                    .filter(n -> !OWNER_OPERATOR_ACTION_TYPES.contains(n.getNotificationType()))
-                    .filter(n -> !TENANT_HIDDEN_ACTION_TYPES.contains(n.getNotificationType()))
+                    .filter(n -> TENANT_MEMBER_ACTION_TYPES.contains(n.getNotificationType()))
                     .filter(PendingActionService::isTenantVisibleInvitationOrOther)
                     .toList();
         } else if (!canManageMeals) {
@@ -121,7 +124,7 @@ public class PendingActionService {
             total += count;
             groups.add(PendingActionGroupResponse.builder()
                     .actionType(entry.getKey())
-                    .title(groupTitle(entry.getKey()))
+                    .title(displayTitle(entry.getKey(), sample))
                     .actionLabel(sample.getActionLabel())
                     .actionRoute(sample.getActionRoute())
                     .priority(sample.getPriority())
@@ -263,6 +266,17 @@ public class PendingActionService {
         }
         String route = notification.getActionRoute();
         return route != null && INVITEE_INVITATION_ROUTE.equalsIgnoreCase(route.trim());
+    }
+
+    private static String displayTitle(NotificationType type, SpaceNotificationEntity sample) {
+        if (type == NotificationType.PENDING_INVITATION && isTenantVisibleInvitationOrOther(sample)) {
+            String title = sample.getTitle();
+            if (title != null && !title.isBlank()) {
+                return title.trim();
+            }
+            return "Space invitation";
+        }
+        return groupTitle(type);
     }
 
     private static String groupTitle(NotificationType type) {

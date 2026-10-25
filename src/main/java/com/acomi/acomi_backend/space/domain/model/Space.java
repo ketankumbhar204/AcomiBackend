@@ -11,6 +11,7 @@ import lombok.Getter;
 public class Space {
 
     private UUID id;
+    private String referenceCode;
     private String name;
     private SpaceType type;
     private String address;
@@ -21,6 +22,7 @@ public class Space {
     private boolean active;
     private BigDecimal defaultFoodCharge;
     private boolean foodIncludedInRent;
+    private GenderPolicy genderPolicy;
     private MealBillingType mealBillingType;
     private PrepaidBalanceUnit prepaidBalanceUnit;
     private boolean prepaidFallbackToPayPerMeal;

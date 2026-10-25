@@ -20,6 +20,7 @@ class PropertyBulkImportTemplateAlignmentTest {
                 Mockito.mock(com.acomi.acomi_backend.admin.application.service.AdminMessRegistrationService.class),
                 Mockito.mock(com.acomi.acomi_backend.property.infrastructure.persistence.repository.PropertyRegistrationRepository.class),
                 Mockito.mock(com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRegistrationRepository.class),
+                Mockito.mock(com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository.class),
                 Mockito.mock(PropertyBulkImportDuplicateDetector.class),
                 Mockito.mock(jakarta.validation.Validator.class),
                 Mockito.mock(com.fasterxml.jackson.databind.ObjectMapper.class));

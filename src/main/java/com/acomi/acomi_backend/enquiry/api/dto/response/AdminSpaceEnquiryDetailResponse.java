@@ -15,6 +15,7 @@ import lombok.Getter;
 public class AdminSpaceEnquiryDetailResponse {
 
     private UUID enquiryId;
+    private String referenceCode;
     private UUID spaceId;
     private String spaceName;
     private SpaceType spaceType;
@@ -71,6 +72,7 @@ public class AdminSpaceEnquiryDetailResponse {
             boolean testLead) {
         return AdminSpaceEnquiryDetailResponse.builder()
                 .enquiryId(entity.getId())
+                .referenceCode(entity.getReferenceCode())
                 .spaceId(entity.getSpaceId())
                 .spaceName(entity.getSpaceNameSnapshot())
                 .spaceType(spaceType)

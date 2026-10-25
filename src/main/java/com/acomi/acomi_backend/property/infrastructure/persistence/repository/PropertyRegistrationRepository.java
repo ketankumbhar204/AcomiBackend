@@ -150,6 +150,8 @@ public interface PropertyRegistrationRepository
 
     Optional<PropertyRegistrationEntity> findByConvertedSpaceId(UUID convertedSpaceId);
 
+    List<PropertyRegistrationEntity> findByLinkedOwnerUserIdAndConvertedSpaceIdIsNull(UUID linkedOwnerUserId);
+
     List<PropertyRegistrationEntity> findByConvertedSpaceIdIn(Collection<UUID> convertedSpaceIds);
 
     @Query(

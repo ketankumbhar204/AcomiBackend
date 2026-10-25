@@ -336,6 +336,7 @@ public class SpacePaymentGenerationService {
         return type == SpaceType.PG
                 || type == SpaceType.HOSTEL
                 || type == SpaceType.CO_LIVING
-                || type == SpaceType.RENTAL;
+                || type == SpaceType.RENTAL
+                || type == SpaceType.CORPORATE_STAY;
     }
 }

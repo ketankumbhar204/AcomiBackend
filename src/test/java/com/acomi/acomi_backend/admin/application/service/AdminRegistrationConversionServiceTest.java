@@ -235,7 +235,7 @@ class AdminRegistrationConversionServiceTest {
                 .convertedSpaceId(spaceId)
                 .build();
 
-        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        when(spaceRepository.findWithOwnerById(spaceId)).thenReturn(Optional.of(space));
         when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.of(testLead));
 
         assertThatThrownBy(() -> conversionService.enableDiscovery(spaceId))
@@ -255,7 +255,7 @@ class AdminRegistrationConversionServiceTest {
                 .build();
         space.setId(spaceId);
 
-        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        when(spaceRepository.findWithOwnerById(spaceId)).thenReturn(Optional.of(space));
         when(propertyRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.empty());
         when(messRegistrationRepository.findByConvertedSpaceId(spaceId)).thenReturn(Optional.empty());
         when(spaceRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));

@@ -1,5 +1,8 @@
 package com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity;
 
+import com.acomi.acomi_backend.common.reference.BusinessReferencePrefix;
+import com.acomi.acomi_backend.common.reference.BusinessReferenced;
+
 import com.acomi.acomi_backend.accommodation.domain.model.AccommodationStatus;
 import com.acomi.acomi_backend.accommodation.domain.model.RoomType;
 import com.acomi.acomi_backend.common.model.BaseEntity;
@@ -31,7 +34,15 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class RoomEntity extends BaseEntity {
+public class RoomEntity extends BaseEntity implements BusinessReferenced {
+    @Column(name = "reference_code", nullable = false, updatable = false, length = 24)
+    private String referenceCode;
+
+    @Override
+    public BusinessReferencePrefix businessReferencePrefix() {
+        return BusinessReferencePrefix.ROM;
+    }
+
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "floor_id")

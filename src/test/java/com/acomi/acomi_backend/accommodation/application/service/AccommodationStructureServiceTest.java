@@ -27,6 +27,7 @@ import com.acomi.acomi_backend.accommodation.infrastructure.persistence.reposito
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.repository.FloorRepository;
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.repository.RoomRepository;
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.repository.UnitRepository;
+import com.acomi.acomi_backend.occupancy.application.service.AccommodationStatusSyncService;
 import com.acomi.acomi_backend.occupancy.application.service.OccupancyService;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
 import com.acomi.acomi_backend.common.exception.BusinessException;
@@ -96,6 +97,9 @@ class AccommodationStructureServiceTest {
     @Mock
     private EntityPhotoService entityPhotoService;
 
+    @Mock
+    private AccommodationStatusSyncService statusSyncService;
+
     private SpaceMembershipResolver membershipResolver;
 
     private AccommodationAccessService accessService;
@@ -154,7 +158,8 @@ class AccommodationStructureServiceTest {
                 actionService,
                 layoutService,
                 syntheticUnitService,
-                entityPhotoService);
+                entityPhotoService,
+                statusSyncService);
         bedService = new BedService(
                 bedRepository,
                 roomRepository,

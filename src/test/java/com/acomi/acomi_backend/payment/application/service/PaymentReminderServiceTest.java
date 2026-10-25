@@ -25,6 +25,7 @@ import com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentType;
 import com.acomi.acomi_backend.notification.api.dto.response.NotificationResponse;
 import com.acomi.acomi_backend.notification.application.port.in.PublishNotificationCommand;
+import com.acomi.acomi_backend.payment.infrastructure.delivery.FcmPaymentReminderDeliveryProvider;
 import com.acomi.acomi_backend.payment.infrastructure.delivery.WhatsAppMessageDeliveryProvider;
 import com.acomi.acomi_backend.payment.infrastructure.delivery.WhatsAppPhoneNormalizer;
 import com.acomi.acomi_backend.payment.infrastructure.delivery.WhatsAppReminderProperties;
@@ -71,6 +72,8 @@ class PaymentReminderServiceTest {
     @Mock
     private WhatsAppMessageDeliveryProvider whatsAppProvider;
     @Mock
+    private FcmPaymentReminderDeliveryProvider fcmProvider;
+    @Mock
     private WhatsAppReminderProperties whatsAppProperties;
     @Mock
     private SpacePaymentTimelineService timelineService;
@@ -100,6 +103,7 @@ class PaymentReminderServiceTest {
                 paymentRepository,
                 deliveryRepository,
                 whatsAppProvider,
+                fcmProvider,
                 whatsAppProperties,
                 timelineService,
                 notificationService,
@@ -112,6 +116,8 @@ class PaymentReminderServiceTest {
             return callback.doInTransaction(transactionStatus);
         });
 
+        when(fcmProvider.channel()).thenReturn(ReminderChannel.PUSH);
+        when(fcmProvider.isConfigured()).thenReturn(true);
         when(whatsAppProvider.getMode()).thenReturn("logging");
         when(whatsAppProvider.isConfigured()).thenReturn(true);
         when(whatsAppProvider.channel()).thenReturn(ReminderChannel.WHATSAPP);
@@ -367,7 +373,12 @@ class PaymentReminderServiceTest {
         assertThat(command.getValue().getUserId()).isEqualTo(user.getId());
         assertThat(command.getValue().getEntityId()).isEqualTo(paymentId);
         assertThat(command.getValue().getActionRoute()).isEqualTo("PaymentDetail");
-        assertThat(command.getValue().getMessage()).contains("Rent").contains("₹6,000").contains("Sunrise PG");
+        assertThat(command.getValue().getTitle()).isEqualTo("Payment Reminder");
+        assertThat(command.getValue().getMessage())
+                .contains("₹6,000")
+                .contains("Rent")
+                .contains("1 October 2026")
+                .contains("Open ACOMI to view details");
         assertThat(command.getValue().getDeliveryChannels()).containsExactly("IN_APP");
     }
 
@@ -431,6 +442,61 @@ class PaymentReminderServiceTest {
     }
 
     @Test
+    void prepareOwnerReminder_allowsApproachingPaymentOutsideTheOverdueList() {
+        SpaceEntity space = activeSpace();
+        OverduePaymentResponse listed = overdueRow(paymentId, "1000", 1);
+        SpacePaymentEntity payment = paymentEntity(space, listed);
+        payment.setId(paymentId);
+        payment.setDueDate(LocalDate.now().plusDays(1));
+        payment.setTitle("Electricity");
+        payment.setMonth("2026-10");
+        UserEntity user = UserEntity.builder().build();
+        user.setId(UUID.randomUUID());
+        payment.getMember().setUser(user);
+
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        when(eligibilityService.findObligationsNeedingReminderInternal(spaceId)).thenReturn(List.of());
+        when(paymentRepository.findByIdAndSpaceId(paymentId, spaceId)).thenReturn(Optional.of(payment));
+        when(notificationService.publish(any())).thenReturn(NotificationResponse.builder()
+                .notificationId(UUID.randomUUID())
+                .userId(user.getId())
+                .createdAt(java.time.LocalDateTime.now())
+                .build());
+
+        PaymentReminderDeliveryResponse response = service.prepareOwnerReminder(spaceId, paymentId, callerId);
+
+        assertThat(response.isInAppRecorded()).isTrue();
+        assertThat(response.getMessageText()).contains("Electricity");
+        assertThat(response.getWhatsAppUrl()).startsWith("https://wa.me/");
+        verify(whatsAppProvider, never()).deliver(any());
+    }
+
+    @Test
+    void prepareOwnerReminder_rejectsDueDateOutsideReminderWindow() {
+        SpaceEntity space = activeSpace();
+        OverduePaymentResponse listed = overdueRow(paymentId, "3500", 0);
+        SpacePaymentEntity payment = paymentEntity(space, listed);
+        payment.setId(paymentId);
+        payment.setPaymentType(SpacePaymentType.DEPOSIT);
+        payment.setDueDate(LocalDate.now().plusDays(10));
+        UserEntity user = UserEntity.builder().build();
+        user.setId(UUID.randomUUID());
+        payment.getMember().setUser(user);
+
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        when(eligibilityService.findObligationsNeedingReminderInternal(spaceId)).thenReturn(List.of());
+        when(paymentRepository.findByIdAndSpaceId(paymentId, spaceId)).thenReturn(Optional.of(payment));
+
+        assertThatThrownBy(() -> service.prepareOwnerReminder(spaceId, paymentId, callerId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("not reminder-eligible")
+                .hasMessageContaining("outside the reminder window");
+        verify(notificationService, never()).publish(any());
+        verify(fcmProvider, never()).deliver(any());
+        verify(whatsAppProvider, never()).deliver(any());
+    }
+
+    @Test
     void processPayment_rejectsWhenNotEligible() {
         SpaceEntity space = activeSpace();
         when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
@@ -491,6 +557,91 @@ class PaymentReminderServiceTest {
 
         assertThat(response.getDeliveryStatus()).isEqualTo(ReminderDeliveryStatus.SENT);
         assertThat(failed.getAttemptCount()).isEqualTo(2);
+    }
+
+    @Test
+    void disabledWhatsAppUsesFcmAndDoesNotRecordAWhatsAppFailure() {
+        when(whatsAppProvider.isConfigured()).thenReturn(false);
+        SpaceEntity space = activeSpace();
+        OverduePaymentResponse eligible = overdueRow(paymentId, "8500", 2);
+        UserEntity memberUser = new UserEntity();
+        memberUser.setId(UUID.randomUUID());
+        SpacePaymentEntity payment = paymentEntity(space, eligible);
+        payment.getMember().setUser(memberUser);
+        AtomicReference<PaymentReminderDeliveryEntity> stored = new AtomicReference<>();
+
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        when(eligibilityService.findObligationsNeedingReminder(spaceId, callerId))
+                .thenReturn(List.of(eligible));
+        when(paymentRepository.findByIdAndSpaceId(paymentId, spaceId)).thenReturn(Optional.of(payment));
+        when(deliveryRepository.findByPaymentIdAndReminderTypeAndBusinessDateAndChannel(
+                        eq(paymentId), any(), any(), eq(ReminderChannel.PUSH)))
+                .thenReturn(Optional.empty());
+        when(deliveryRepository.saveAndFlush(any())).thenAnswer(inv -> {
+            PaymentReminderDeliveryEntity entity = inv.getArgument(0);
+            entity.setId(UUID.randomUUID());
+            stored.set(entity);
+            return entity;
+        });
+        when(deliveryRepository.findById(any())).thenAnswer(inv -> Optional.of(stored.get()));
+        when(deliveryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(fcmProvider.deliver(any())).thenReturn(MessageDeliveryProvider.MessageDeliveryResult.sent("fcm-accepted:1"));
+
+        PaymentReminderProcessResultResponse result = service.processSpace(spaceId, callerId);
+
+        assertThat(result.getDeliverySuccesses()).isEqualTo(1);
+        assertThat(result.getDeliveryFailures()).isZero();
+        assertThat(result.getProviderMode()).isEqualTo("fcm");
+        assertThat(stored.get().getChannel()).isEqualTo(ReminderChannel.PUSH);
+        assertThat(stored.get().getDeliveryStatus()).isEqualTo(ReminderDeliveryStatus.SENT);
+        assertThat(stored.get().getRecipientUserId()).isEqualTo(memberUser.getId());
+        verify(whatsAppProvider, never()).deliver(any());
+        verify(timelineService).record(
+                eq(payment),
+                eq(com.acomi.acomi_backend.payment.domain.model.PaymentTimelineEventType.REMINDER_SENT),
+                org.mockito.ArgumentMatchers.contains("Push notification accepted"),
+                eq(callerId));
+    }
+
+    @Test
+    void missingDeviceTokenFailsFcmWithoutCallingWhatsAppAndKeepsTheInAppNotice() {
+        when(whatsAppProvider.isConfigured()).thenReturn(false);
+        SpaceEntity space = activeSpace();
+        OverduePaymentResponse eligible = overdueRow(paymentId, "8500", 4);
+        UserEntity memberUser = new UserEntity();
+        memberUser.setId(UUID.randomUUID());
+        SpacePaymentEntity payment = paymentEntity(space, eligible);
+        payment.setId(paymentId);
+        payment.getMember().setUser(memberUser);
+        AtomicReference<PaymentReminderDeliveryEntity> stored = new AtomicReference<>();
+
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        when(eligibilityService.findObligationsNeedingReminder(spaceId, callerId))
+                .thenReturn(List.of(eligible));
+        when(paymentRepository.findByIdAndSpaceId(paymentId, spaceId)).thenReturn(Optional.of(payment));
+        when(deliveryRepository.findByPaymentIdAndReminderTypeAndBusinessDateAndChannel(
+                        eq(paymentId), any(), any(), eq(ReminderChannel.PUSH)))
+                .thenReturn(Optional.empty());
+        when(deliveryRepository.saveAndFlush(any())).thenAnswer(inv -> {
+            PaymentReminderDeliveryEntity entity = inv.getArgument(0);
+            entity.setId(UUID.randomUUID());
+            stored.set(entity);
+            return entity;
+        });
+        when(deliveryRepository.findById(any())).thenAnswer(inv -> Optional.of(stored.get()));
+        when(deliveryRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(fcmProvider.deliver(any())).thenReturn(MessageDeliveryProvider.MessageDeliveryResult.failed(
+                "NO_ACTIVE_DEVICE_TOKEN",
+                "Member has no registered device for push notifications",
+                true));
+
+        PaymentReminderProcessResultResponse result = service.processSpace(spaceId, callerId);
+
+        assertThat(result.getDeliveryFailures()).isEqualTo(1);
+        assertThat(stored.get().getDeliveryStatus()).isEqualTo(ReminderDeliveryStatus.FAILED);
+        assertThat(stored.get().getFailureReason()).contains("NO_ACTIVE_DEVICE_TOKEN");
+        verify(whatsAppProvider, never()).deliver(any());
+        verify(notificationService, org.mockito.Mockito.atLeastOnce()).publish(any());
     }
 
     @Test

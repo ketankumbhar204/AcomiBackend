@@ -22,6 +22,7 @@ import com.acomi.acomi_backend.meal.domain.model.MemberMealActivitySlotStatus;
 import com.acomi.acomi_backend.meal.domain.policy.MealPollEligibilityPolicy;
 import com.acomi.acomi_backend.meal.domain.policy.MealOccupancyPolicy;
 import com.acomi.acomi_backend.meal.application.support.MealBillingResolver;
+import com.acomi.acomi_backend.meal.application.support.MealPollCloseAtCalculator;
 import com.acomi.acomi_backend.meal.application.support.MenuEntryPriceResolver;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.DailyMenuEntity;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.MealParticipationEntity;
@@ -41,6 +42,7 @@ import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.Occup
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
 import com.acomi.acomi_backend.storage.application.service.StoredFileService;
 import com.acomi.acomi_backend.space.domain.model.MealBillingType;
+import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.domain.model.PrepaidBalanceUnit;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import java.math.BigDecimal;
@@ -146,6 +148,14 @@ public class MemberMealActivityService {
                         MealPollDayPaymentEntity::getPollDate, payment -> payment, (left, right) -> left));
         Map<java.util.UUID, BigDecimal> itemDefaultPrices = MenuEntryPriceResolver.itemDefaults(
                 spaceFoodItemSettingsRepository.findAllBySpaceId(spaceId));
+        Map<String, MealPollEntity> pollsByKey = pollRepository
+                .findBySpaceIdAndPollDateBetweenOrderByPollDateAscMealTypeAsc(spaceId, from, to)
+                .stream()
+                .collect(Collectors.toMap(
+                        poll -> pollKey(poll.getPollDate(), poll.getMealType()),
+                        poll -> poll,
+                        (left, right) -> left));
+        LocalDateTime nowInSpace = MealPollCloseAtCalculator.nowInSpace(member.getSpace());
 
         int acceptedMeals = 0;
         int pendingResponses = 0;
@@ -167,7 +177,9 @@ public class MemberMealActivityService {
                         publishedByDate,
                         responsesByDate,
                         deliveryByPollKey,
-                        itemDefaultPrices);
+                        itemDefaultPrices,
+                        pollsByKey,
+                        nowInSpace);
                 slots.add(slot);
 
                 if (slot.getStatus() == MemberMealActivitySlotStatus.ACCEPTED) {
@@ -323,6 +335,7 @@ public class MemberMealActivityService {
 
         Map<java.util.UUID, BigDecimal> itemDefaultPrices = MenuEntryPriceResolver.itemDefaults(
                 spaceFoodItemSettingsRepository.findAllBySpaceId(spaceId));
+        LocalDateTime nowInSpace = MealPollCloseAtCalculator.nowInSpace(member.getSpace());
         BigDecimal liveTotal = BigDecimal.ZERO;
         List<MemberMealActivitySlotDetailResponse> slots = new ArrayList<>();
         for (MealType mealType : MealType.values()) {
@@ -336,7 +349,8 @@ public class MemberMealActivityService {
                     pollsByType.get(mealType),
                     responsesByType.getOrDefault(mealType, List.of()),
                     deliveryByPollKey,
-                    itemDefaultPrices);
+                    itemDefaultPrices,
+                    nowInSpace);
             slots.add(slot);
             if (slot.getSlotTotal() != null) {
                 liveTotal = liveTotal.add(slot.getSlotTotal());
@@ -469,7 +483,8 @@ public class MemberMealActivityService {
             MealPollEntity poll,
             List<MealPollResponseEntity> slotResponses,
             Map<String, MealPollMemberDeliveryEntity> deliveryByPollKey,
-            Map<java.util.UUID, BigDecimal> itemDefaultPrices) {
+            Map<java.util.UUID, BigDecimal> itemDefaultPrices,
+            LocalDateTime nowInSpace) {
         boolean eligible = participation != null
                 && pollEligibilityPolicy.isPollEligible(
                         participation, date, mealType, null, memberOccupancy, true);
@@ -481,7 +496,7 @@ public class MemberMealActivityService {
             deliveryLocationName = delivery.getDeliveryLocation().getName();
             deliveryLocationDescription = delivery.getDeliveryLocation().getDescription();
         }
-        MealPollStatus pollStatus = poll != null ? poll.getStatus() : null;
+        MealPollStatus pollStatus = displayedPollStatus(poll, menuPublished, date, nowInSpace);
         LocalDateTime respondedAt = slotResponses.stream()
                 .map(MealPollResponseEntity::getRespondedAt)
                 .max(Comparator.naturalOrder())
@@ -519,6 +534,7 @@ public class MemberMealActivityService {
         BigDecimal slotTotal = BigDecimal.ZERO;
         int menuQuantity = 0;
         int skippedQuantity = 0;
+        boolean includePrices = billsMealsSeparately(member);
 
         for (MealPollResponseEntity response : slotResponses) {
             if (response.getSelectedOption().getOptionType() == MealPollOptionType.NOT_AVAILABLE) {
@@ -532,21 +548,25 @@ public class MemberMealActivityService {
 
             menuQuantity += response.getQuantity();
             MealPollOptionResponse optionMeta = MealPollOptionResponse.from(response.getSelectedOption());
-            BigDecimal unitPrice = MenuEntryPriceResolver.unitPrice(
-                    response.getSelectedOption().getDailyMenuEntry(), itemDefaultPrices);
+            BigDecimal unitPrice = includePrices
+                    ? MenuEntryPriceResolver.unitPrice(
+                            response.getSelectedOption().getDailyMenuEntry(), itemDefaultPrices)
+                    : null;
             if (unitPrice == null) {
                 unitPrice = BigDecimal.ZERO;
             }
             BigDecimal lineTotal = unitPrice.multiply(BigDecimal.valueOf(response.getQuantity()));
-            slotTotal = slotTotal.add(lineTotal);
+            if (includePrices) {
+                slotTotal = slotTotal.add(lineTotal);
+            }
 
             selections.add(MemberMealActivitySelectionResponse.builder()
                     .label(response.getSelectedOption().getLabel())
-                    .price(unitPrice.compareTo(BigDecimal.ZERO) > 0 ? unitPrice : null)
-                    .currencyCode(optionMeta.getCurrencyCode())
+                    .price(includePrices && unitPrice.compareTo(BigDecimal.ZERO) > 0 ? unitPrice : null)
+                    .currencyCode(includePrices ? optionMeta.getCurrencyCode() : null)
                     .quantity(response.getQuantity())
                     .itemDetail(response.getSelectedOption().getDetail())
-                    .lineTotal(lineTotal.compareTo(BigDecimal.ZERO) > 0 ? lineTotal : null)
+                    .lineTotal(includePrices && lineTotal.compareTo(BigDecimal.ZERO) > 0 ? lineTotal : null)
                     .build());
         }
 
@@ -594,21 +614,25 @@ public class MemberMealActivityService {
             Map<LocalDate, Map<MealType, Boolean>> publishedByDate,
             Map<LocalDate, Map<MealType, List<MealPollResponseEntity>>> responsesByDate,
             Map<String, MealPollMemberDeliveryEntity> deliveryByPollKey,
-            Map<java.util.UUID, BigDecimal> itemDefaultPrices) {
+            Map<java.util.UUID, BigDecimal> itemDefaultPrices,
+            Map<String, MealPollEntity> pollsByKey,
+            LocalDateTime nowInSpace) {
         boolean eligible = participation != null
                 && pollEligibilityPolicy.isPollEligible(
                         participation, date, mealType, null, memberOccupancy, true);
+        boolean menuPublished = publishedByDate
+                .getOrDefault(date, Map.of())
+                .getOrDefault(mealType, false);
+        MealPollStatus pollStatus = displayedPollStatus(
+                pollsByKey.get(pollKey(date, mealType)), menuPublished, date, nowInSpace);
 
         if (!eligible) {
             return MemberMealActivitySlotResponse.builder()
                     .mealType(mealType)
                     .status(MemberMealActivitySlotStatus.INACTIVE)
+                    .pollStatus(pollStatus)
                     .build();
         }
-
-        boolean menuPublished = publishedByDate
-                .getOrDefault(date, Map.of())
-                .getOrDefault(mealType, false);
 
         List<MealPollResponseEntity> slotResponses = responsesByDate
                 .getOrDefault(date, Map.of())
@@ -618,6 +642,7 @@ public class MemberMealActivityService {
             return MemberMealActivitySlotResponse.builder()
                     .mealType(mealType)
                     .status(MemberMealActivitySlotStatus.NO_MENU)
+                    .pollStatus(pollStatus)
                     .build();
         }
 
@@ -625,6 +650,7 @@ public class MemberMealActivityService {
         int skippedQuantity = 0;
         List<String> selectionParts = new ArrayList<>();
         BigDecimal slotAmount = BigDecimal.ZERO;
+        boolean includePrices = billsMealsSeparately(member);
 
         for (MealPollResponseEntity response : slotResponses) {
             if (response.getSelectedOption().getOptionType() == MealPollOptionType.NOT_AVAILABLE) {
@@ -638,10 +664,13 @@ public class MemberMealActivityService {
                 } else {
                     selectionParts.add(label);
                 }
-                BigDecimal unitPrice = MenuEntryPriceResolver.unitPrice(
-                        response.getSelectedOption().getDailyMenuEntry(), itemDefaultPrices);
-                if (unitPrice != null) {
-                    slotAmount = slotAmount.add(unitPrice.multiply(BigDecimal.valueOf(response.getQuantity())));
+                if (includePrices) {
+                    BigDecimal unitPrice = MenuEntryPriceResolver.unitPrice(
+                            response.getSelectedOption().getDailyMenuEntry(), itemDefaultPrices);
+                    if (unitPrice != null) {
+                        slotAmount = slotAmount.add(
+                                unitPrice.multiply(BigDecimal.valueOf(response.getQuantity())));
+                    }
                 }
             }
         }
@@ -658,6 +687,7 @@ public class MemberMealActivityService {
             return MemberMealActivitySlotResponse.builder()
                     .mealType(mealType)
                     .status(MemberMealActivitySlotStatus.ACCEPTED)
+                    .pollStatus(pollStatus)
                     .selectionLabel(String.join(", ", selectionParts))
                     .quantity(menuQuantity)
                     .deliveryLocationName(deliveryLocationName)
@@ -670,6 +700,7 @@ public class MemberMealActivityService {
             return MemberMealActivitySlotResponse.builder()
                     .mealType(mealType)
                     .status(MemberMealActivitySlotStatus.SKIPPED)
+                    .pollStatus(pollStatus)
                     .selectionLabel(null)
                     .quantity(0)
                     .deliveryLocationName(deliveryLocationName)
@@ -682,6 +713,7 @@ public class MemberMealActivityService {
             return MemberMealActivitySlotResponse.builder()
                     .mealType(mealType)
                     .status(MemberMealActivitySlotStatus.PENDING)
+                    .pollStatus(pollStatus)
                     .deliveryLocationName(deliveryLocationName)
                     .slotAmount(null)
                     .currencyCode("INR")
@@ -691,9 +723,26 @@ public class MemberMealActivityService {
         return MemberMealActivitySlotResponse.builder()
                 .mealType(mealType)
                 .status(MemberMealActivitySlotStatus.NO_MENU)
+                .pollStatus(pollStatus)
                 .slotAmount(null)
                 .currencyCode("INR")
                 .build();
+    }
+
+    /**
+     * Poll availability for activity screens. Response status stays on the slot;
+     * this only reports whether the poll can still be answered.
+     */
+    private static MealPollStatus displayedPollStatus(
+            MealPollEntity poll, boolean menuPublished, LocalDate date, LocalDateTime nowInSpace) {
+        if (poll != null) {
+            return MealPollCloseAtCalculator.effectiveStatus(
+                    poll.getStatus(), poll.getPollDate(), poll.getPollCloseAt(), nowInSpace);
+        }
+        if (menuPublished && nowInSpace != null && date.isBefore(nowInSpace.toLocalDate())) {
+            return MealPollStatus.CLOSED;
+        }
+        return null;
     }
 
     private record DayDue(BigDecimal amount, boolean known) {}
@@ -733,6 +782,10 @@ public class MemberMealActivityService {
             return payment.getChargedAmount();
         }
         return null;
+    }
+
+    private static boolean billsMealsSeparately(MemberEntity member) {
+        return member.getSpace() != null && member.getSpace().getType() == SpaceType.MESS;
     }
 
     private static String pollKey(LocalDate date, MealType mealType) {

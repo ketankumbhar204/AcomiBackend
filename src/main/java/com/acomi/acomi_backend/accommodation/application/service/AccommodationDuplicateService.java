@@ -121,7 +121,7 @@ public class AccommodationDuplicateService {
                     bedsCreated += roomBedCounts[1];
                 }
             }
-            case RENTAL -> {
+            case RENTAL, CORPORATE_STAY -> {
                 profileService.assertUnitsAllowed(spaceId);
                 for (UnitEntity sourceUnit : unitRepository.findActiveByBuildingId(buildingId, true)) {
                     cloneUnit(sourceUnit, targetBuilding);

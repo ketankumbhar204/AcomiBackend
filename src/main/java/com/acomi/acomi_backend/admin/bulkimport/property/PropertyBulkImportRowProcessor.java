@@ -89,6 +89,13 @@ public final class PropertyBulkImportRowProcessor {
 
         SpaceTypeNormalizer.Result typeResult = SpaceTypeNormalizer.normalize(
                 rawByField.get(PropertyBulkImportField.PROPERTY_TYPE));
+        if (typeResult.candidates().size() > 1) {
+            normalizedValues.put(
+                    PropertyBulkImportField.PROPERTY_TYPE.name(),
+                    typeResult.candidates().stream()
+                            .map(BulkImportLabels::spaceType)
+                            .collect(java.util.stream.Collectors.joining(" | ")));
+        }
         if (typeResult.error() != null) {
             errors.add(new PropertyBulkImportFieldError(
                     PropertyBulkImportField.PROPERTY_TYPE.name(), typeResult.error()));
@@ -111,6 +118,13 @@ public final class PropertyBulkImportRowProcessor {
         if (genderResult.error() != null) {
             errors.add(new PropertyBulkImportFieldError(
                     PropertyBulkImportField.GENDER.name(), genderResult.error()));
+        } else if (genderResult.warning() != null && gender == null) {
+            notices.add(notice(
+                    PropertyBulkImportField.GENDER,
+                    "WARNING",
+                    genderResult.warning(),
+                    genderResult.original(),
+                    null));
         } else if (gender == null && typeResult.inferredGender() != null && typeResult.error() == null) {
             gender = typeResult.inferredGender();
             String label = BulkImportLabels.gender(gender);
@@ -150,6 +164,13 @@ public final class PropertyBulkImportRowProcessor {
         if (foodResult.error() != null) {
             errors.add(new PropertyBulkImportFieldError(
                     PropertyBulkImportField.FOOD_INCLUDED.name(), foodResult.error()));
+        } else if (foodResult.warning() != null && foodResult.value() == null) {
+            notices.add(notice(
+                    PropertyBulkImportField.FOOD_INCLUDED,
+                    "WARNING",
+                    foodResult.warning(),
+                    foodResult.original(),
+                    null));
         } else if (foodResult.value() != null) {
             String foodLabel = BulkImportLabels.food(foodResult.value());
             remember(normalizedValues, PropertyBulkImportField.FOOD_INCLUDED, foodResult.normalized(), foodLabel);
@@ -164,7 +185,39 @@ public final class PropertyBulkImportRowProcessor {
         }
 
         boolean mess = typeResult.type() == SpaceType.MESS;
-        SharedParsedFields shared = parseSharedFields(rawByField, errors, gender, foodResult.value());
+        SharedParsedFields shared = parseSharedFields(rawByField, errors, notices, gender, foodResult.value());
+        if (typeResult.type() == SpaceType.CORPORATE_STAY
+                && shared.startingPrice() != null
+                && shared.priceBasis() == null) {
+            notices.add(notice(
+                    PropertyBulkImportField.STARTING_PRICE,
+                    "WARNING",
+                    "Corporate Stay has no default price basis, so this amount was not stored. "
+                            + "Keep a /bed or /room unit, or choose a basis before saving.",
+                    rawByField.get(PropertyBulkImportField.STARTING_PRICE),
+                    null));
+            shared = new SharedParsedFields(
+                    shared.ownerName(),
+                    shared.mobile(),
+                    shared.altMobile(),
+                    shared.contact3(),
+                    shared.addressLine(),
+                    shared.city(),
+                    shared.state(),
+                    shared.pincode(),
+                    shared.mapUrl(),
+                    null,
+                    null,
+                    shared.testLead(),
+                    shared.genderPolicy(),
+                    shared.foodIncludedListing(),
+                    shared.latitude(),
+                    shared.longitude(),
+                    shared.sharingNotes(),
+                    shared.amenities(),
+                    shared.unmappedAmenities());
+        }
+        addBlankWarnings(mapping, rawByField, typeResult, gender, foodResult, notices);
         addFoodAmenityWarnings(rawByField, foodResult, notices);
 
         if (mess) {
@@ -174,6 +227,7 @@ public final class PropertyBulkImportRowProcessor {
                     rawByField.get(PropertyBulkImportField.PROPERTY_NAME)));
             if (shared.startingPrice() != null) {
                 request.setMonthlyPrice(shared.startingPrice());
+                request.setMonthlyPriceBasis(shared.priceBasis());
             }
             if (markAsTestLead) {
                 request.setTestLead(true);
@@ -194,6 +248,7 @@ public final class PropertyBulkImportRowProcessor {
         request.setPropertyName(PropertyBulkImportValueParser.blankToNull(
                 rawByField.get(PropertyBulkImportField.PROPERTY_NAME)));
         request.setStartingPrice(shared.startingPrice());
+        request.setPriceBasis(shared.priceBasis());
         request.setAmenities(shared.amenities());
         if (markAsTestLead) {
             request.setTestLead(true);
@@ -289,9 +344,62 @@ public final class PropertyBulkImportRowProcessor {
         }
     }
 
+    private static void addBlankWarnings(
+            Map<String, String> mapping,
+            Map<PropertyBulkImportField, String> rawByField,
+            SpaceTypeNormalizer.Result typeResult,
+            com.acomi.acomi_backend.space.domain.model.GenderPolicy gender,
+            FoodIncludedNormalizer.Result foodResult,
+            List<PropertyBulkImportFieldNotice> notices) {
+        warnIfMappedBlank(mapping, rawByField, notices, PropertyBulkImportField.PROPERTY_TYPE,
+                typeResult.type() == null && typeResult.error() == null,
+                "Space type is blank. No default category was assigned.");
+        warnIfMappedBlank(mapping, rawByField, notices, PropertyBulkImportField.PROPERTY_NAME,
+                PropertyBulkImportValueParser.blankToNull(rawByField.get(PropertyBulkImportField.PROPERTY_NAME)) == null,
+                "Property name is blank. No name was generated.");
+        warnIfMappedBlank(mapping, rawByField, notices, PropertyBulkImportField.MOBILE_NUMBER,
+                PropertyBulkImportValueParser.blankToNull(rawByField.get(PropertyBulkImportField.MOBILE_NUMBER)) == null,
+                "Contact 1 is blank. No placeholder number was generated.");
+        warnIfMappedBlank(mapping, rawByField, notices, PropertyBulkImportField.GENDER,
+                gender == null
+                        && PropertyBulkImportValueParser.blankToNull(
+                                rawByField.get(PropertyBulkImportField.GENDER)) == null,
+                "Gender is blank. It was not set to Both.");
+        warnIfMappedBlank(mapping, rawByField, notices, PropertyBulkImportField.STARTING_PRICE,
+                PropertyBulkImportValueParser.blankToNull(rawByField.get(PropertyBulkImportField.STARTING_PRICE)) == null,
+                "Rent starts from is blank. Rent was not inferred or set to zero.");
+        warnIfMappedBlank(mapping, rawByField, notices, PropertyBulkImportField.FOOD_INCLUDED,
+                foodResult.value() == null && foodResult.warning() == null && foodResult.error() == null,
+                "Food included is blank. Food status remains unknown.");
+        warnIfMappedBlank(mapping, rawByField, notices, PropertyBulkImportField.ADDRESS_LINE,
+                PropertyBulkImportValueParser.blankToNull(rawByField.get(PropertyBulkImportField.ADDRESS_LINE)) == null,
+                "Address given is blank. No address was generated.");
+        warnIfMappedBlank(mapping, rawByField, notices, PropertyBulkImportField.MAP_URL,
+                PropertyBulkImportValueParser.blankToNull(rawByField.get(PropertyBulkImportField.MAP_URL)) == null,
+                "Google Maps Link is blank. No map URL was generated.");
+    }
+
+    private static void warnIfMappedBlank(
+            Map<String, String> mapping,
+            Map<PropertyBulkImportField, String> rawByField,
+            List<PropertyBulkImportFieldNotice> notices,
+            PropertyBulkImportField field,
+            boolean blank,
+            String message) {
+        if (mapping == null || !mapping.containsKey(field.name()) || !blank) {
+            return;
+        }
+        String header = mapping.get(field.name());
+        if (header == null || header.isBlank()) {
+            return;
+        }
+        notices.add(notice(field, "WARNING", message, rawByField.get(field), null));
+    }
+
     private static SharedParsedFields parseSharedFields(
             Map<PropertyBulkImportField, String> rawByField,
             List<PropertyBulkImportFieldError> errors,
+            List<PropertyBulkImportFieldNotice> notices,
             com.acomi.acomi_backend.space.domain.model.GenderPolicy gender,
             Boolean foodIncluded) {
         String ownerName = PropertyBulkImportValueParser.blankToNull(
@@ -331,12 +439,25 @@ public final class PropertyBulkImportRowProcessor {
 
         String mapUrl = PropertyBulkImportValueParser.blankToNull(
                 rawByField.get(PropertyBulkImportField.MAP_URL));
+        if (mapUrl != null && !com.acomi.acomi_backend.space.application.service.ListingMapLocation.looksLikeHttpUrl(mapUrl)) {
+            errors.add(new PropertyBulkImportFieldError(
+                    PropertyBulkImportField.MAP_URL.name(),
+                    "Map link must start with http:// or https:// (got: " + mapUrl + ")"));
+            mapUrl = null;
+        }
 
         var priceResult = PropertyBulkImportValueParser.parseStartingPrice(
                 rawByField.get(PropertyBulkImportField.STARTING_PRICE));
         if (priceResult.isInvalid()) {
             errors.add(new PropertyBulkImportFieldError(
                     PropertyBulkImportField.STARTING_PRICE.name(), priceResult.error()));
+        } else if (priceResult.warning() != null) {
+            notices.add(notice(
+                    PropertyBulkImportField.STARTING_PRICE,
+                    "WARNING",
+                    priceResult.warning(),
+                    rawByField.get(PropertyBulkImportField.STARTING_PRICE),
+                    null));
         }
 
         var boolResult = PropertyBulkImportValueParser.parseBoolean(
@@ -362,6 +483,32 @@ public final class PropertyBulkImportRowProcessor {
 
         String sharingNotes = PropertyBulkImportValueParser.normalizeFreeText(
                 rawByField.get(PropertyBulkImportField.SHARING));
+        if (sharingNotes != null && sharingNotes.matches("(?i).*(\\p{Sc}|₹|\\brs\\.?\\s*\\d|\\d[\\d,]*\\s*/\\s*(bed|month|night|order|day)).*")) {
+            notices.add(notice(
+                    PropertyBulkImportField.SHARING,
+                    "WARNING",
+                    "Sharing contains a price. The text was kept and was not used as rent.",
+                    sharingNotes,
+                    sharingNotes));
+        }
+        if (latResult.value() != null && lngResult.value() != null
+                && latResult.value().abs().compareTo(new java.math.BigDecimal("60")) > 0
+                && lngResult.value().abs().compareTo(new java.math.BigDecimal("60")) <= 0) {
+            notices.add(notice(
+                    PropertyBulkImportField.LATITUDE,
+                    "WARNING",
+                    "Latitude and longitude may be swapped. Please verify.",
+                    rawByField.get(PropertyBulkImportField.LATITUDE),
+                    latResult.value().toPlainString()));
+        }
+        if (mobile != null && (mobile.equals(altMobile) || mobile.equals(contact3) || (altMobile != null && altMobile.equals(contact3)))) {
+            notices.add(notice(
+                    PropertyBulkImportField.MOBILE_NUMBER,
+                    "WARNING",
+                    "The same contact number is repeated on this row.",
+                    mobile,
+                    mobile));
+        }
 
         var amenitiesResult = PropertyBulkImportValueParser.parseAmenities(
                 rawByField.get(PropertyBulkImportField.AMENITIES));
@@ -382,6 +529,7 @@ public final class PropertyBulkImportRowProcessor {
                 pincode,
                 mapUrl,
                 priceResult.value(),
+                priceResult.basis(),
                 boolResult.value(),
                 gender,
                 foodIncluded,
@@ -559,6 +707,7 @@ public final class PropertyBulkImportRowProcessor {
             String pincode,
             String mapUrl,
             java.math.BigDecimal startingPrice,
+            com.acomi.acomi_backend.property.domain.model.PriceBasis priceBasis,
             Boolean testLead,
             com.acomi.acomi_backend.space.domain.model.GenderPolicy genderPolicy,
             Boolean foodIncludedListing,

@@ -38,7 +38,7 @@ public final class InventoryProfiles {
     public static Profile forSpaceType(SpaceType type) {
         return switch (type) {
             case MESS -> FOOD;
-            case RENTAL -> FURNITURE;
+            case RENTAL, CORPORATE_STAY -> FURNITURE;
             case PG, HOSTEL, CO_LIVING -> ASSET;
         };
     }

@@ -106,6 +106,7 @@ public class MemberMealBalanceService {
             }
             events.add(MemberMealBalanceActivityEventResponse.builder()
                     .eventId(entry.getId())
+                    .referenceCode(entry.getReferenceCode())
                     .eventType(entry.getEntryType())
                     .meals(entry.getAmount())
                     .paidAmount(entry.getPaidAmount())
@@ -240,6 +241,7 @@ public class MemberMealBalanceService {
             }
             chronological.add(MemberMealBalanceActivityEventResponse.builder()
                     .eventId(entry.getId())
+                    .referenceCode(entry.getReferenceCode())
                     .eventType(entry.getEntryType())
                     .meals(entry.getAmount())
                     .paidAmount(entry.getPaidAmount())

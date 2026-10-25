@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.space.api.dto.request;
 
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
+import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
@@ -38,6 +39,9 @@ public class UpdateSpaceRequest {
 
     @Schema(description = "When true, food is mandatory and bundled in rentSnapshot (no separate food charge)")
     private Boolean foodIncludedInRent;
+
+    @Schema(description = "Who the listing is for. Omitted values are left unchanged.", implementation = GenderPolicy.class)
+    private GenderPolicy genderPolicy;
 
     @DecimalMin(value = "0.0", inclusive = true, message = "Default food charge must be zero or greater")
     @Schema(description = "Default monthly food charge prefill when food is billed separately")

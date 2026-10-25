@@ -13,5 +13,7 @@ public enum SpaceType {
     @Schema(description = "Co-living or shared accommodation space")
     CO_LIVING,
     @Schema(description = "Rental property or apartment")
-    RENTAL
+    RENTAL,
+    @Schema(description = "Corporate stay or company accommodation")
+    CORPORATE_STAY
 }

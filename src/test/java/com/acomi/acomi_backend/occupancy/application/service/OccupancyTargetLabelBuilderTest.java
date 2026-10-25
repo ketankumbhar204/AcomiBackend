@@ -1,7 +1,6 @@
 package com.acomi.acomi_backend.occupancy.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.when;
 
 import com.acomi.acomi_backend.accommodation.domain.model.PropertyLayoutMode;
 import com.acomi.acomi_backend.accommodation.domain.model.RoomType;
@@ -10,29 +9,14 @@ import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.B
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.FloorEntity;
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.RoomEntity;
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.UnitEntity;
-import com.acomi.acomi_backend.accommodation.infrastructure.persistence.repository.BuildingRepository;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
-import java.util.List;
 import java.util.UUID;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
 
-@ExtendWith(MockitoExtension.class)
 class OccupancyTargetLabelBuilderTest {
 
-    @Mock
-    private BuildingRepository buildingRepository;
-
-    private OccupancyTargetLabelBuilder builder;
-
-    @BeforeEach
-    void setUp() {
-        builder = new OccupancyTargetLabelBuilder(buildingRepository);
-    }
+    private final OccupancyTargetLabelBuilder builder = new OccupancyTargetLabelBuilder();
 
     @Test
     void buildsCorridorPgLabelWithBuildingFloorAndRoomBed() {
@@ -52,14 +36,11 @@ class OccupancyTargetLabelBuilderTest {
                 .bed(bed)
                 .build();
 
-        when(buildingRepository.findActiveBySpaceId(space.getId()))
-                .thenReturn(List.of(building, building(space, PropertyLayoutMode.CORRIDOR_PG, "Building 2")));
-
-        assertThat(builder.build(occupancy)).isEqualTo("Building 1 • Floor 1 • Room B");
+        assertThat(builder.build(occupancy)).isEqualTo("Building 1 • Floor 1 • Room Shared • Bed B");
     }
 
     @Test
-    void omitsBuildingForSingleBuildingCorridorPgButKeepsFloor() {
+    void includesBuildingAndFloorForSingleBuildingCorridorPg() {
         SpaceEntity space = space();
         BuildingEntity building = building(space, PropertyLayoutMode.CORRIDOR_PG, "Building 1");
         FloorEntity floor = floor(building, "1");
@@ -76,13 +57,11 @@ class OccupancyTargetLabelBuilderTest {
                 .bed(bed)
                 .build();
 
-        when(buildingRepository.findActiveBySpaceId(space.getId())).thenReturn(List.of(building));
-
-        assertThat(builder.build(occupancy)).isEqualTo("Floor 1 • Room B");
+        assertThat(builder.build(occupancy)).isEqualTo("Building 1 • Floor 1 • Room Shared • Bed B");
     }
 
     @Test
-    void omitsBuildingAndFloorForSingleBuildingApartmentPg() {
+    void includesBuildingAndFloorForSingleBuildingApartmentPg() {
         SpaceEntity space = space();
         BuildingEntity building = building(space, PropertyLayoutMode.APARTMENT_PG, "Building 1");
         FloorEntity floor = floor(building, "1");
@@ -97,9 +76,7 @@ class OccupancyTargetLabelBuilderTest {
                 .bed(bed)
                 .build();
 
-        when(buildingRepository.findActiveBySpaceId(space.getId())).thenReturn(List.of(building));
-
-        assertThat(builder.build(occupancy)).isEqualTo("Unit 101 • Room B");
+        assertThat(builder.build(occupancy)).isEqualTo("Building 1 • Floor 1 • Unit 101 • Room Shared • Bed B");
     }
 
     @Test
@@ -118,10 +95,28 @@ class OccupancyTargetLabelBuilderTest {
                 .bed(bed)
                 .build();
 
-        when(buildingRepository.findActiveBySpaceId(space.getId()))
-                .thenReturn(List.of(building, building(space, PropertyLayoutMode.APARTMENT_PG, "Building 2")));
+        assertThat(builder.build(occupancy)).isEqualTo("Building 1 • Floor 1 • Unit 101 • Room Master • Bed B");
+    }
 
-        assertThat(builder.build(occupancy)).isEqualTo("Building 1 • Floor 1 • Unit 101 • Room B");
+    @Test
+    void putsBuildingBeforeFloorForMultiBuildingCoLiving() {
+        SpaceEntity space = space();
+        BuildingEntity building = building(space, PropertyLayoutMode.CO_LIVING, "A Block");
+        FloorEntity floor = floor(building, "1");
+        UnitEntity unit = unit(building, floor, "Unit 101", false);
+        BedEntity bed = bed(room(floor, unit, "Room A"), "B");
+
+        OccupancyEntity occupancy = OccupancyEntity.builder()
+                .space(space)
+                .building(building)
+                .floor(floor)
+                .unit(unit)
+                .room(bed.getRoom())
+                .bed(bed)
+                .build();
+
+        assertThat(builder.build(occupancy))
+                .isEqualTo("A Block • Floor 1 • Unit 101 • Room A • Bed B");
     }
 
     private SpaceEntity space() {

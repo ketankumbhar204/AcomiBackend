@@ -5,14 +5,46 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 @Repository
 public interface MealComboRepository extends JpaRepository<MealComboEntity, UUID> {
 
-    List<MealComboEntity> findBySpaceIdAndIsActiveTrueOrderByNameAsc(UUID spaceId);
+    @Query("""
+            SELECT c FROM MealComboEntity c
+            WHERE c.isActive = true
+              AND c.libraryListed = true
+              AND c.owner.id = :ownerId
+            ORDER BY c.name ASC
+            """)
+    List<MealComboEntity> findListedForOwner(@Param("ownerId") UUID ownerId);
 
-    boolean existsBySpaceIdAndNameIgnoreCaseAndIsActiveTrue(UUID spaceId, String name);
+    @Query("""
+            SELECT CASE WHEN COUNT(c) > 0 THEN true ELSE false END
+            FROM MealComboEntity c
+            WHERE c.owner.id = :ownerId
+              AND c.sampleKey = :sampleKey
+              AND c.isActive = true
+              AND c.libraryListed = true
+            """)
+    boolean existsListedSample(@Param("ownerId") UUID ownerId, @Param("sampleKey") String sampleKey);
 
-    Optional<MealComboEntity> findByIdAndSpaceId(UUID id, UUID spaceId);
+    @Query("""
+            SELECT CASE WHEN COUNT(c) > 0 THEN true ELSE false END
+            FROM MealComboEntity c
+            WHERE c.owner.id = :ownerId
+              AND lower(c.name) = lower(:name)
+              AND c.isActive = true
+              AND c.libraryListed = true
+            """)
+    boolean existsListedName(@Param("ownerId") UUID ownerId, @Param("name") String name);
+
+    @Query("""
+            SELECT c FROM MealComboEntity c
+            WHERE c.id = :id
+              AND c.owner.id = :ownerId
+            """)
+    Optional<MealComboEntity> findByIdAndOwnerId(@Param("id") UUID id, @Param("ownerId") UUID ownerId);
 }

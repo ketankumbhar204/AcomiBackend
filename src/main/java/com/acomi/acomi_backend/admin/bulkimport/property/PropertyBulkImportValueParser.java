@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.admin.bulkimport.property;
 
+import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import com.acomi.acomi_backend.space.domain.model.AmenityCode;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
@@ -28,7 +29,7 @@ public final class PropertyBulkImportValueParser {
     private static final Pattern RANGE_SEPARATOR =
             Pattern.compile("\\s*(?:[-–—]|to|/)\\s*", Pattern.CASE_INSENSITIVE);
     private static final Pattern PRICE_SUFFIX = Pattern.compile(
-            "(?i)(?:\\s*/\\s*|\\s+per\\s+)(?:person|persons|bed|beds|month|months|night|nights|day|days|room|rooms|mo)\\b|/-|\\*");
+            "(?i)(?:\\s*/\\s*|\\s+per\\s+)(?:person|persons|bed|beds|month|months|night|nights|day|days|room|rooms|order|orders|mo)\\b|/-|\\*");
     private static final Pattern CURRENCY_MARKER = Pattern.compile(
             "(?i)(?:₹|â‚¹|竄ｹ|(?<![a-z])rs\\.?|(?<![a-z])inr(?![a-z]))");
 
@@ -166,14 +167,21 @@ public final class PropertyBulkImportValueParser {
     }
 
     /**
-     * Accepts a single starting rent. Strips currency marks (including mojibake {@code 竄ｹ}
-     * for ₹) and unit suffixes such as {@code /bed}. Rent ranges stay invalid.
+     * Accepts one starting amount. Currency marks are removed.
+     * A single recognized unit ({@code /month}, {@code per person}, {@code /bed}, {@code /room},
+     * and the same forms for night, day, and order) does not block the amount.
+     * {@code /bed} and {@code /room} still set that billing basis. Other units leave the basis empty
+     * so the property type supplies it. Ranges and extra words are not stored.
      */
-    public static BigDecimalParseResult parseStartingPrice(String raw) {
+    public static StartingPriceParseResult parseStartingPrice(String raw) {
         String value = blankToNull(raw);
         if (value == null) {
-            return BigDecimalParseResult.blank();
+            return StartingPriceParseResult.blank();
         }
+
+        String lower = value.toLowerCase(Locale.ROOT);
+        boolean perBed = lower.matches(".*(?:/\\s*beds?\\b|\\bper\\s+beds?\\b).*");
+        boolean perRoom = lower.matches(".*(?:/\\s*rooms?\\b|\\bper\\s+rooms?\\b).*");
 
         String working = CURRENCY_MARKER.matcher(value).replaceAll(" ");
         working = PRICE_SUFFIX.matcher(working).replaceAll(" ");
@@ -185,26 +193,32 @@ public final class PropertyBulkImportValueParser {
             found.add(numbers.group());
         }
         if (found.size() >= 2 && RANGE_SEPARATOR.matcher(working).find()) {
-            return BigDecimalParseResult.invalid(
-                    "Rent range cannot be represented by a single starting price (got: " + value + ")");
+            return StartingPriceParseResult.unrepresentable(
+                    "Rent range cannot be stored as one starting price (got: " + value + ").");
+        }
+        if (found.isEmpty()) {
+            return StartingPriceParseResult.invalid("Invalid rent value: " + value);
         }
         if (found.size() != 1) {
-            return BigDecimalParseResult.invalid("Invalid rent value: " + value);
+            return StartingPriceParseResult.unrepresentable(
+                    "Rent value has more than one amount and was not stored (got: " + value + ").");
         }
 
         String leftover = PRICE_NUMBER.matcher(working).replaceAll("");
         leftover = leftover.replaceAll("\\p{Sc}+", "");
         leftover = leftover.replace(",", "").replace(".", "").trim();
         leftover = leftover.replaceAll("[^\\p{L}\\p{N}]+", "").trim();
-        if (!leftover.isEmpty()) {
-            return BigDecimalParseResult.invalid("Invalid rent value: " + value);
+        if (!leftover.isEmpty() || (perBed && perRoom)) {
+            return StartingPriceParseResult.unrepresentable(
+                    "Rent unit or qualifier cannot be stored with the current price fields (got: " + value + ").");
         }
 
         try {
             String numeric = found.get(0).replace(",", "");
-            return BigDecimalParseResult.ok(new BigDecimal(numeric));
+            PriceBasis basis = perBed ? PriceBasis.PER_BED : perRoom ? PriceBasis.PER_ROOM : null;
+            return StartingPriceParseResult.amount(new BigDecimal(numeric), basis);
         } catch (NumberFormatException ex) {
-            return BigDecimalParseResult.invalid("Invalid rent value: " + value);
+            return StartingPriceParseResult.invalid("Invalid rent value: " + value);
         }
     }
 
@@ -498,6 +512,32 @@ public final class PropertyBulkImportValueParser {
 
         public Optional<BigDecimal> optional() {
             return Optional.ofNullable(value);
+        }
+    }
+
+    /**
+     * A rent cell. {@code warning} means the amount was not stored because the unit or range
+     * cannot be represented. {@code basis} is set only for per-bed and per-room amounts.
+     */
+    public record StartingPriceParseResult(BigDecimal value, PriceBasis basis, String warning, String error) {
+        public static StartingPriceParseResult blank() {
+            return new StartingPriceParseResult(null, null, null, null);
+        }
+
+        public static StartingPriceParseResult amount(BigDecimal value, PriceBasis basis) {
+            return new StartingPriceParseResult(value, basis, null, null);
+        }
+
+        public static StartingPriceParseResult unrepresentable(String warning) {
+            return new StartingPriceParseResult(null, null, warning, null);
+        }
+
+        public static StartingPriceParseResult invalid(String message) {
+            return new StartingPriceParseResult(null, null, null, message);
+        }
+
+        public boolean isInvalid() {
+            return error != null;
         }
     }
 

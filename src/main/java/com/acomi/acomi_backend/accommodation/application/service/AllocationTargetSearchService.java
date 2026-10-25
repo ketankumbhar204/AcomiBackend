@@ -70,7 +70,9 @@ public class AllocationTargetSearchService {
         if (requested != null) {
             return requested;
         }
-        return spaceType == SpaceType.RENTAL ? AllocationTargetType.UNIT : AllocationTargetType.BED;
+        return spaceType == SpaceType.RENTAL || spaceType == SpaceType.CORPORATE_STAY
+                ? AllocationTargetType.UNIT
+                : AllocationTargetType.BED;
     }
 
     private AllocationTargetSearchResponse toResponse(AllocationTargetSearchRow row) {

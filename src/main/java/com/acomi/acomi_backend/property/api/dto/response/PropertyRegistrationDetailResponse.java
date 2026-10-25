@@ -41,6 +41,7 @@ public class PropertyRegistrationDetailResponse {
     private PropertyRegistrationStatus status;
     private PropertyRegistrationSource source;
     private UUID convertedSpaceId;
+    private String spaceReferenceCode;
     private UUID linkedOwnerUserId;
     private String linkedOwnerName;
     private String linkedOwnerMobile;

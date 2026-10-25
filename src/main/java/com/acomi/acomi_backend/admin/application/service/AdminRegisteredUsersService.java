@@ -18,6 +18,12 @@ import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.InvitationEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMembershipEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
+import com.acomi.acomi_backend.notification.application.port.in.PublishNotificationCommand;
+import com.acomi.acomi_backend.notification.application.service.NotificationService;
+import com.acomi.acomi_backend.notification.domain.model.NotificationCategory;
+import com.acomi.acomi_backend.notification.domain.model.NotificationEntityType;
+import com.acomi.acomi_backend.notification.domain.model.NotificationPriority;
+import com.acomi.acomi_backend.notification.domain.model.NotificationType;
 import com.acomi.acomi_backend.space.api.dto.request.CreateSpaceRequest;
 import com.acomi.acomi_backend.space.application.service.SpaceService;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
@@ -71,6 +77,7 @@ public class AdminRegisteredUsersService {
     private final InvitationProvisioner invitationProvisioner;
     private final InvitationService invitationService;
     private final AdminSecurityAudit adminSecurityAudit;
+    private final NotificationService notificationService;
 
     @Transactional(readOnly = true)
     public long countRegisteredUsers() {
@@ -410,6 +417,30 @@ public class AdminRegisteredUsersService {
         userRepository.save(user);
         adminSecurityAudit.record(
                 actorId, targetUserId, LoggingAdminSecurityAudit.PASSWORD_RESET, "SUCCESS");
+        notifyPasswordChanged(actorId, targetUserId);
+    }
+
+    /**
+     * In-app and push notice only. The password is not an argument, so it cannot be
+     * copied into the title, message, or dedupe key.
+     */
+    private void notifyPasswordChanged(UUID actorId, UUID targetUserId) {
+        notificationService.publish(PublishNotificationCommand.builder()
+                .spaceId(null)
+                .userId(targetUserId)
+                .actorId(actorId)
+                .entityType(NotificationEntityType.USER_ACCOUNT)
+                .entityId(targetUserId)
+                .notificationType(NotificationType.PASSWORD_CHANGED)
+                .category(NotificationCategory.WARNING)
+                .priority(NotificationPriority.HIGH)
+                .title("Password changed")
+                .message(
+                        "Your password was changed by an administrator. "
+                                + "If you did not expect this, use account recovery. "
+                                + "Your other sessions have been signed out.")
+                .dedupeKey("PASSWORD_CHANGED:" + targetUserId + ":" + UUID.randomUUID())
+                .build());
     }
 
     @Transactional
@@ -493,6 +524,7 @@ public class AdminRegisteredUsersService {
             }
             spaces.add(AdminRegisteredUserSpaceResponse.builder()
                     .id(membership.getSpace().getId())
+                    .referenceCode(membership.getSpace().getReferenceCode())
                     .name(membership.getSpace().getName())
                     .type(membership.getSpace().getType())
                     .membershipRole(membership.getRole())
@@ -501,6 +533,7 @@ public class AdminRegisteredUsersService {
 
         return AdminRegisteredUserResponse.builder()
                 .id(user.getId())
+                .referenceCode(user.getReferenceCode())
                 .fullName(displayName(user.getFullName()))
                 .mobileNumber(user.getMobileNumber())
                 .email(blankToNull(user.getEmail()))

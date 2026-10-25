@@ -65,5 +65,9 @@ class DiscoverListingSanitizerTest {
         assertThat(DiscoverListingSanitizer.mapUrl("javascript:alert(1)")).isNull();
         assertThat(DiscoverListingSanitizer.mapUrl("not a url")).isNull();
         assertThat(DiscoverListingSanitizer.mapUrl(null)).isNull();
+        assertThat(DiscoverListingSanitizer.mapUrl(
+                        "https://www.google.com/maps/place/?q=place_id:ChIJM4wUk9i7wjsRVI123"))
+                .isEqualTo(
+                        "https://www.google.com/maps/search/?api=1&query=ChIJM4wUk9i7wjsRVI123&query_place_id=ChIJM4wUk9i7wjsRVI123");
     }
 }

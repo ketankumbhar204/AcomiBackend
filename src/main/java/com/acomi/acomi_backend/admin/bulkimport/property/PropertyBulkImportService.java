@@ -12,6 +12,8 @@ import com.acomi.acomi_backend.admin.bulkimport.property.dto.PropertyBulkImportR
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRegistrationRepository;
 import com.acomi.acomi_backend.property.infrastructure.persistence.repository.PropertyRegistrationRepository;
+import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
+import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Validator;
@@ -41,6 +43,7 @@ public class PropertyBulkImportService {
     private final AdminMessRegistrationService adminMessRegistrationService;
     private final PropertyRegistrationRepository propertyRegistrationRepository;
     private final MessRegistrationRepository messRegistrationRepository;
+    private final SpaceRepository spaceRepository;
     private final PropertyBulkImportDuplicateDetector duplicateDetector;
     private final Validator validator;
     private final ObjectMapper objectMapper;
@@ -195,7 +198,7 @@ public class PropertyBulkImportService {
             String mappingJson,
             boolean markAsTestLead,
             String keepDuplicateRowNumbersJson) {
-        return importRows(file, mappingJson, markAsTestLead, keepDuplicateRowNumbersJson, null);
+        return importRows(file, mappingJson, markAsTestLead, keepDuplicateRowNumbersJson, null, null);
     }
 
     public PropertyBulkImportResultResponse importRows(
@@ -204,8 +207,19 @@ public class PropertyBulkImportService {
             boolean markAsTestLead,
             String keepDuplicateRowNumbersJson,
             String fieldOverridesJson) {
+        return importRows(file, mappingJson, markAsTestLead, keepDuplicateRowNumbersJson, fieldOverridesJson, null);
+    }
+
+    public PropertyBulkImportResultResponse importRows(
+            MultipartFile file,
+            String mappingJson,
+            boolean markAsTestLead,
+            String keepDuplicateRowNumbersJson,
+            String fieldOverridesJson,
+            String skipRowNumbersJson) {
         Map<String, String> mapping = parseMapping(mappingJson);
-        Set<Integer> keepDuplicates = parseKeepDuplicateRowNumbers(keepDuplicateRowNumbersJson);
+        Set<Integer> keepDuplicates = parseRowNumbers(keepDuplicateRowNumbersJson, "keepDuplicateRowNumbers");
+        Set<Integer> skipRows = parseRowNumbers(skipRowNumbersJson, "skipRowNumbers");
         Map<Integer, Map<String, String>> fieldOverrides = parseFieldOverrides(fieldOverridesJson);
         PropertyBulkImportExcelReader.ParsedWorkbook parsed = PropertyBulkImportExcelReader.parse(file);
 
@@ -219,10 +233,22 @@ public class PropertyBulkImportService {
         int failed = 0;
         int blankSkipped = 0;
         int duplicateSkipped = 0;
+        int reviewSkipped = 0;
 
         for (ProcessedEntry entry : entries) {
             int rowNumber = entry.rowNumber();
             var processed = entry.processed();
+
+            if (skipRows.contains(rowNumber)) {
+                reviewSkipped++;
+                rows.add(PropertyBulkImportResultRow.builder()
+                        .rowNumber(rowNumber)
+                        .status("SKIPPED")
+                        .targetKind(processed.targetKind() == null ? null : processed.targetKind().name())
+                        .errors(List.of(new PropertyBulkImportFieldError(null, "Skipped during review")))
+                        .build());
+                continue;
+            }
 
             if (processed.status() == PropertyBulkImportRowProcessor.RowStatus.BLANK) {
                 blankSkipped++;
@@ -260,11 +286,11 @@ public class PropertyBulkImportService {
 
             try {
                 if (processed.targetKind() == PropertyBulkImportRowProcessor.TargetKind.MESS) {
-                    var created = adminMessRegistrationService.create(processed.messRequest());
+                    var created = adminMessRegistrationService.createImported(processed.messRequest());
                     imported++;
                     rows.add(resultRowAfterCreate(rowNumber, "MESS", created.getReference(), true));
                 } else {
-                    var created = adminPropertyRegistrationService.create(processed.propertyRequest());
+                    var created = adminPropertyRegistrationService.createImported(processed.propertyRequest());
                     imported++;
                     rows.add(resultRowAfterCreate(rowNumber, "PROPERTY", created.getReference(), false));
                 }
@@ -302,6 +328,7 @@ public class PropertyBulkImportService {
                 .failed(failed)
                 .blankSkipped(blankSkipped)
                 .duplicateSkipped(duplicateSkipped)
+                .reviewSkipped(reviewSkipped)
                 .rows(rows)
                 .build();
     }
@@ -321,7 +348,7 @@ public class PropertyBulkImportService {
         Map<Integer, Map<String, String>> overrides =
                 fieldOverrides == null ? Map.of() : fieldOverrides;
         for (int i = 0; i < parsed.dataRows().size(); i++) {
-            int rowNumber = i + 2;
+            int rowNumber = parsed.headerRowNumber() + 1 + i;
             var processed = PropertyBulkImportRowProcessor.process(
                     parsed.dataRows().get(i),
                     mapping,
@@ -359,6 +386,13 @@ public class PropertyBulkImportService {
         return new DuplicateAnnotations(byRowNumber);
     }
 
+    private String spaceReference(java.util.UUID spaceId) {
+        if (spaceId == null) {
+            return null;
+        }
+        return spaceRepository.findById(spaceId).map(SpaceEntity::getReferenceCode).orElse(null);
+    }
+
     private PropertyBulkImportResultRow resultRowAfterCreate(
             int rowNumber, String targetKind, String reference, boolean mess) {
         if (mess) {
@@ -375,6 +409,7 @@ public class PropertyBulkImportService {
                                         entity.getConvertedSpaceId() == null
                                                 ? null
                                                 : entity.getConvertedSpaceId().toString())
+                                .spaceReferenceCode(spaceReference(entity.getConvertedSpaceId()))
                                 .converted(converted)
                                 .conversionError(
                                         converted
@@ -404,6 +439,7 @@ public class PropertyBulkImportService {
                                     entity.getConvertedSpaceId() == null
                                             ? null
                                             : entity.getConvertedSpaceId().toString())
+                            .spaceReferenceCode(spaceReference(entity.getConvertedSpaceId()))
                             .converted(converted)
                             .conversionError(
                                     converted ? null : "Lead saved but was not published to a live Space")
@@ -463,7 +499,7 @@ public class PropertyBulkImportService {
         }
     }
 
-    Set<Integer> parseKeepDuplicateRowNumbers(String json) {
+    Set<Integer> parseRowNumbers(String json, String fieldName) {
         if (json == null || json.isBlank()) {
             return Set.of();
         }
@@ -472,7 +508,7 @@ public class PropertyBulkImportService {
             return new HashSet<>(values);
         } catch (Exception ex) {
             throw new BusinessException(
-                    "keepDuplicateRowNumbers must be a JSON array of Excel row numbers",
+                    fieldName + " must be a JSON array of Excel row numbers",
                     HttpStatus.BAD_REQUEST);
         }
     }

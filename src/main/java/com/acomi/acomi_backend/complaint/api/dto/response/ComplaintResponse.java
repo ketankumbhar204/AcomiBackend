@@ -18,6 +18,7 @@ import lombok.Getter;
 public class ComplaintResponse {
 
     private UUID complaintId;
+    private String referenceCode;
     private UUID spaceId;
     private UUID createdByMemberId;
     private String createdByMemberName;
@@ -68,6 +69,7 @@ public class ComplaintResponse {
     private static ComplaintResponseBuilder base(SpaceComplaintEntity entity, boolean canReopen) {
         return ComplaintResponse.builder()
                 .complaintId(entity.getId())
+                .referenceCode(entity.getReferenceCode())
                 .spaceId(entity.getSpace().getId())
                 .createdByMemberId(entity.getCreatedByMember().getId())
                 .createdByMemberName(entity.getCreatedByMember().getFullName())

@@ -46,7 +46,8 @@ public final class MembershipRoleLinkPolicy {
         if (spaceType == SpaceType.PG
                 || spaceType == SpaceType.HOSTEL
                 || spaceType == SpaceType.CO_LIVING
-                || spaceType == SpaceType.RENTAL) {
+                || spaceType == SpaceType.RENTAL
+                || spaceType == SpaceType.CORPORATE_STAY) {
             return MembershipRole.TENANT;
         }
         return null;

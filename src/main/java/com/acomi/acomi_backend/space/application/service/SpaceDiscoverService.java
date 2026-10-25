@@ -23,6 +23,7 @@ import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEnti
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceDiscoverRankedPageQuery;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceDiscoverSpecs;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -251,6 +252,17 @@ public class SpaceDiscoverService {
                     messesBySpace.get(space.getId())));
         }
         return cards;
+    }
+
+    @Transactional(readOnly = true)
+    public SpaceEntity requireDiscoverableSpace(UUID spaceId) {
+        SpaceEntity space = findDiscoverableSpace(spaceId);
+        // The caller reads the owner after this transaction ends.
+        UserEntity owner = space.getOwner();
+        if (owner != null) {
+            owner.getMobileNumber();
+        }
+        return space;
     }
 
     private SpaceEntity findDiscoverableSpace(UUID spaceId) {

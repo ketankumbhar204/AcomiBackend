@@ -68,6 +68,8 @@ acomi:
     # Local E2E uses GoDaddy Titan SMTP. Password stays in SPRING_MAIL_PASSWORD (never commit it).
     enabled: ${ACOMI_MAIL_ENABLED:true}
   push:
+    # Local .env sets ACOMI_PUSH_ENABLED and FIREBASE_CREDENTIALS_PATH.
+    # The JSON file stays out of git. A missing file leaves FCM uninitialized.
     enabled: ${ACOMI_PUSH_ENABLED:false}
     credentials-path: ${FIREBASE_CREDENTIALS_PATH:}
 

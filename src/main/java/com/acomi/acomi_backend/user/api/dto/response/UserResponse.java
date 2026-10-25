@@ -17,6 +17,7 @@ import lombok.Getter;
 public class UserResponse {
 
     private UUID id;
+    private String referenceCode;
     private String mobileNumber;
     private String fullName;
     private String profilePhotoUrl;
@@ -46,6 +47,7 @@ public class UserResponse {
     public static UserResponse from(UserEntity user, String resolvedPhotoUrl) {
         return UserResponse.builder()
                 .id(user.getId())
+                .referenceCode(user.getReferenceCode())
                 .mobileNumber(user.getMobileNumber())
                 .fullName(user.getFullName())
                 .profilePhotoUrl(resolvedPhotoUrl)

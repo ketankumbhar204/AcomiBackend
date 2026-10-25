@@ -1,5 +1,9 @@
 package com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.entity;
 
+import com.acomi.acomi_backend.common.reference.BusinessReferencePrefix;
+import com.acomi.acomi_backend.common.reference.BusinessReferenced;
+import com.acomi.acomi_backend.common.reference.BusinessReferenceEntityListener;
+
 import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryCreditLedgerEntryType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -33,13 +37,21 @@ import org.springframework.data.jpa.domain.support.AuditingEntityListener;
                     name = "idx_inquiry_credit_ledger_user_created",
                     columnList = "user_id, created_at DESC")
         })
-@EntityListeners(AuditingEntityListener.class)
+@EntityListeners({AuditingEntityListener.class, BusinessReferenceEntityListener.class})
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class InquiryCreditLedgerEntryEntity {
+public class InquiryCreditLedgerEntryEntity implements BusinessReferenced {
+    @Column(name = "reference_code", nullable = false, updatable = false, length = 24)
+    private String referenceCode;
+
+    @Override
+    public BusinessReferencePrefix businessReferencePrefix() {
+        return BusinessReferencePrefix.ICL;
+    }
+
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

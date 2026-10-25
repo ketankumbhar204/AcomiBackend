@@ -48,7 +48,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class AdminDashboardService {
 
     private static final List<SpaceType> PROPERTY_SPACE_TYPES =
-            List.of(SpaceType.PG, SpaceType.HOSTEL, SpaceType.CO_LIVING, SpaceType.RENTAL);
+            List.of(SpaceType.PG, SpaceType.HOSTEL, SpaceType.CO_LIVING, SpaceType.RENTAL, SpaceType.CORPORATE_STAY);
 
     private static final List<PropertyRegistrationStatus> CLOSED_PROPERTY_STATUSES =
             List.of(PropertyRegistrationStatus.CONVERTED, PropertyRegistrationStatus.REJECTED);
@@ -303,7 +303,13 @@ public class AdminDashboardService {
         List<SpaceEntity> spaces;
         if (type == null) {
             spaces = spaceRepository.findActiveByTypesWithOwner(
-                    List.of(SpaceType.PG, SpaceType.HOSTEL, SpaceType.CO_LIVING, SpaceType.RENTAL, SpaceType.MESS));
+                    List.of(
+                            SpaceType.PG,
+                            SpaceType.HOSTEL,
+                            SpaceType.CO_LIVING,
+                            SpaceType.RENTAL,
+                            SpaceType.CORPORATE_STAY,
+                            SpaceType.MESS));
         } else {
             spaces = spaceRepository.findActiveByTypeWithOwner(type);
         }
@@ -346,6 +352,7 @@ public class AdminDashboardService {
             SpaceEntity space, PropertyRegistrationEntity propertyLead, MessRegistrationEntity messLead) {
         AdminActiveSpaceResponse.AdminActiveSpaceResponseBuilder builder = AdminActiveSpaceResponse.builder()
                 .id(space.getId())
+                .referenceCode(space.getReferenceCode())
                 .name(space.getName())
                 .type(space.getType())
                 .address(space.getAddress())

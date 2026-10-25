@@ -15,6 +15,7 @@ import lombok.Getter;
 public class InquiryCreditPurchaseRequestResponse {
 
     private UUID id;
+    private String referenceCode;
     private UUID userId;
     private String userFullName;
     private String userMobileNumber;
@@ -41,6 +42,7 @@ public class InquiryCreditPurchaseRequestResponse {
             com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity user) {
         return InquiryCreditPurchaseRequestResponse.builder()
                 .id(entity.getId())
+                .referenceCode(entity.getReferenceCode())
                 .userId(entity.getUserId())
                 .userFullName(user != null ? user.getFullName() : null)
                 .userMobileNumber(user != null ? user.getMobileNumber() : null)

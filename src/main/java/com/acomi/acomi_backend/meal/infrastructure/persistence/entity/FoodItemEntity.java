@@ -1,9 +1,13 @@
 package com.acomi.acomi_backend.meal.infrastructure.persistence.entity;
 
+import com.acomi.acomi_backend.common.reference.BusinessReferencePrefix;
+import com.acomi.acomi_backend.common.reference.BusinessReferenced;
+
 import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.meal.domain.model.FoodScope;
 import com.acomi.acomi_backend.meal.domain.model.FoodType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
+import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -24,14 +28,23 @@ import lombok.Setter;
         name = "food_items",
         indexes = {
             @Index(name = "idx_food_items_category_id", columnList = "category_id"),
-            @Index(name = "idx_food_items_space_id", columnList = "space_id")
+            @Index(name = "idx_food_items_space_id", columnList = "space_id"),
+            @Index(name = "idx_food_items_owner_id", columnList = "owner_id")
         })
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class FoodItemEntity extends BaseEntity {
+public class FoodItemEntity extends BaseEntity implements BusinessReferenced {
+    @Column(name = "reference_code", nullable = false, updatable = false, length = 24)
+    private String referenceCode;
+
+    @Override
+    public BusinessReferencePrefix businessReferencePrefix() {
+        return BusinessReferencePrefix.FDI;
+    }
+
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "category_id", nullable = false)
@@ -47,6 +60,11 @@ public class FoodItemEntity extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "space_id")
     private SpaceEntity space;
+
+    /** Owner of the space that created a custom item. Null for global items. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id")
+    private UserEntity owner;
 
     @Builder.Default
     @Column(name = "is_active", nullable = false)

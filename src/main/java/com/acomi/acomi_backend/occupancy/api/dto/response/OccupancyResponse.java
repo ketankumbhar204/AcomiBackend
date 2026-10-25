@@ -21,6 +21,7 @@ import lombok.Getter;
 public class OccupancyResponse {
 
     private UUID occupancyId;
+    private String referenceCode;
     private UUID spaceId;
     private UUID memberId;
     private String memberName;
@@ -79,6 +80,7 @@ public class OccupancyResponse {
 
         return OccupancyResponse.builder()
                 .occupancyId(entity.getId())
+                .referenceCode(entity.getReferenceCode())
                 .spaceId(entity.getSpace().getId())
                 .memberId(entity.getMember().getId())
                 .memberName(entity.getMember().getFullName())

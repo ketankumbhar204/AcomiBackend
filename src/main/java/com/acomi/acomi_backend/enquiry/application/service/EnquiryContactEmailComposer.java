@@ -182,6 +182,7 @@ public final class EnquiryContactEmailComposer {
             case PG -> "PG";
             case HOSTEL -> "Hostel";
             case RENTAL -> "Rental";
+            case CORPORATE_STAY -> "Corporate Stay";
             case CO_LIVING -> "Co-living";
             case MESS -> "Mess";
         };

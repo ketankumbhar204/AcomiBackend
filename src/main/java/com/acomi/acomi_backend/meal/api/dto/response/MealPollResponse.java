@@ -15,6 +15,7 @@ import lombok.Getter;
 public class MealPollResponse {
 
     private UUID id;
+    private String referenceCode;
     private LocalDate pollDate;
     private MealType mealType;
     private MealPollStatus status;

@@ -117,7 +117,9 @@ class AdminCreateTestUserServiceTest {
                 spaceRepository,
                 invitationProvisioner,
                 invitationService,
-                adminSecurityAudit);
+                adminSecurityAudit,
+                org.mockito.Mockito.mock(
+                        com.acomi.acomi_backend.notification.application.service.NotificationService.class));
         authService = new AuthService(
                 otpService,
                 otpProperties,

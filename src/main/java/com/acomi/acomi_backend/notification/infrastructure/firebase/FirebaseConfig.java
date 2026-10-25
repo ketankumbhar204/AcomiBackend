@@ -5,65 +5,71 @@ import com.google.auth.oauth2.GoogleCredentials;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.messaging.FirebaseMessaging;
-import java.io.ByteArrayInputStream;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Initializes the Firebase Admin SDK from environment-supplied credentials.
- * Never logs credential contents. Missing/invalid config disables FCM safely.
+ * Initializes Firebase Admin once from backend-only credentials.
+ * Never logs credential contents or filesystem paths.
  */
 @Slf4j
 @Configuration
 public class FirebaseConfig {
 
     @Bean
-    public FirebaseMessaging firebaseMessaging(PushProperties properties) {
-        if (!properties.isEnabled()) {
+    public FirebasePushStatus firebasePushStatus(PushProperties properties) {
+        FirebaseCredentialLoader.LoadResult loaded = FirebaseCredentialLoader.load(properties);
+        boolean ready = false;
+        String reason = loaded.reasonCode();
+        if (properties.isEnabled() && loaded.credentials() != null && "MATCH".equals(loaded.projectStatus())) {
+            try {
+                initializeOnce(loaded.credentials());
+                ready = true;
+                reason = "READY";
+                log.info("Firebase Admin SDK initialized for FCM project={}", FirebaseCredentialLoader.EXPECTED_PROJECT_ID);
+            } catch (Exception ex) {
+                reason = "INIT_FAILED";
+                log.error("FCM initialization failed; push delivery disabled. type={}", ex.getClass().getSimpleName());
+            }
+        } else if (!properties.isEnabled()) {
             log.info("FCM skipped: acomi.push.enabled=false");
-            return null;
+        } else {
+            log.warn("FCM skipped: reason={}", reason);
         }
-        try {
-            GoogleCredentials credentials = loadCredentials(properties);
-            if (credentials == null) {
-                log.warn("FCM skipped: ACOMI_PUSH_ENABLED is true but no credentials were provided");
-                return null;
-            }
-            if (FirebaseApp.getApps().isEmpty()) {
-                FirebaseApp.initializeApp(
-                        FirebaseOptions.builder().setCredentials(credentials).build());
-            }
-            log.info("Firebase Admin SDK initialized for FCM");
-            return FirebaseMessaging.getInstance();
-        } catch (Exception ex) {
-            log.error("FCM initialization failed; push delivery disabled. {}", ex.getMessage());
-            return null;
-        }
+        return new FirebasePushStatus(
+                properties.isEnabled(),
+                loaded.credentialSource(),
+                loaded.credentialReadable(),
+                loaded.projectStatus(),
+                ready,
+                reason);
     }
 
-    private static GoogleCredentials loadCredentials(PushProperties properties) throws Exception {
-        String json = properties.getCredentialsJson();
-        if (json != null && !json.isBlank()) {
-            try (InputStream in = new ByteArrayInputStream(json.trim().getBytes(StandardCharsets.UTF_8))) {
-                return GoogleCredentials.fromStream(in);
-            }
+    @Bean
+    public FirebaseMessaging firebaseMessaging(FirebasePushStatus status) {
+        if (!status.firebaseReady() || FirebaseApp.getApps().isEmpty()) {
+            log.info("FCM messaging provider unavailable reason={}", status.reasonCode());
+            return null;
         }
-        String path = properties.getCredentialsPath();
-        if (path != null && !path.isBlank()) {
-            Path file = Path.of(path.trim());
-            if (!Files.isRegularFile(file)) {
-                log.warn("FCM skipped: credentials file is not readable");
-                return null;
+        log.info("FCM messaging provider available project={}", FirebaseCredentialLoader.EXPECTED_PROJECT_ID);
+        return FirebaseMessaging.getInstance();
+    }
+
+    static void initializeOnce(GoogleCredentials credentials) {
+        synchronized (FirebaseConfig.class) {
+            if (!FirebaseApp.getApps().isEmpty()) {
+                String existing = FirebaseApp.getInstance().getOptions().getProjectId();
+                if (existing != null && !FirebaseCredentialLoader.EXPECTED_PROJECT_ID.equals(existing)) {
+                    throw new IllegalStateException("Firebase app is already initialized for a different project");
+                }
+                log.info("Firebase Admin already initialized for project={}", FirebaseCredentialLoader.EXPECTED_PROJECT_ID);
+                return;
             }
-            try (InputStream in = Files.newInputStream(file)) {
-                return GoogleCredentials.fromStream(in);
-            }
+            FirebaseApp.initializeApp(FirebaseOptions.builder()
+                    .setCredentials(credentials)
+                    .setProjectId(FirebaseCredentialLoader.EXPECTED_PROJECT_ID)
+                    .build());
         }
-        return null;
     }
 }

@@ -18,6 +18,7 @@ public final class BulkImportLabels {
             case CO_LIVING -> "Co-living";
             case RENTAL -> "Rental";
             case MESS -> "Mess";
+            case CORPORATE_STAY -> "Corporate Stay";
         };
     }
 

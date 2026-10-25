@@ -15,8 +15,6 @@ class PropertyBulkImportValueParserTest {
     @CsvSource({
         "PG, PG",
         "pg, PG",
-        "PG / Hostel, PG",
-        "Hostel / PG, PG",
         "Hostel, HOSTEL",
         "HOSTEL, HOSTEL",
         "Co-living, CO_LIVING",
@@ -24,11 +22,13 @@ class PropertyBulkImportValueParserTest {
         "CO_LIVING, CO_LIVING",
         "Rental, RENTAL",
         "RENTAL, RENTAL",
-        "Serviced / Corporate Apartment, RENTAL",
+        "Serviced Apartment, RENTAL",
         "Mess or Tiffin, MESS",
         "Mess / Tiffin, MESS",
         "Guest House, RENTAL",
-        "PG / Food Service, PG"
+        "Corporate Stay, CORPORATE_STAY",
+        "Corporate Accommodation, CORPORATE_STAY",
+        "Corporate Housing, CORPORATE_STAY"
     })
     void normalizePropertyType_knownLabels(String raw, SpaceType expected) {
         var result = PropertyBulkImportValueParser.parsePropertyType(raw);
@@ -37,7 +37,14 @@ class PropertyBulkImportValueParserTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"Villa", "xyz", "bungalow"})
+    @ValueSource(strings = {
+        "Villa",
+        "xyz",
+        "bungalow",
+        "PG / Co-living",
+        "Serviced / Corporate Apartment",
+        "Corporate Apartment"
+    })
     void normalizePropertyType_unknown_invalid(String raw) {
         var result = PropertyBulkImportValueParser.parsePropertyType(raw);
         assertThat(result.isInvalid()).isTrue();
@@ -130,14 +137,8 @@ class PropertyBulkImportValueParserTest {
         "'â‚¹10,000', 10000",
         "'竄ｹ8,000/bed', 8000",
         "'₹7,500/bed', 7500",
-        "'₹5,000/month', 5000",
         "'₹8,000 per bed', 8000",
-        "'₹8,500/person', 8500",
         "'₹2,000/bed*', 2000",
-        "'₹8,599/mo', 8599",
-        "'₹8,499/mo', 8499",
-        "'₹5,300/mo', 5300",
-        "'Rs 10,000 per month', 10000",
         "'INR 12,500/bed', 12500",
         "5000, 5000",
         "'5,000', 5000",
@@ -147,6 +148,25 @@ class PropertyBulkImportValueParserTest {
     void parseStartingPrice_normalizesCurrencyAndSuffixes(String raw, String expected) {
         var result = PropertyBulkImportValueParser.parseStartingPrice(raw);
         assertThat(result.isInvalid()).isFalse();
+        assertThat(result.warning()).isNull();
+        assertThat(result.value()).isEqualByComparingTo(new BigDecimal(expected));
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+        "₹5,000/month|5000",
+        "₹5,500/month|5500",
+        "₹8,599/mo|8599",
+        "Rs 10,000 per month|10000",
+        "₹8,500/person|8500",
+        "₹8,000 per bed|8000",
+        "₹12,000/night|12000",
+        "₹150 per order|150"
+    })
+    void parseStartingPrice_unitWordsDoNotBlockTheAmount(String raw, String expected) {
+        var result = PropertyBulkImportValueParser.parseStartingPrice(raw);
+        assertThat(result.isInvalid()).isFalse();
+        assertThat(result.warning()).isNull();
         assertThat(result.value()).isEqualByComparingTo(new BigDecimal(expected));
     }
 
@@ -162,18 +182,19 @@ class PropertyBulkImportValueParserTest {
             })
     void parseStartingPrice_rejectsRange(String raw) {
         var result = PropertyBulkImportValueParser.parseStartingPrice(raw);
-        assertThat(result.isInvalid()).isTrue();
-        assertThat(result.error()).contains("Rent range cannot be represented");
+        assertThat(result.isInvalid()).isFalse();
+        assertThat(result.value()).isNull();
+        assertThat(result.warning()).contains("Rent range");
     }
 
     @Test
     void parseFoodIncluded_available_isNoWithWarning() {
         var parsed = PropertyBulkImportValueParser.parseFoodIncluded("Available");
         assertThat(parsed.isInvalid()).isFalse();
-        assertThat(parsed.value()).isFalse();
+        assertThat(parsed.value()).isNull();
         var normalized = FoodIncludedNormalizer.normalize("Available");
-        assertThat(normalized.warning()).contains("does not confirm that food is included");
-        assertThat(normalized.warning()).contains("not treated as included");
+        assertThat(normalized.value()).isNull();
+        assertThat(normalized.warning()).contains("not stored as No");
     }
 
     @Test
@@ -184,17 +205,17 @@ class PropertyBulkImportValueParserTest {
     }
 
     @Test
-    void parseFoodIncluded_foodChargeExtra_isNo() {
+    void parseFoodIncluded_foodChargeExtra_isNotStored() {
         var result = PropertyBulkImportValueParser.parseFoodIncluded("Food charge extra");
         assertThat(result.isInvalid()).isFalse();
-        assertThat(result.value()).isFalse();
+        assertThat(result.value()).isNull();
     }
 
     @Test
-    void parseFoodIncluded_optionalSeparatePlan_isNo() {
+    void parseFoodIncluded_optionalSeparatePlan_isNotStored() {
         var result = PropertyBulkImportValueParser.parseFoodIncluded("Optional / separate plan");
         assertThat(result.isInvalid()).isFalse();
-        assertThat(result.value()).isFalse();
+        assertThat(result.value()).isNull();
     }
 
     @Test

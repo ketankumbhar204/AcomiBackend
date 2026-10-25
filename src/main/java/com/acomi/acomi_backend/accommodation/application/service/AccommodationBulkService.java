@@ -279,8 +279,9 @@ public class AccommodationBulkService {
         }
 
         SpaceType spaceType = accessService.loadSpaceType(spaceId);
-        if (spaceType == SpaceType.RENTAL && request.getBedsPerRoom() > 0) {
-            throw new BusinessException("Beds are not supported for Rental spaces");
+        if ((spaceType == SpaceType.RENTAL || spaceType == SpaceType.CORPORATE_STAY)
+                && request.getBedsPerRoom() > 0) {
+            throw new BusinessException("Beds are not supported for this space type");
         }
     }
 

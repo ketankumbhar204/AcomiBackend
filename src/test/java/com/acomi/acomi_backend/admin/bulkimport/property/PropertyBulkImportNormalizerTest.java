@@ -80,11 +80,11 @@ class PropertyBulkImportNormalizerTest {
     }
 
     @Test
-    void spaceType_pgHostel_isPgWithWarning() {
+    void spaceType_pgHostel_needsOnePrimaryType() {
         var result = SpaceTypeNormalizer.normalize("PG / Hostel");
-        assertThat(result.type()).isEqualTo(SpaceType.PG);
-        assertThat(result.warning()).contains("Multiple space types");
-        assertThat(result.warning()).contains("PG");
+        assertThat(result.type()).isNull();
+        assertThat(result.error()).contains("Only that type is saved");
+        assertThat(result.candidates()).containsExactlyInAnyOrder(SpaceType.PG, SpaceType.HOSTEL);
     }
 
     @Test
@@ -190,16 +190,17 @@ class PropertyBulkImportNormalizerTest {
     })
     void food_ambiguous_isNoWithWarning(String raw) {
         var result = FoodIncludedNormalizer.normalize(raw);
-        assertThat(result.value()).isFalse();
+        assertThat(result.value()).isNull();
         assertThat(result.warning()).isNotBlank();
         assertThat(result.error()).isNull();
     }
 
     @Test
-    void food_unknown_isInvalid() {
+    void food_unknown_isReviewWarning() {
         var result = FoodIncludedNormalizer.normalize("UnknownRandomValue");
         assertThat(result.value()).isNull();
-        assertThat(result.error()).contains("Food included");
+        assertThat(result.error()).isNull();
+        assertThat(result.warning()).contains("not stored as Yes or No");
     }
 
     @Test
@@ -237,7 +238,7 @@ class PropertyBulkImportNormalizerTest {
         var processed = process("Hostel", "Gents", "Food on demand", "");
         assertThat(processed.status()).isEqualTo(PropertyBulkImportRowProcessor.RowStatus.WARNING);
         assertThat(processed.request()).isNotNull();
-        assertThat(processed.request().getFoodIncludedListing()).isFalse();
+        assertThat(processed.request().getFoodIncludedListing()).isNull();
     }
 
     @Test

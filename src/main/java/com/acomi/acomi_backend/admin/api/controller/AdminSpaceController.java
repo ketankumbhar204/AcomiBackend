@@ -33,7 +33,7 @@ public class AdminSpaceController {
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<SpaceResponse>> get(@PathVariable UUID id) {
         SpaceEntity space = spaceRepository
-                .findById(id)
+                .findWithOwnerById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Space", "id", id));
         return ResponseEntity.ok(ApiResponse.success(SpaceResponse.from(space)));
     }

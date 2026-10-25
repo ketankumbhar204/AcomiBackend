@@ -23,10 +23,11 @@ public interface FoodCategoryRepository extends JpaRepository<FoodCategoryEntity
                        SELECT 1 FROM SpaceFoodCategorySettingsEntity s
                        WHERE s.spaceId = :spaceId AND s.categoryId = c.id AND s.isEnabled = false))
                   OR (c.scope = com.acomi.acomi_backend.meal.domain.model.FoodScope.SPACE
-                      AND c.space.id = :spaceId))
+                      AND c.owner.id = :ownerId))
             ORDER BY c.sortOrder ASC, c.name ASC
             """)
-    List<FoodCategoryEntity> findVisibleForSpace(@Param("spaceId") UUID spaceId);
+    List<FoodCategoryEntity> findVisibleForSpace(
+            @Param("spaceId") UUID spaceId, @Param("ownerId") UUID ownerId);
 
     @Query("""
             SELECT COUNT(c) FROM FoodCategoryEntity c
@@ -42,9 +43,9 @@ public interface FoodCategoryRepository extends JpaRepository<FoodCategoryEntity
             SELECT c FROM FoodCategoryEntity c
             WHERE c.id = :id
               AND c.scope = com.acomi.acomi_backend.meal.domain.model.FoodScope.SPACE
-              AND c.space.id = :spaceId
+              AND c.owner.id = :ownerId
             """)
-    Optional<FoodCategoryEntity> findSpaceCategory(@Param("id") UUID id, @Param("spaceId") UUID spaceId);
+    Optional<FoodCategoryEntity> findOwnerCategory(@Param("id") UUID id, @Param("ownerId") UUID ownerId);
 
     boolean existsByScopeAndName(FoodScope scope, String name);
 }

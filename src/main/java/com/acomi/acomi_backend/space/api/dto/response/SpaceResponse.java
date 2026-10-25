@@ -14,6 +14,7 @@ import lombok.Getter;
 public class SpaceResponse {
 
     private UUID id;
+    private String referenceCode;
 
     @Schema(example = "Sunrise Apartments")
     private String name;
@@ -32,6 +33,7 @@ public class SpaceResponse {
     public static SpaceResponse from(SpaceEntity space) {
         return SpaceResponse.builder()
                 .id(space.getId())
+                .referenceCode(space.getReferenceCode())
                 .name(space.getName())
                 .type(space.getType())
                 .address(space.getAddress())

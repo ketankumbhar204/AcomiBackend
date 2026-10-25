@@ -28,8 +28,10 @@ public class PushProperties {
     private String credentialsJson;
 
     /**
-     * Absolute path to a service-account JSON file on the host.
-     * Env: {@code FIREBASE_CREDENTIALS_PATH}. Used only when {@link #credentialsJson} is blank.
+     * Path to a service-account JSON file on the host.
+     * Env: {@code FIREBASE_CREDENTIALS_PATH}. A relative path is resolved from the
+     * backend module, not from the process working directory. A path is preferred
+     * over {@link #credentialsJson} when both are set.
      */
     private String credentialsPath;
 }

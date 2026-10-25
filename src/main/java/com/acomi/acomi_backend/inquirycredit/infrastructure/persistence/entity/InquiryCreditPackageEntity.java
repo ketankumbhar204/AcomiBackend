@@ -1,5 +1,8 @@
 package com.acomi.acomi_backend.inquirycredit.infrastructure.persistence.entity;
 
+import com.acomi.acomi_backend.common.reference.BusinessReferencePrefix;
+import com.acomi.acomi_backend.common.reference.BusinessReferenced;
+
 import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.inquirycredit.domain.model.InquiryClientChannel;
 import jakarta.persistence.Column;
@@ -21,7 +24,15 @@ import lombok.Setter;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class InquiryCreditPackageEntity extends BaseEntity {
+public class InquiryCreditPackageEntity extends BaseEntity implements BusinessReferenced {
+    @Column(name = "reference_code", nullable = false, updatable = false, length = 24)
+    private String referenceCode;
+
+    @Override
+    public BusinessReferencePrefix businessReferencePrefix() {
+        return BusinessReferencePrefix.ICP;
+    }
+
 
     @Column(name = "name", nullable = false, length = 120)
     private String name;

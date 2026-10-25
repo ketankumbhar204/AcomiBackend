@@ -36,7 +36,7 @@ public class AdminPropertyRegistrationService {
             List.of(PropertyRegistrationStatus.CONVERTED, PropertyRegistrationStatus.REJECTED);
 
     private static final List<SpaceType> PROPERTY_SPACE_TYPES =
-            List.of(SpaceType.PG, SpaceType.HOSTEL, SpaceType.CO_LIVING, SpaceType.RENTAL);
+            List.of(SpaceType.PG, SpaceType.HOSTEL, SpaceType.CO_LIVING, SpaceType.RENTAL, SpaceType.CORPORATE_STAY);
 
     private final PropertyRegistrationRepository propertyRegistrationRepository;
     private final PropertyRegistrationService propertyRegistrationService;
@@ -122,6 +122,22 @@ public class AdminPropertyRegistrationService {
     public PropertyRegistrationDetailResponse getById(UUID id) {
         return adminRegistrationConversionService.enrichPropertyDetail(
                 propertyRegistrationService.requireEntity(id));
+    }
+
+    @Transactional
+    public PropertyRegistrationResponse createImported(AdminCreatePropertyRegistrationRequest request) {
+        PropertyRegistrationResponse response = propertyRegistrationService.registerImported(request);
+        savedAddressService.rememberFromLead(
+                request.getAddressLine(),
+                request.getCity(),
+                request.getState(),
+                request.getPincode(),
+                request.getMapUrl(),
+                com.acomi.acomi_backend.address.domain.model.SavedAddressLeadKind.PROPERTY);
+        propertyRegistrationRepository
+                .findByReference(response.getReference())
+                .ifPresent(entity -> adminRegistrationConversionService.convertProperty(entity.getId()));
+        return response;
     }
 
     @Transactional

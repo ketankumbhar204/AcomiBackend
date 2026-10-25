@@ -291,7 +291,8 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                 r.name,
                 r.roomType,
                 b.defaultRent,
-                b.defaultDeposit
+                b.defaultDeposit,
+                b.referenceCode
             )
             FROM BedEntity b
             JOIN b.room r
@@ -314,7 +315,8 @@ public interface AccommodationLazyListRepository extends Repository<FloorEntity,
                   OR LOWER(b.bedNumber) LIKE LOWER(CONCAT('%', :query, '%'))
                   OR LOWER(r.name) LIKE LOWER(CONCAT('%', :query, '%'))
                   OR LOWER(COALESCE(ru.name, '')) LIKE LOWER(CONCAT('%', :query, '%'))
-                  OR LOWER(COALESCE(bu.name, bf.name, '')) LIKE LOWER(CONCAT('%', :query, '%')))
+                  OR LOWER(COALESCE(bu.name, bf.name, '')) LIKE LOWER(CONCAT('%', :query, '%'))
+                  OR UPPER(b.referenceCode) = UPPER(TRIM(:query)))
             """)
     Page<BedSpaceListItemResponse> findBedListItemsBySpaceId(
             @Param("spaceId") UUID spaceId,

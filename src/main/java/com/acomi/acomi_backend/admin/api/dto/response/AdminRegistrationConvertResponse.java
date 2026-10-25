@@ -11,6 +11,7 @@ public class AdminRegistrationConvertResponse {
     private UUID registrationId;
     private String reference;
     private UUID spaceId;
+    private String spaceReferenceCode;
     private String spaceName;
     private boolean discoverable;
 }
