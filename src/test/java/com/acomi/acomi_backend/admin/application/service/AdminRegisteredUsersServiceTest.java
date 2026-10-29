@@ -23,6 +23,7 @@ import com.acomi.acomi_backend.member.infrastructure.persistence.entity.SpaceMem
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
+import com.acomi.acomi_backend.common.time.AcomiTime;
 import com.acomi.acomi_backend.user.domain.model.SystemRole;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
@@ -223,6 +224,62 @@ class AdminRegisteredUsersServiceTest {
 
         assertThat(page.getContent()).isEmpty();
         verify(spaceMembershipRepository, never()).findActiveByUserIdsWithSpace(any());
+    }
+
+    @Test
+    void list_keepsAccountStatusSeparateFromVerificationAndOnboarding() {
+        UserEntity user = verifiedUser("Verified Inactive", "9000000011");
+        user.setActive(false);
+        user.setProfileCompleted(true);
+        user.setActivityTracked(false);
+        stubList(List.of(user), List.of(membership(user, "Sunrise PG", SpaceType.PG, MembershipRole.OWNER)));
+
+        AdminRegisteredUserResponse item = service.list(PageRequest.of(0, 20)).getContent().get(0);
+
+        assertThat(item.isActive()).isFalse();
+        assertThat(item.isMobileVerified()).isTrue();
+        assertThat(item.isProfileCompleted()).isTrue();
+        assertThat(item.getOnboardingStatus()).isEqualTo(AdminRegisteredUsersService.ONBOARDING_COMPLETE);
+        assertThat(item.isActivityTracked()).isFalse();
+        assertThat(item.getLastLoginAt()).isNull();
+        assertThat(item.getLastActiveAt()).isNull();
+    }
+
+    @Test
+    void getById_reportsRecordedActivityWithKolkataOffsetAndNeverConfusesItWithUpdatedAt() {
+        UserEntity user = verifiedUser("Active Member", "9000000012");
+        LocalDateTime recorded = LocalDateTime.of(2026, 10, 17, 17, 16);
+        user.setActive(true);
+        user.setActivityTracked(true);
+        user.setLastLoginAt(recorded.minusHours(2));
+        user.setLastActiveAt(recorded);
+        user.setUpdatedAt(recorded.minusDays(3));
+        when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+        when(spaceMembershipRepository.findActiveByUserIdsWithSpace(List.of(user.getId()))).thenReturn(List.of());
+
+        AdminRegisteredUserResponse item = service.getById(user.getId());
+
+        assertThat(item.isActive()).isTrue();
+        assertThat(item.isActivityTracked()).isTrue();
+        assertThat(item.getLastLoginAt()).isEqualTo(AcomiTime.toOffset(recorded.minusHours(2)));
+        assertThat(item.getLastActiveAt()).isEqualTo(AcomiTime.toOffset(recorded));
+        assertThat(item.getLastActiveAt().getOffset().getTotalSeconds()).isEqualTo(5 * 60 * 60 + 30 * 60);
+        assertThat(item.getUpdatedAt()).isEqualTo(recorded.minusDays(3));
+    }
+
+    @Test
+    void getById_trackedAccountWithNoTimestampsHasNotSignedIn() {
+        UserEntity user = verifiedUser("Created Only", "9000000013");
+        user.setActivityTracked(true);
+        when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+        when(spaceMembershipRepository.findActiveByUserIdsWithSpace(List.of(user.getId()))).thenReturn(List.of());
+
+        AdminRegisteredUserResponse item = service.getById(user.getId());
+
+        assertThat(item.isActive()).isTrue();
+        assertThat(item.isActivityTracked()).isTrue();
+        assertThat(item.getLastLoginAt()).isNull();
+        assertThat(item.getLastActiveAt()).isNull();
     }
 
     @Test

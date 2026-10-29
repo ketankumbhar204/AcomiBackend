@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.config.security;
 
 import com.acomi.acomi_backend.auth.application.cookie.AuthCookies;
 import com.acomi.acomi_backend.config.security.UserPrincipal;
+import com.acomi.acomi_backend.user.application.service.UserActivityService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.Cookie;
@@ -10,6 +11,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -21,12 +23,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final CustomUserDetailsService userDetailsService;
+    private final UserActivityService userActivityService;
 
     @Override
     protected void doFilterInternal(
@@ -56,6 +60,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
+                rememberActivity(userId);
             } catch (UsernameNotFoundException ignored) {
                 // Token refers to a deleted or inactive account — continue unauthenticated.
             }
@@ -86,5 +91,17 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
         }
         return null;
+    }
+
+    /**
+     * Last use is recorded after authentication succeeds. A write failure must not reject the
+     * request, and this is not an online/session indicator.
+     */
+    private void rememberActivity(UUID userId) {
+        try {
+            userActivityService.touchActivity(userId);
+        } catch (RuntimeException ex) {
+            log.warn("Could not record activity for user {}", userId);
+        }
     }
 }

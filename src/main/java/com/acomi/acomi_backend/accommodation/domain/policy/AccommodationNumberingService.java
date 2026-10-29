@@ -53,7 +53,7 @@ public class AccommodationNumberingService {
     public List<String> coLivingRoomLabels(int count) {
         List<String> labels = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
-            labels.add(String.valueOf((char) ('A' + i)));
+            labels.add(String.valueOf(i + 1));
         }
         return labels;
     }
@@ -106,14 +106,14 @@ public class AccommodationNumberingService {
 
     public String suggestNextCoLivingRoomLabel(List<String> existingRoomNumbers) {
         Set<String> existing = new HashSet<>(existingRoomNumbers);
-        for (int i = 0; i < 26; i++) {
-            String label = String.valueOf((char) ('A' + i));
+        for (int i = 1; i <= 999; i++) {
+            String label = String.valueOf(i);
             if (!existing.contains(label)) {
                 return label;
             }
         }
-        for (int i = 1; i <= 999; i++) {
-            String label = String.valueOf(i);
+        for (int i = 0; i < 26; i++) {
+            String label = String.valueOf((char) ('A' + i));
             if (!existing.contains(label)) {
                 return label;
             }

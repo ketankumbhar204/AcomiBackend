@@ -5,6 +5,7 @@ import com.acomi.acomi_backend.admin.api.dto.request.AdminResetPasswordRequest;
 import com.acomi.acomi_backend.admin.api.dto.request.AdminUpdateRegisteredUserRequest;
 import com.acomi.acomi_backend.admin.application.AdminSecurityAudit;
 import com.acomi.acomi_backend.admin.application.LoggingAdminSecurityAudit;
+import com.acomi.acomi_backend.common.time.AcomiTime;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUserResponse;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUserSpaceResponse;
 import com.acomi.acomi_backend.admin.api.dto.response.AdminRegisteredUsersSummaryResponse;
@@ -233,6 +234,7 @@ public class AdminRegisteredUsersService {
                     .systemRole(SystemRole.USER)
                     .isActive(true)
                     .testUser(true)
+                    .activityTracked(true)
                     .build());
             userRepository.flush();
         } catch (DataIntegrityViolationException ex) {
@@ -548,6 +550,9 @@ public class AdminRegisteredUsersService {
                 .systemRole(user.getSystemRole() == null ? null : user.getSystemRole().name())
                 .active(user.isActive())
                 .testUser(user.isTestUser())
+                .lastLoginAt(AcomiTime.toOffset(user.getLastLoginAt()))
+                .lastActiveAt(AcomiTime.toOffset(user.getLastActiveAt()))
+                .activityTracked(user.isActivityTracked())
                 .build();
     }
 

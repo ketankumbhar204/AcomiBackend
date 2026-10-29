@@ -52,7 +52,7 @@ public class InquiryPaymentConfigService {
     }
 
     @Transactional
-    public InquiryPaymentConfigResponse adminUpdate(UpdatePaymentConfigRequest request, UUID adminId) {
+    public void adminUpdate(UpdatePaymentConfigRequest request, UUID adminId) {
         InquiryPaymentConfigEntity config = requireConfig();
 
         if (request.getUpiId() != null) {
@@ -139,9 +139,7 @@ public class InquiryPaymentConfigService {
         }
         config.setUpdatedByUserId(adminId);
         configRepository.save(config);
-
         log.info("inquiry_payment_config_updated adminId={}", adminId);
-        return adminGet(adminId);
     }
 
     @Transactional(readOnly = true)

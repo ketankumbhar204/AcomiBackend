@@ -24,6 +24,7 @@ import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEn
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberDocumentRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
 import com.acomi.acomi_backend.storage.application.service.StoredFileService;
+import com.acomi.acomi_backend.user.application.service.UserActivityService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.util.List;
@@ -73,6 +74,9 @@ class AuthServiceChangeMobileTest {
     @Mock
     private StoredFileService storedFileService;
 
+    @Mock
+    private UserActivityService userActivityService;
+
     private final PasswordEncoder passwordEncoder =
             PasswordEncoderFactories.createDelegatingPasswordEncoder();
 
@@ -91,7 +95,8 @@ class AuthServiceChangeMobileTest {
                 memberDocumentRepository,
                 accountDeletionService,
                 passwordEncoder,
-                storedFileService);
+                storedFileService,
+                userActivityService);
         userId = UUID.randomUUID();
         user = UserEntity.builder()
                 .mobileNumber(CURRENT)

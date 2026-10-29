@@ -85,6 +85,9 @@ public class AdminCreateMessRegistrationRequest {
     @DecimalMax(value = "9999999999", message = "Monthly price is too large")
     private BigDecimal monthlyPrice;
 
+    @Schema(description = "Optional unit for the monthly price. Defaults to per month when omitted.", example = "PER_UNIT")
+    private PriceBasis monthlyPriceBasis;
+
     @DecimalMin(value = "0", message = "Meal price cannot be negative")
     @DecimalMax(value = "9999999999", message = "Meal price is too large")
     private BigDecimal mealPrice;

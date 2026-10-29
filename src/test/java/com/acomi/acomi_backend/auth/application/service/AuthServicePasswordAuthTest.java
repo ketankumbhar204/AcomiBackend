@@ -20,6 +20,7 @@ import com.acomi.acomi_backend.config.security.OtpProperties;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberDocumentRepository;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
 import com.acomi.acomi_backend.storage.application.service.StoredFileService;
+import com.acomi.acomi_backend.user.application.service.UserActivityService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.util.Optional;
@@ -61,6 +62,9 @@ class AuthServicePasswordAuthTest {
     @Mock
     private StoredFileService storedFileService;
 
+    @Mock
+    private UserActivityService userActivityService;
+
     private final PasswordEncoder passwordEncoder =
             PasswordEncoderFactories.createDelegatingPasswordEncoder();
 
@@ -77,7 +81,8 @@ class AuthServicePasswordAuthTest {
                 memberDocumentRepository,
                 accountDeletionService,
                 passwordEncoder,
-                storedFileService);
+                storedFileService,
+                userActivityService);
     }
 
     @Test
@@ -104,6 +109,8 @@ class AuthServicePasswordAuthTest {
         assertThat(saved.getPasswordHash()).doesNotContain("Secret12");
         assertThat(passwordEncoder.matches("Secret12", saved.getPasswordHash())).isTrue();
         assertThat(saved.getMobileVerifiedAt()).isNotNull();
+        assertThat(saved.isActivityTracked()).isTrue();
+        verify(userActivityService).recordSignIn(saved.getId());
         assertThat(response.getAccessToken()).isEqualTo("jwt-token");
         assertThat(response.getTokenType()).isEqualTo("Bearer");
         assertThat(response.getUser().getFullName()).isEqualTo("Priya Sharma");
@@ -207,6 +214,7 @@ class AuthServicePasswordAuthTest {
 
         assertThat(response.getAccessToken()).isEqualTo("jwt-token");
         assertThat(response.getUser().getId()).isEqualTo(user.getId());
+        verify(userActivityService).recordSignIn(user.getId());
     }
 
     @Test
@@ -222,6 +230,7 @@ class AuthServicePasswordAuthTest {
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
 
         verify(jwtService, never()).generateToken(any());
+        verify(userActivityService, never()).recordSignIn(any());
     }
 
     @Test
@@ -397,7 +406,10 @@ class AuthServicePasswordAuthTest {
                 .thenReturn(Optional.empty());
         when(otpProperties.isSkipRegistrationOtp()).thenReturn(true);
         when(otpProperties.getResendCooldownSeconds()).thenReturn(60);
-        when(otpService.issueRegistrationBypassToken("9876543210", "127.0.0.1"))
+        when(otpService.issueRegistrationBypassToken(
+                        "9876543210",
+                        com.acomi.acomi_backend.auth.domain.model.OtpPurpose.REGISTER,
+                        "127.0.0.1"))
                 .thenReturn(new com.acomi.acomi_backend.auth.application.otp.RegistrationVerification(
                         "local-verify-token", 600));
 
@@ -411,8 +423,38 @@ class AuthServicePasswordAuthTest {
         assertThat(response.getVerificationToken()).isEqualTo("local-verify-token");
         assertThat(response.getExpiresIn()).isEqualTo(600);
         assertThat(response.getResendAfter()).isEqualTo(60);
-        verify(otpService).issueRegistrationBypassToken("9876543210", "127.0.0.1");
+        verify(otpService)
+                .issueRegistrationBypassToken(
+                        "9876543210",
+                        com.acomi.acomi_backend.auth.domain.model.OtpPurpose.REGISTER,
+                        "127.0.0.1");
         verify(otpService, never()).sendOtp(any(), any(), any(), anyBoolean());
+    }
+
+    @Test
+    void sendOtp_propertyRegistration_stillSendsOtpWhenLocalSkipFlagIsOn() {
+        when(otpService.sendOtp(
+                        "9876543210",
+                        com.acomi.acomi_backend.auth.domain.model.OtpPurpose.PROPERTY_REGISTRATION,
+                        "127.0.0.1",
+                        true))
+                .thenReturn(new com.acomi.acomi_backend.auth.application.otp.OtpDispatchResult(300, 60));
+
+        SendOtpRequest request = new SendOtpRequest();
+        request.setMobileNumber("9876543210");
+        request.setPurpose(com.acomi.acomi_backend.auth.domain.model.OtpPurpose.PROPERTY_REGISTRATION);
+
+        var response = authService.sendOtp(request, "127.0.0.1");
+
+        assertThat(response.isOtpSkipped()).isFalse();
+        assertThat(response.getVerificationToken()).isNull();
+        verify(otpService)
+                .sendOtp(
+                        "9876543210",
+                        com.acomi.acomi_backend.auth.domain.model.OtpPurpose.PROPERTY_REGISTRATION,
+                        "127.0.0.1",
+                        true);
+        verify(otpService, never()).issueRegistrationBypassToken(any(), any(), any());
     }
 
     @Test
@@ -460,6 +502,7 @@ class AuthServicePasswordAuthTest {
                 "9876543210",
                 "login-token",
                 com.acomi.acomi_backend.auth.domain.model.OtpPurpose.LOGIN);
+        verify(userActivityService).recordSignIn(user.getId());
     }
 
     @Test
@@ -500,6 +543,7 @@ class AuthServicePasswordAuthTest {
         verify(userRepository).save(user);
         assertThat(passwordEncoder.matches("NewPass12", user.getPasswordHash())).isTrue();
         verify(jwtService, never()).generateToken(any());
+        verify(userActivityService, never()).recordSignIn(any());
     }
 
     @Test

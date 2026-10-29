@@ -209,12 +209,8 @@ public class MemberMasterService {
         if (candidateActive != currentActive) {
             return candidateActive;
         }
-        LocalDateTime candidateAt = candidate.getVacatedAt() != null
-                ? candidate.getVacatedAt()
-                : candidate.getUpdatedAt();
-        LocalDateTime currentAt = current.getVacatedAt() != null
-                ? current.getVacatedAt()
-                : current.getUpdatedAt();
+        LocalDateTime candidateAt = staySortTime(candidate);
+        LocalDateTime currentAt = staySortTime(current);
         if (candidateAt == null) {
             return false;
         }
@@ -222,6 +218,13 @@ public class MemberMasterService {
             return true;
         }
         return candidateAt.isAfter(currentAt);
+    }
+
+    private static LocalDateTime staySortTime(OccupancyEntity occupancy) {
+        if (occupancy.getVacatedAt() != null) {
+            return occupancy.getVacatedAt();
+        }
+        return occupancy.getUpdatedAt() != null ? occupancy.getUpdatedAt() : occupancy.getCreatedAt();
     }
 
     private static String stayLabelFor(MemberEntity member, Map<UUID, String> labels) {

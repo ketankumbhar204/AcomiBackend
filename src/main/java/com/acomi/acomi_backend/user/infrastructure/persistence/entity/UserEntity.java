@@ -133,6 +133,22 @@ public class UserEntity extends BaseEntity implements BusinessReferenced {
     @Column(name = "mobile_verified_at")
     private LocalDateTime mobileVerifiedAt;
 
+    /** Last successful sign-in. Null when no sign-in has been recorded. */
+    @Column(name = "last_login_at")
+    private LocalDateTime lastLoginAt;
+
+    /** Last authenticated use of ACOMI. Null when no use has been recorded. */
+    @Column(name = "last_active_at")
+    private LocalDateTime lastActiveAt;
+
+    /**
+     * True once this account is covered by activity tracking (created after tracking, or observed
+     * since). False on older rows means a null timestamp is unknown, not "never".
+     */
+    @Builder.Default
+    @Column(name = "activity_tracked", nullable = false)
+    private boolean activityTracked = false;
+
     @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "system_role", nullable = false, length = 20)

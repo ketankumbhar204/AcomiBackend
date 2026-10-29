@@ -44,7 +44,7 @@ public enum FilePurpose {
                             MENU_ITEM_PHOTO,
                             COMBO_PHOTO,
                             SPACE_PHOTO -> ABSOLUTE_MAX_BYTES;
-                    case INQUIRY_PAYMENT_QR -> 2L * 1024 * 1024;
+                    case INQUIRY_PAYMENT_QR -> ABSOLUTE_MAX_BYTES;
                 };
         return Math.min(purposeMax, ABSOLUTE_MAX_BYTES);
     }

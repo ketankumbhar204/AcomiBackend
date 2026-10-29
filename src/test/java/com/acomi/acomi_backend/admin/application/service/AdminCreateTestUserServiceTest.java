@@ -36,6 +36,7 @@ import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import com.acomi.acomi_backend.storage.application.service.StoredFileService;
+import com.acomi.acomi_backend.user.application.service.UserActivityService;
 import com.acomi.acomi_backend.user.domain.model.SystemRole;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
@@ -100,6 +101,9 @@ class AdminCreateTestUserServiceTest {
     @Mock
     private StoredFileService storedFileService;
 
+    @Mock
+    private UserActivityService userActivityService;
+
     private final PasswordEncoder passwordEncoder =
             PasswordEncoderFactories.createDelegatingPasswordEncoder();
 
@@ -129,7 +133,8 @@ class AdminCreateTestUserServiceTest {
                 memberDocumentRepository,
                 accountDeletionService,
                 passwordEncoder,
-                storedFileService);
+                storedFileService,
+                userActivityService);
     }
 
     @Test
@@ -390,6 +395,9 @@ class AdminCreateTestUserServiceTest {
         assertThat(captor.getValue().getPasswordHash()).isNotEqualTo("Secret12");
         assertThat(captor.getValue().getPasswordHash()).doesNotContain("Secret12");
         assertThat(passwordEncoder.matches("Secret12", captor.getValue().getPasswordHash())).isTrue();
+        assertThat(captor.getValue().isActivityTracked()).isTrue();
+        assertThat(captor.getValue().getLastLoginAt()).isNull();
+        assertThat(captor.getValue().getLastActiveAt()).isNull();
     }
 
     @Test

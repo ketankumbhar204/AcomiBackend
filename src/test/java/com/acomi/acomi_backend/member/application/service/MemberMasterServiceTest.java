@@ -49,7 +49,10 @@ import com.acomi.acomi_backend.meal.application.service.MealParticipationService
 import com.acomi.acomi_backend.notification.application.service.InvitationNotificationSyncService;
 import com.acomi.acomi_backend.notification.application.service.MembershipNotificationSyncService;
 import com.acomi.acomi_backend.occupancy.application.service.OccupancyService;
+import com.acomi.acomi_backend.occupancy.application.service.OccupancyTargetLabelBuilder;
 import com.acomi.acomi_backend.occupancy.domain.model.MemberOccupancyStatus;
+import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
+import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
@@ -427,6 +430,62 @@ class MemberMasterServiceTest {
         assertThat(members).hasSize(1);
         assertThat(members.get(0).getMemberId()).isEqualTo(memberId);
         assertThat(members.get(0).getFullName()).isEqualTo("Rahul Sharma");
+        assertThat(members.get(0).getStayLabel()).isNull();
+    }
+
+    @Test
+    void getMembers_includesPaymentStayLabelForMovedInAndVacatedTenants() {
+        MemberEntity movedIn = activeMember("Rahul Sharma", "9123456789", MembershipRole.TENANT);
+        movedIn.setOccupancyStatus(MemberOccupancyStatus.ALLOCATED);
+        MemberEntity vacated = activeMember("Vacated Tenant", "9000000001", MembershipRole.TENANT);
+        vacated.setId(UUID.randomUUID());
+        vacated.setOccupancyStatus(MemberOccupancyStatus.VACATED);
+        MemberEntity customer = activeMember("Meal Customer", "9000000002", MembershipRole.CUSTOMER);
+        customer.setId(UUID.randomUUID());
+
+        OccupancyEntity occupancy = org.mockito.Mockito.mock(OccupancyEntity.class);
+        when(occupancy.getMember()).thenReturn(movedIn);
+        OccupancyEntity vacatedStay = org.mockito.Mockito.mock(OccupancyEntity.class);
+        when(vacatedStay.getMember()).thenReturn(vacated);
+        when(occupancyRepository.findStayTrailsBySpaceId(spaceId))
+                .thenReturn(List.of(occupancy, vacatedStay));
+        when(occupancyTargetLabelBuilder.build(occupancy)).thenReturn("Floor 1 • Room 101 • Bed 1");
+        when(occupancyTargetLabelBuilder.build(vacatedStay)).thenReturn("Floor Ground • Room 010 • Bed 1");
+
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndStatus(
+                ownerId, spaceId, MembershipStatus.ACTIVE)).thenReturn(true);
+        when(spaceMembershipRepository.findActiveMembers(spaceId)).thenReturn(List.of());
+        when(memberRepository.findBySpaceIdAndActiveTrue(spaceId))
+                .thenReturn(List.of(movedIn, vacated, customer));
+
+        List<MemberResponse> members = memberMasterService.getMembers(spaceId, ownerId, null, null);
+
+        assertThat(members).extracting(MemberResponse::getStayLabel)
+                .containsExactly(
+                        "Floor 1 • Room 101 • Bed 1",
+                        "Floor Ground • Room 010 • Bed 1",
+                        null);
+    }
+
+    @Test
+    void getMembers_omitsStayLabelWhenThePaymentTrailIsBlank() {
+        MemberEntity movedIn = activeMember("Rahul Sharma", "9123456789", MembershipRole.TENANT);
+        movedIn.setOccupancyStatus(MemberOccupancyStatus.ALLOCATED);
+        OccupancyEntity occupancy = org.mockito.Mockito.mock(OccupancyEntity.class);
+        when(occupancy.getMember()).thenReturn(movedIn);
+        when(occupancyRepository.findStayTrailsBySpaceId(spaceId)).thenReturn(List.of(occupancy));
+        when(occupancyTargetLabelBuilder.build(occupancy)).thenReturn("  ");
+
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndStatus(
+                ownerId, spaceId, MembershipStatus.ACTIVE)).thenReturn(true);
+        when(spaceMembershipRepository.findActiveMembers(spaceId)).thenReturn(List.of());
+        when(memberRepository.findBySpaceIdAndActiveTrue(spaceId)).thenReturn(List.of(movedIn));
+
+        List<MemberResponse> members = memberMasterService.getMembers(spaceId, ownerId, null, null);
+
+        assertThat(members.get(0).getStayLabel()).isNull();
     }
 
     @Test

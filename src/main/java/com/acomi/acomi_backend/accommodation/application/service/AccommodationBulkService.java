@@ -201,7 +201,7 @@ public class AccommodationBulkService {
         int bedsCreated = 0;
         Set<String> existing = new HashSet<>();
         List<String> labels = numberingService.bedLabels(
-                request.getBedsPerRoom(), BedLabelStyle.ALPHA, existing);
+                request.getBedsPerRoom(), BedLabelStyle.NUMERIC, existing);
         for (String label : labels) {
             bedRepository.save(BedEntity.builder()
                     .room(room)
@@ -236,7 +236,7 @@ public class AccommodationBulkService {
             if (request.getBedsPerRoom() > 0) {
                 Set<String> existing = new HashSet<>();
                 List<String> labels = numberingService.bedLabels(
-                        request.getBedsPerRoom(), BedLabelStyle.ALPHA, existing);
+                        request.getBedsPerRoom(), BedLabelStyle.NUMERIC, existing);
                 for (String label : labels) {
                     bedRepository.save(BedEntity.builder()
                             .room(room)

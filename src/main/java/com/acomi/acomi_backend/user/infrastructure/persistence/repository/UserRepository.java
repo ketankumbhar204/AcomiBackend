@@ -9,6 +9,7 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -223,4 +224,43 @@ public interface UserRepository extends JpaRepository<UserEntity, UUID> {
             nativeQuery = true)
     List<Object[]> countDailyVerifiedRegistrationsBetween(
             @Param("fromAt") LocalDateTime fromAt, @Param("toAt") LocalDateTime toAt);
+
+    /**
+     * Records a successful sign-in without touching {@code updated_at}. Inactive accounts are
+     * skipped so a deactivated user cannot be marked active by a stale call.
+     */
+    @Modifying
+    @Query(
+            value =
+                    """
+                    UPDATE users
+                    SET last_login_at = :now,
+                        last_active_at = :now,
+                        activity_tracked = TRUE
+                    WHERE id = :id
+                      AND is_active = TRUE
+                    """,
+            nativeQuery = true)
+    int recordSignIn(@Param("id") UUID id, @Param("now") LocalDateTime now);
+
+    /**
+     * Moves last use forward when the stored time is missing or older than {@code threshold}.
+     * Does not change {@code updated_at} or {@code last_login_at}.
+     */
+    @Modifying
+    @Query(
+            value =
+                    """
+                    UPDATE users
+                    SET last_active_at = :now,
+                        activity_tracked = TRUE
+                    WHERE id = :id
+                      AND is_active = TRUE
+                      AND (last_active_at IS NULL OR last_active_at < :threshold)
+                    """,
+            nativeQuery = true)
+    int touchActivity(
+            @Param("id") UUID id,
+            @Param("now") LocalDateTime now,
+            @Param("threshold") LocalDateTime threshold);
 }

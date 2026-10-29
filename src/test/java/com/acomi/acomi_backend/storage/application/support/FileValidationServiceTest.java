@@ -47,6 +47,12 @@ class FileValidationServiceTest {
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())
                 .isEqualTo(FileErrorCodes.FILE_TOO_LARGE);
         validation.validateSize(FilePurpose.BUILDING_PHOTO, FilePurpose.ABSOLUTE_MAX_BYTES);
+        validation.validateSize(FilePurpose.INQUIRY_PAYMENT_QR, FilePurpose.ABSOLUTE_MAX_BYTES);
+        assertThatThrownBy(
+                        () -> validation.validateSize(
+                                FilePurpose.INQUIRY_PAYMENT_QR, FilePurpose.ABSOLUTE_MAX_BYTES + 1))
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(FileErrorCodes.FILE_TOO_LARGE);
         validation.validateSize(FilePurpose.MENU_ITEM_PHOTO, FilePurpose.ABSOLUTE_MAX_BYTES);
         assertThatThrownBy(() -> validation.validateSize(FilePurpose.COMBO_PHOTO, FilePurpose.ABSOLUTE_MAX_BYTES + 1))
                 .extracting(ex -> ((BusinessException) ex).getErrorCode())

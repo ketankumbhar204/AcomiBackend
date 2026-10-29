@@ -14,13 +14,13 @@ import com.acomi.acomi_backend.mess.infrastructure.persistence.entity.MessRegist
 import com.acomi.acomi_backend.mess.infrastructure.persistence.repository.MessRegistrationRepository;
 import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.registration.application.AdminLeadDefaults;
+import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.registration.application.RegistrationMobiles;
 import com.acomi.acomi_backend.registration.application.RegistrationOwnerLinker;
 import com.acomi.acomi_backend.registration.application.RegistrationPhotoCodec;
 import com.acomi.acomi_backend.registration.application.RegistrationPhotoService;
 import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
 import com.acomi.acomi_backend.space.application.service.ListingMapLocation;
-import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.application.service.SpaceService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.math.BigDecimal;

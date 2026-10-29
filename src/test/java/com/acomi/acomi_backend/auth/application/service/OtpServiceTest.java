@@ -429,6 +429,68 @@ class OtpServiceTest {
         assertThat(result.toString()).doesNotContain(sender.lastOtp);
     }
 
+    @Test
+    void listingBypassToken_issuesVerificationTokenWithoutSms() {
+        OtpService skipService = serviceWithSkipEnabled();
+        RegistrationVerification verification = skipService.issueRegistrationBypassToken(
+                MOBILE, OtpPurpose.PROPERTY_REGISTRATION, "127.0.0.1");
+
+        assertThat(verification.verificationToken()).isNotBlank();
+        assertThat(sender.lastOtp).isNull();
+        assertThat(store.get(0).getPurpose()).isEqualTo(OtpPurpose.PROPERTY_REGISTRATION);
+        assertThat(store.get(0).getConsumedAt()).isNotNull();
+        assertThat(store.get(0).getVerificationTokenHash()).isNotBlank();
+    }
+
+    @Test
+    void listingBypassToken_rejectsLoginPurpose() {
+        OtpService skipService = serviceWithSkipEnabled();
+        assertThatThrownBy(() -> skipService.issueRegistrationBypassToken(MOBILE, OtpPurpose.LOGIN, "127.0.0.1"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.UNSUPPORTED_PURPOSE_MESSAGE);
+    }
+
+    @Test
+    void consumeVerificationToken_localListingSkip_doesNotRequireSendOtp() {
+        OtpService skipService = serviceWithSkipEnabled();
+        skipService.consumeVerificationToken(
+                MOBILE, OtpService.LOCAL_LISTING_SKIP_TOKEN, OtpPurpose.PROPERTY_REGISTRATION);
+        assertThat(store).isEmpty();
+    }
+
+    @Test
+    void consumeVerificationToken_localListingSkip_rejectedWhenFlagOff() {
+        assertThatThrownBy(() ->
+                        otpService.consumeVerificationToken(
+                                MOBILE, OtpService.LOCAL_LISTING_SKIP_TOKEN, OtpPurpose.PROPERTY_REGISTRATION))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage(OtpService.INVALID_VERIFICATION_TOKEN_MESSAGE);
+    }
+
+    private OtpService serviceWithSkipEnabled() {
+        OtpProperties properties = new OtpProperties();
+        properties.setLength(6);
+        properties.setTtlSeconds(300);
+        properties.setMaxAttempts(5);
+        properties.setResendCooldownSeconds(60);
+        properties.setMaxSendsPerWindow(5);
+        properties.setSendWindowSeconds(900);
+        properties.setIpMaxSendsPerWindow(20);
+        properties.setIpSendWindowSeconds(900);
+        properties.setVerificationTokenTtlSeconds(600);
+        properties.setHashSecret("test-otp-hash-secret-must-be-32chars!");
+        properties.setSkipRegistrationOtp(true);
+        OtpHashService skipHash = new OtpHashService(properties);
+        return new OtpService(
+                authOtpRepository,
+                properties,
+                sender,
+                new OtpGenerator(properties),
+                skipHash,
+                new DatabaseOtpRateLimiter(authOtpRepository, properties),
+                Optional.empty());
+    }
+
     private void wireStore() {
         when(authOtpRepository.save(any(AuthOtpEntity.class))).thenAnswer(saveEntity());
         when(authOtpRepository.findFirstByMobileNumberAndPurposeOrderByCreatedAtDesc(any(), any()))

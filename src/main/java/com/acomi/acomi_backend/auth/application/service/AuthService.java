@@ -32,6 +32,7 @@ import com.acomi.acomi_backend.user.api.dto.request.UpdateUserRequest;
 import com.acomi.acomi_backend.user.api.dto.response.UserResponse;
 import com.acomi.acomi_backend.user.domain.model.KycStatus;
 import com.acomi.acomi_backend.user.domain.model.ProfileStatus;
+import com.acomi.acomi_backend.user.application.service.UserActivityService;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
 import java.time.LocalDate;
@@ -43,6 +44,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -52,6 +54,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthService {
@@ -68,6 +71,7 @@ public class AuthService {
     private final AccountDeletionService accountDeletionService;
     private final PasswordEncoder passwordEncoder;
     private final StoredFileService storedFileService;
+    private final UserActivityService userActivityService;
 
     private static final String INVALID_CREDENTIALS = "Invalid mobile number or password.";
     private static final String NO_ACCOUNT_MESSAGE = "No ACOMI account found with this mobile number.";
@@ -100,12 +104,14 @@ public class AuthService {
                     .passwordHash(passwordEncoder.encode(request.getPassword()))
                     .credentialsChangedAt(now)
                     .mobileVerifiedAt(now)
+                    .activityTracked(true)
                     .build());
             userRepository.flush();
         } catch (DataIntegrityViolationException ex) {
             throw new BusinessException("This mobile number is already registered.", HttpStatus.CONFLICT);
         }
 
+        rememberSignIn(user);
         return toAuthTokenResponse(user);
     }
 
@@ -128,6 +134,7 @@ public class AuthService {
         if (!passwordMatches(request.getPassword(), user)) {
             throw new BusinessException(INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED);
         }
+        rememberSignIn(user);
         return toAuthTokenResponse(user);
     }
 
@@ -139,6 +146,7 @@ public class AuthService {
         if (user == null) {
             throw new BusinessException(INVALID_CREDENTIALS, HttpStatus.UNAUTHORIZED);
         }
+        rememberSignIn(user);
         return toAuthTokenResponse(user);
     }
 
@@ -571,6 +579,21 @@ public class AuthService {
         UserPrincipal principal = getAuthenticatedPrincipal();
         return userRepository.findByIdAndIsActiveTrue(principal.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", principal.getId()));
+    }
+
+    /**
+     * Sign-in recording must not fail the authentication that just succeeded. Runs in its own
+     * transaction so the read-only login transaction is not asked to write.
+     */
+    private void rememberSignIn(UserEntity user) {
+        if (user == null || user.getId() == null) {
+            return;
+        }
+        try {
+            userActivityService.recordSignIn(user.getId());
+        } catch (RuntimeException ex) {
+            log.warn("Could not record sign-in activity for user {}", user.getId());
+        }
     }
 
     private AuthTokenResponse toAuthTokenResponse(UserEntity user) {

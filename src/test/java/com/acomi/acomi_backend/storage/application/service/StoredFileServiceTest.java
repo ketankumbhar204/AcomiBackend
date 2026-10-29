@@ -227,6 +227,59 @@ class StoredFileServiceTest {
                 .isNull();
     }
 
+    @Test
+    void tryRetainInquiryPaymentQrRestoresUnpurgedImageAndMarksItAssociated() {
+        UUID fileId = UUID.randomUUID();
+        String objectKey = "private/inquiry-payment-qr/2026/10/" + fileId;
+        byte[] jpeg = jpegBytes(32);
+        storageProvider.putStream("test-bucket", objectKey, new ByteArrayInputStream(jpeg), jpeg.length, "image/jpeg");
+        StoredFileEntity file = StoredFileEntity.builder()
+                .purpose(FilePurpose.INQUIRY_PAYMENT_QR)
+                .visibility(com.acomi.acomi_backend.storage.domain.model.FileVisibility.PRIVATE)
+                .status(FileStatus.PENDING_DELETE)
+                .contentType("image/jpeg")
+                .byteSize((long) jpeg.length)
+                .storageProvider("memory")
+                .bucket("test-bucket")
+                .objectKey(objectKey)
+                .uploadedByUserId(callerId)
+                .associated(false)
+                .build();
+        file.setId(fileId);
+        file.setDeletedAt(LocalDateTime.now());
+        file.setPurgeAfter(LocalDateTime.now().plusDays(7));
+        store.put(fileId, file);
+
+        assertThat(service.tryRetainInquiryPaymentQr(fileId)).isTrue();
+        assertThat(file.getStatus()).isEqualTo(FileStatus.ACTIVE);
+        assertThat(file.isAssociated()).isTrue();
+        assertThat(file.getDeletedAt()).isNull();
+        assertThat(file.getPurgeAfter()).isNull();
+    }
+
+    @Test
+    void tryRetainInquiryPaymentQrLeavesPurgedImageUntouched() {
+        UUID fileId = UUID.randomUUID();
+        StoredFileEntity file = StoredFileEntity.builder()
+                .purpose(FilePurpose.INQUIRY_PAYMENT_QR)
+                .visibility(com.acomi.acomi_backend.storage.domain.model.FileVisibility.PRIVATE)
+                .status(FileStatus.PENDING_DELETE)
+                .contentType("image/jpeg")
+                .byteSize(32L)
+                .storageProvider("memory")
+                .bucket("test-bucket")
+                .objectKey("private/inquiry-payment-qr/missing/" + fileId)
+                .uploadedByUserId(callerId)
+                .associated(false)
+                .build();
+        file.setId(fileId);
+        store.put(fileId, file);
+
+        assertThat(service.tryRetainInquiryPaymentQr(fileId)).isFalse();
+        assertThat(file.getStatus()).isEqualTo(FileStatus.PENDING_DELETE);
+        assertThat(file.isAssociated()).isFalse();
+    }
+
     private static CreateUploadSessionRequest sessionRequest(FilePurpose purpose, int size) {
         CreateUploadSessionRequest request = new CreateUploadSessionRequest();
         request.setPurpose(purpose);

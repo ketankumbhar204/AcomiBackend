@@ -308,7 +308,7 @@ public class AccommodationSetupService {
                             .capacity(config.getCapacityPerRoom())
                             .status(AccommodationStatus.AVAILABLE)
                             .build());
-                    createBedsForRoom(room, config.getBedsPerRoom(), BedLabelStyle.ALPHA);
+                    createBedsForRoom(room, config.getBedsPerRoom(), BedLabelStyle.NUMERIC);
                 } else if (floorIndex == 0 && roomIndex <= Math.min(2, config.getRoomsPerFloor())) {
                     List<AccommodationSetupSampleNode> bedNodes = buildSampleBedNodes(
                             Math.min(3, config.getBedsPerRoom()));
@@ -403,7 +403,7 @@ public class AccommodationSetupService {
                                 .capacity(config.getCapacityPerRoom())
                                 .status(AccommodationStatus.AVAILABLE)
                                 .build());
-                        createBedsForRoom(room, config.getBedsPerRoom(), BedLabelStyle.ALPHA);
+                        createBedsForRoom(room, config.getBedsPerRoom(), BedLabelStyle.NUMERIC);
                     } else if (floorIndex == 0 && unitIndex == 0 && roomIndex < Math.min(2, roomLabels.size())) {
                         List<AccommodationSetupSampleNode> bedNodes = buildSampleBedNodes(
                                 Math.min(3, config.getBedsPerRoom()));
@@ -489,7 +489,7 @@ public class AccommodationSetupService {
                             .capacity(config.getCapacityPerRoom())
                             .status(AccommodationStatus.AVAILABLE)
                             .build());
-                    createBedsForRoom(room, config.getBedsPerRoom(), BedLabelStyle.ALPHA);
+                    createBedsForRoom(room, config.getBedsPerRoom(), BedLabelStyle.NUMERIC);
                 } else if (unitIndex == 0 && roomIndex < Math.min(2, roomLabels.size())) {
                     List<AccommodationSetupSampleNode> bedNodes = buildSampleBedNodes(
                             Math.min(2, config.getBedsPerRoom()));
@@ -571,7 +571,7 @@ public class AccommodationSetupService {
 
     private List<AccommodationSetupSampleNode> buildSampleBedNodes(int count) {
         List<AccommodationSetupSampleNode> bedNodes = new ArrayList<>();
-        List<String> labels = numberingService.bedLabels(count, BedLabelStyle.ALPHA, new HashSet<>());
+        List<String> labels = numberingService.bedLabels(count, BedLabelStyle.NUMERIC, new HashSet<>());
         for (String label : labels) {
             bedNodes.add(AccommodationSetupSampleNode.builder()
                     .type("BED")

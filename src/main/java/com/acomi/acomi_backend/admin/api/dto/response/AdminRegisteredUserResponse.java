@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.admin.api.dto.response;
 
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import lombok.Builder;
@@ -30,4 +31,13 @@ public class AdminRegisteredUserResponse {
     private boolean active;
     /** Admin-marked test account (excluded from production analytics when filtered). */
     private boolean testUser;
+    /** Last successful sign-in, with the ACOMI timezone offset. Null when none was recorded. */
+    private OffsetDateTime lastLoginAt;
+    /** Last authenticated use, with the ACOMI timezone offset. Null when none was recorded. */
+    private OffsetDateTime lastActiveAt;
+    /**
+     * False when this account predates activity tracking and has not been observed since. A null
+     * timestamp then means unknown, not "never".
+     */
+    private boolean activityTracked;
 }

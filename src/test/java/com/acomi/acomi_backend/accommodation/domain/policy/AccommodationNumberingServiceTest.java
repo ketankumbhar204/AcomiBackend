@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.acomi.acomi_backend.accommodation.domain.model.BedLabelStyle;
 import java.util.HashSet;
 import java.util.List;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class AccommodationNumberingServiceTest {
@@ -26,8 +25,20 @@ class AccommodationNumberingServiceTest {
     }
 
     @Test
-    void coLivingRoomLabels_usesLetters() {
-        assertThat(numberingService.coLivingRoomLabels(3)).containsExactly("A", "B", "C");
+    void coLivingRoomLabels_usesNumbers() {
+        assertThat(numberingService.coLivingRoomLabels(3)).containsExactly("1", "2", "3");
+    }
+
+    @Test
+    void suggestNextCoLivingRoomLabel_prefersUnusedNumbers() {
+        assertThat(numberingService.suggestNextCoLivingRoomLabel(List.of("A", "B"))).isEqualTo("1");
+        assertThat(numberingService.suggestNextCoLivingRoomLabel(List.of("1", "2"))).isEqualTo("3");
+    }
+
+    @Test
+    void bedLabels_numericStartsAtOnePerRoom() {
+        List<String> labels = numberingService.bedLabels(3, BedLabelStyle.NUMERIC, new HashSet<>());
+        assertThat(labels).containsExactly("1", "2", "3");
     }
 
     @Test

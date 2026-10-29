@@ -59,8 +59,12 @@ public class AdminInquiryCreditController {
     public ResponseEntity<ApiResponse<InquiryPaymentConfigResponse>> updateConfig(
             @RequestBody @Valid UpdatePaymentConfigRequest request) {
         UUID adminId = SecurityUtils.getCurrentUserId();
+        // Commit the QR association before reading it back. Reading resolves the file in a
+        // new transaction, and doing that while this request still holds the file row hangs
+        // both the local server and production.
+        paymentConfigService.adminUpdate(request, adminId);
         return ResponseEntity.ok(
-                ApiResponse.success("Config updated", paymentConfigService.adminUpdate(request, adminId)));
+                ApiResponse.success("Config updated", paymentConfigService.adminGet(adminId)));
     }
 
     // ── Credit packages ────────────────────────────────────────────────────────
