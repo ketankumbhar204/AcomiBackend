@@ -84,7 +84,7 @@ public class MemberController {
     @GetMapping("/members/import-candidates")
     @Operation(
             summary = "Search reusable members",
-            description = "Lodging targets: eligible vacated TENANT residents from managed "
+            description = "Lodging targets: active and vacated TENANT residents from managed "
                     + "accommodation spaces. Mess targets: CUSTOMER members from managed Mess spaces "
                     + "and TENANT residents from managed lodging spaces (PG→Mess). OWNER/MANAGER only. "
                     + "Never returns members outside the caller's managed portfolio.")

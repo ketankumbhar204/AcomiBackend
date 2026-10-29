@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.meal.application.service;
 
 import com.acomi.acomi_backend.common.exception.BusinessException;
+import com.acomi.acomi_backend.common.link.AcomiAppLinks;
 import com.acomi.acomi_backend.meal.api.dto.response.MealSharePreviewLineResponse;
 import com.acomi.acomi_backend.meal.api.dto.response.MealSharePreviewResponse;
 import com.acomi.acomi_backend.meal.api.dto.response.MealSharePreviewSlotResponse;
@@ -216,6 +217,8 @@ public class MealSharePreviewService {
             message.append("\n\nNeed multiple meal selections or quantities?");
             message.append("\nOpen the Acomi app to manage advanced meal selections.");
         }
+
+        message.append("\n\n").append(AcomiAppLinks.WHATSAPP_LINE);
 
         return message.toString().trim();
     }

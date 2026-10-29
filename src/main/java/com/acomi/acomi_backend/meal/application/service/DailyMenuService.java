@@ -154,8 +154,13 @@ public class DailyMenuService {
         menu = dailyMenuRepository.save(menu);
         List<DailyMenuOptionRequest> options =
                 request.getOptions() != null ? request.getOptions() : Collections.emptyList();
-        validateExtraOptions(space, options);
-        syncEntries(spaceId, menu, options);
+        // Share sends one payload per destination. Non-mess spaces cannot store extras, so those
+        // options are left out of this destination only. Mess menus still go through full validation.
+        List<DailyMenuOptionRequest> optionsForSpace = space.getType() == SpaceType.MESS
+                ? options
+                : options.stream().filter(option -> !option.isExtra()).toList();
+        validateExtraOptions(space, optionsForSpace);
+        syncEntries(spaceId, menu, optionsForSpace);
         // Ensure newly written entries are visible to history recording in this transaction.
         dailyMenuEntryRepository.flush();
         menuPlanningHistoryService.recordFromMenu(menu);

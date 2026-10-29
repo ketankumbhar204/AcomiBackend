@@ -86,9 +86,15 @@ public interface MemberRepository extends JpaRepository<MemberEntity, UUID> {
 
     List<MemberEntity> findByUser_Id(UUID userId);
 
+    /**
+     * Lodging import candidates: active or vacated tenants in spaces the caller manages.
+     * Current occupancy does not hide the person; move-in eligibility is decided separately.
+     * A mobile already in the target space is returned only as that target membership.
+     */
     @Query("""
             SELECT m FROM MemberEntity m
             JOIN FETCH m.space s
+            LEFT JOIN m.user u
             WHERE m.isActive = true
               AND m.status IN (
                   com.acomi.acomi_backend.member.domain.model.MemberStatus.ACTIVE,
@@ -96,21 +102,15 @@ public interface MemberRepository extends JpaRepository<MemberEntity, UUID> {
               )
               AND m.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.TENANT
               AND s.id IN :sourceSpaceIds
-              AND m.occupancyStatus = com.acomi.acomi_backend.occupancy.domain.model.MemberOccupancyStatus.VACATED
               AND (
-                  :search IS NULL OR :search = ''
-                  OR LOWER(m.fullName) LIKE LOWER(CONCAT('%', :search, '%'))
-                  OR m.mobileNumber LIKE CONCAT('%', :search, '%')
-              )
-              AND NOT EXISTS (
-                  SELECT 1 FROM MemberEntity busy
-                  WHERE busy.isActive = true
-                    AND busy.mobileNumber = m.mobileNumber
-                    AND busy.space.id IN :managedSpaceIds
-                    AND busy.occupancyStatus IN (
-                        com.acomi.acomi_backend.occupancy.domain.model.MemberOccupancyStatus.ALLOCATED,
-                        com.acomi.acomi_backend.occupancy.domain.model.MemberOccupancyStatus.RESERVED
-                    )
+                  CAST(:search AS string) IS NULL OR CAST(:search AS string) = ''
+                  OR LOWER(m.fullName) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
+                  OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
+                  OR m.mobileNumber LIKE CONCAT('%', CAST(:search AS string), '%')
+                  OR (
+                      CAST(:mobileSearch AS string) IS NOT NULL
+                      AND m.mobileNumber LIKE CONCAT('%', CAST(:mobileSearch AS string), '%')
+                  )
               )
               AND (
                   s.id = :targetSpaceId
@@ -126,17 +126,18 @@ public interface MemberRepository extends JpaRepository<MemberEntity, UUID> {
     List<MemberEntity> searchImportCandidates(
             @Param("targetSpaceId") UUID targetSpaceId,
             @Param("sourceSpaceIds") List<UUID> sourceSpaceIds,
-            @Param("managedSpaceIds") List<UUID> managedSpaceIds,
-            @Param("search") String search);
+            @Param("search") String search,
+            @Param("mobileSearch") String mobileSearch);
 
     /**
      * Mess customer import candidates: CUSTOMER from managed Mess spaces, or TENANT from
-     * managed lodging spaces (PG→Mess reuse). Concurrent Mess memberships are allowed
+     * managed lodging spaces, including Corporate Stay. Concurrent Mess memberships are allowed
      * (no occupancy busy filter). Excludes mobiles already present in the target Mess.
      */
     @Query("""
             SELECT m FROM MemberEntity m
             JOIN FETCH m.space s
+            LEFT JOIN m.user u
             WHERE m.isActive = true
               AND m.status IN (
                   com.acomi.acomi_backend.member.domain.model.MemberStatus.ACTIVE,
@@ -152,16 +153,22 @@ public interface MemberRepository extends JpaRepository<MemberEntity, UUID> {
                           com.acomi.acomi_backend.space.domain.model.SpaceType.PG,
                           com.acomi.acomi_backend.space.domain.model.SpaceType.HOSTEL,
                           com.acomi.acomi_backend.space.domain.model.SpaceType.CO_LIVING,
-                          com.acomi.acomi_backend.space.domain.model.SpaceType.RENTAL
+                          com.acomi.acomi_backend.space.domain.model.SpaceType.RENTAL,
+                          com.acomi.acomi_backend.space.domain.model.SpaceType.CORPORATE_STAY
                       )
                       AND m.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.TENANT
                   )
               )
               AND s.id IN :sourceSpaceIds
               AND (
-                  :search IS NULL OR :search = ''
-                  OR LOWER(m.fullName) LIKE LOWER(CONCAT('%', :search, '%'))
-                  OR m.mobileNumber LIKE CONCAT('%', :search, '%')
+                  CAST(:search AS string) IS NULL OR CAST(:search AS string) = ''
+                  OR LOWER(m.fullName) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
+                  OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
+                  OR m.mobileNumber LIKE CONCAT('%', CAST(:search AS string), '%')
+                  OR (
+                      CAST(:mobileSearch AS string) IS NOT NULL
+                      AND m.mobileNumber LIKE CONCAT('%', CAST(:mobileSearch AS string), '%')
+                  )
               )
               AND (
                   s.id = :targetSpaceId
@@ -177,7 +184,8 @@ public interface MemberRepository extends JpaRepository<MemberEntity, UUID> {
     List<MemberEntity> searchMessImportCandidates(
             @Param("targetSpaceId") UUID targetSpaceId,
             @Param("sourceSpaceIds") List<UUID> sourceSpaceIds,
-            @Param("search") String search);
+            @Param("search") String search,
+            @Param("mobileSearch") String mobileSearch);
 
     @Query("""
             SELECT CASE WHEN COUNT(m) > 0 THEN true ELSE false END

@@ -243,6 +243,94 @@ class DailyMenuServiceTest {
     }
 
     @Test
+    void upsertMenu_keepsConfiguredExtrasOnMessSpaces() {
+        stubOwnerMembership();
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space()));
+        DailyMenuEntity savedMenu = menu(MealType.LUNCH, DailyMenuStatus.DRAFT);
+        when(dailyMenuRepository.findBySpaceDateAndType(spaceId, menuDate, MealType.LUNCH))
+                .thenReturn(Optional.empty());
+        when(dailyMenuRepository.save(any(DailyMenuEntity.class))).thenReturn(savedMenu);
+        stubEmptySync(savedMenu.getId());
+        when(foodCatalogService.isConfiguredExtra(spaceId, itemId)).thenReturn(true);
+        FoodItemEntity item = FoodItemEntity.builder().name("Papad").isActive(true).build();
+        item.setId(itemId);
+        when(foodCatalogService.loadEnabledItemForSpace(spaceId, itemId)).thenReturn(item);
+
+        DailyMenuOptionRequest extra = option(DailyMenuEntryType.PACKAGE, null, null, "Papad", 1);
+        extra.setExtra(true);
+        extra.setItemIds(List.of(itemId));
+        UpsertDailyMenuRequest request = new UpsertDailyMenuRequest();
+        request.setOptions(List.of(extra));
+
+        dailyMenuService.upsertMenu(spaceId, callerId, menuDate, MealType.LUNCH, request);
+
+        ArgumentCaptor<DailyMenuEntryEntity> captor = ArgumentCaptor.forClass(DailyMenuEntryEntity.class);
+        verify(dailyMenuEntryRepository).save(captor.capture());
+        assertThat(captor.getValue().isExtra()).isTrue();
+        assertThat(captor.getValue().getEntryType()).isEqualTo(DailyMenuEntryType.PACKAGE);
+        verify(dailyMenuPackageItemRepository).save(any());
+    }
+
+    @Test
+    void upsertMenu_rejectsUnconfiguredExtrasOnMessSpaces() {
+        stubOwnerMembership();
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space()));
+        DailyMenuEntity savedMenu = menu(MealType.LUNCH, DailyMenuStatus.DRAFT);
+        when(dailyMenuRepository.findBySpaceDateAndType(spaceId, menuDate, MealType.LUNCH))
+                .thenReturn(Optional.empty());
+        when(dailyMenuRepository.save(any(DailyMenuEntity.class))).thenReturn(savedMenu);
+        when(foodCatalogService.isConfiguredExtra(spaceId, itemId)).thenReturn(false);
+
+        DailyMenuOptionRequest extra = option(DailyMenuEntryType.PACKAGE, null, null, "Papad", 1);
+        extra.setExtra(true);
+        extra.setItemIds(List.of(itemId));
+        UpsertDailyMenuRequest request = new UpsertDailyMenuRequest();
+        request.setOptions(List.of(extra));
+
+        assertThatThrownBy(() ->
+                        dailyMenuService.upsertMenu(spaceId, callerId, menuDate, MealType.LUNCH, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Enable this item as an Extra in Menu Library before adding it to a meal");
+        verify(dailyMenuEntryRepository, never()).save(any());
+    }
+
+    @Test
+    void upsertMenu_omitsExtrasForNonMessWithoutDroppingTheRestOfTheMenu() {
+        stubOwnerMembership();
+        SpaceEntity pg = space();
+        pg.setType(SpaceType.PG);
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(pg));
+        DailyMenuEntity savedMenu = menu(MealType.LUNCH, DailyMenuStatus.DRAFT);
+        savedMenu.setSpace(pg);
+        when(dailyMenuRepository.findBySpaceDateAndType(spaceId, menuDate, MealType.LUNCH))
+                .thenReturn(Optional.empty());
+        when(dailyMenuRepository.save(any(DailyMenuEntity.class))).thenReturn(savedMenu);
+        stubEmptySync(savedMenu.getId());
+        MealComboEntity combo = MealComboEntity.builder().name("Thali").isActive(true).build();
+        combo.setId(comboId);
+        when(mealComboService.loadComboForSelection(eq(spaceId), eq(comboId), anyBoolean())).thenReturn(combo);
+
+        DailyMenuOptionRequest comboOption =
+                option(DailyMenuEntryType.COMBO, comboId, null, "Chicken Thali", 1);
+        DailyMenuOptionRequest extra = option(DailyMenuEntryType.PACKAGE, null, null, "Papad", 2);
+        extra.setExtra(true);
+        extra.setItemIds(List.of(itemId));
+        UpsertDailyMenuRequest request = new UpsertDailyMenuRequest();
+        request.setOptions(List.of(comboOption, extra));
+
+        dailyMenuService.upsertMenu(spaceId, callerId, menuDate, MealType.LUNCH, request);
+
+        assertThat(request.getOptions()).hasSize(2);
+        ArgumentCaptor<DailyMenuEntryEntity> captor = ArgumentCaptor.forClass(DailyMenuEntryEntity.class);
+        verify(dailyMenuEntryRepository).save(captor.capture());
+        assertThat(captor.getAllValues()).hasSize(1);
+        assertThat(captor.getValue().isExtra()).isFalse();
+        assertThat(captor.getValue().getLabel()).isEqualTo("Chicken Thali");
+        verify(foodCatalogService, never()).isConfiguredExtra(any(), any());
+        verify(dailyMenuPackageItemRepository, never()).save(any());
+    }
+
+    @Test
     void upsertMenu_marksPublishedAsModifiedAndCapturesSnapshot() {
         stubOwnerMembership();
         when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space()));

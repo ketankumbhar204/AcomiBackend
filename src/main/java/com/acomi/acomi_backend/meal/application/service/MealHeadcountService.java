@@ -379,6 +379,7 @@ public class MealHeadcountService {
         return MealHeadcountMemberResponse.builder()
                 .memberId(response.getMember().getId())
                 .memberName(response.getMember().getFullName())
+                .mobileNumber(response.getMember().getMobileNumber())
                 .quantity(quantityMode ? response.getQuantity() : 1)
                 .paymentStatus(payment != null ? payment.getPaymentStatus() : null)
                 .paymentProofImageUrl(proofImageUrl)
@@ -441,6 +442,8 @@ public class MealHeadcountService {
                 .memberId(member.getId())
 
                 .memberName(member.getFullName())
+
+                .mobileNumber(member.getMobileNumber())
 
                 .quantity(0)
 

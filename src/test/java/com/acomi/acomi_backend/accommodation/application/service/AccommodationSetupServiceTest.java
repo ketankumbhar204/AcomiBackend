@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -294,6 +295,56 @@ class AccommodationSetupServiceTest {
             assertThat(response.getTotals().getBeds()).isZero();
         }
         verify(buildingRepository, never()).save(any());
+        verify(bedRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void preview_corporateStayRejectsMissingUnits() {
+        SpaceEntity space = liveSpace(SpaceType.CORPORATE_STAY, "Corporate Stay");
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        AccommodationAccessTestSupport.stubMembership(
+                spaceMembershipRepository, ownerId, spaceId, space,
+                com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER);
+
+        AccommodationSetupRequest request = unitSetupRequest(SpaceType.CORPORATE_STAY, PropertyLayoutMode.RENTAL);
+        setField(request, "units", null);
+
+        assertThatThrownBy(() -> setupService.preview(spaceId, ownerId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("units configuration is required for this space type");
+        verify(buildingRepository, never()).save(any());
+    }
+
+    @Test
+    void execute_corporateStayPersistsUnitsWithoutRoomsOrBeds() {
+        SpaceEntity space = liveSpace(SpaceType.CORPORATE_STAY, "Corporate Stay");
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        AccommodationAccessTestSupport.stubMembership(
+                spaceMembershipRepository, ownerId, spaceId, space,
+                com.acomi.acomi_backend.member.domain.model.MembershipRole.OWNER);
+        when(idempotencyRepository.findBySpaceIdAndIdempotencyKey(spaceId, "corp-1")).thenReturn(Optional.empty());
+        when(buildingRepository.existsBySpaceIdAndNameAndIsActiveTrue(spaceId, "Block A")).thenReturn(false);
+        when(userRepository.findByIdAndIsActiveTrue(ownerId))
+                .thenReturn(Optional.of(com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity.builder()
+                        .mobileNumber("9876543210")
+                        .fullName("Owner")
+                        .build()));
+        when(buildingRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(unitRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(idempotencyRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var response = setupService.execute(
+                spaceId, ownerId, unitSetupRequest(SpaceType.CORPORATE_STAY, PropertyLayoutMode.RENTAL), "corp-1");
+
+        assertThat(response.getTotals().getUnits()).isEqualTo(2);
+        assertThat(response.getTotals().getFloors()).isZero();
+        assertThat(response.getTotals().getRooms()).isZero();
+        assertThat(response.getTotals().getBeds()).isZero();
+        assertThat(response.isIdempotentReplay()).isFalse();
+        verify(buildingRepository).save(any());
+        verify(unitRepository, times(2)).save(any());
+        verify(floorRepository, never()).save(any());
+        verify(roomRepository, never()).save(any());
         verify(bedRepository, never()).saveAll(any());
     }
 

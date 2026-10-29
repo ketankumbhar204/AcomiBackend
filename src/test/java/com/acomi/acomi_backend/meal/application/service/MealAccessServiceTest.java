@@ -109,6 +109,32 @@ class MealAccessServiceTest {
     }
 
     @Test
+    void requireManageMeals_rejectsRental() {
+        UserEntity user = UserEntity.builder().fullName("User").mobileNumber("9000000000").build();
+        user.setId(callerId);
+        SpaceEntity rental = SpaceEntity.builder()
+                .owner(user)
+                .name("Rental")
+                .type(SpaceType.RENTAL)
+                .isActive(true)
+                .build();
+        rental.setId(spaceId);
+        SpaceMembershipEntity membership = SpaceMembershipEntity.builder()
+                .user(user)
+                .space(rental)
+                .role(MembershipRole.OWNER)
+                .status(MembershipStatus.ACTIVE)
+                .build();
+        when(spaceMembershipRepository.findMembershipByUserAndSpace(callerId, spaceId))
+                .thenReturn(Optional.of(membership));
+
+        assertThatThrownBy(() -> accessService.requireManageMeals(spaceId, callerId))
+                .isInstanceOf(BusinessException.class)
+                .hasFieldOrPropertyWithValue("errorCode", "MEALS_NOT_APPLICABLE")
+                .hasMessage("Meals are not available for Rental spaces");
+    }
+
+    @Test
     void requireViewParticipation_staffCanViewAnyMember() {
         stubMembership(MembershipRole.STAFF);
         MemberEntity member = MemberEntity.builder().fullName("Tenant").mobileNumber("9000000001").build();

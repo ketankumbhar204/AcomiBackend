@@ -4,6 +4,7 @@ import com.acomi.acomi_backend.accommodation.application.service.PropertyReadine
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.common.util.MobileNumberNormalizer;
+import com.acomi.acomi_backend.meal.application.service.MealAccessService;
 import com.acomi.acomi_backend.meal.application.service.MealParticipationService;
 import com.acomi.acomi_backend.member.api.dto.request.CreateMemberDocumentRequest;
 import com.acomi.acomi_backend.member.api.dto.request.CreateMemberNoteRequest;
@@ -102,6 +103,7 @@ public class MemberMasterService {
     private final SpaceMembershipRepository spaceMembershipRepository;
     private final OccupancyService occupancyService;
     private final MealParticipationService mealParticipationService;
+    private final MealAccessService mealAccessService;
     private final InvitationProvisioner invitationProvisioner;
     private final PropertyReadinessService propertyReadinessService;
     private final StoredFileService storedFileService;
@@ -240,7 +242,8 @@ public class MemberMasterService {
 
     /**
      * Search reusable members for the target space.
-     * Lodging targets: vacated TENANTs across managed accommodation spaces.
+     * Lodging targets: active and vacated TENANTs across managed accommodation spaces.
+     * An allocated stay stays listed; move-in eligibility is separate from import.
      * Mess targets: CUSTOMERs from managed Mess spaces and TENANTs from managed lodging
      * (PG→Mess reuse). Concurrent Mess memberships are allowed.
      */
@@ -270,10 +273,10 @@ public class MemberMasterService {
 
         String normalizedSearch = normalizeSearch(search);
         List<MemberEntity> candidates = memberRepository.searchImportCandidates(
-                targetSpaceId, managedSpaceIds, managedSpaceIds, normalizedSearch);
+                targetSpaceId, managedSpaceIds, normalizedSearch, mobileSearchDigits(normalizedSearch));
 
         return candidates.stream()
-                .map(member -> MemberImportCandidateResponse.from(member, targetSpaceId, true))
+                .map(member -> toImportCandidate(member, targetSpaceId, true))
                 .toList();
     }
 
@@ -288,16 +291,29 @@ public class MemberMasterService {
 
         String normalizedSearch = normalizeSearch(search);
         List<MemberEntity> candidates = memberRepository.searchMessImportCandidates(
-                targetSpaceId, managedSpaceIds, normalizedSearch);
+                targetSpaceId, managedSpaceIds, normalizedSearch, mobileSearchDigits(normalizedSearch));
 
         return candidates.stream()
-                .map(member -> MemberImportCandidateResponse.from(member, targetSpaceId, true))
+                .map(member -> toImportCandidate(member, targetSpaceId, false))
                 .toList();
     }
 
     /**
+     * Lodging move-in cannot reuse someone who already has a bed. Import into another
+     * space still lists that person; it copies membership and leaves the source stay.
+     */
+    private static MemberImportCandidateResponse toImportCandidate(
+            MemberEntity member, UUID targetSpaceId, boolean blockBusyMoveIn) {
+        boolean alreadyInTarget = member.getSpace().getId().equals(targetSpaceId);
+        boolean busy = member.getOccupancyStatus() == MemberOccupancyStatus.ALLOCATED
+                || member.getOccupancyStatus() == MemberOccupancyStatus.RESERVED;
+        boolean availableForMoveIn = !alreadyInTarget && !(blockBusyMoveIn && busy);
+        return MemberImportCandidateResponse.from(member, targetSpaceId, availableForMoveIn);
+    }
+
+    /**
      * Copies an eligible member into the target space.
-     * Lodging: TENANT only; blocks busy occupancy.
+     * Lodging: TENANT only. Copies membership and leaves the source stay in place.
      * Mess: creates CUSTOMER from Mess CUSTOMER or lodging TENANT; allows concurrent Mess memberships.
      * Does not copy occupancy, deposits, or meal participation. Copies profile basics,
      * emergency contact, and document metadata when present.
@@ -338,12 +354,6 @@ public class MemberMasterService {
         }
 
         String mobileNumber = source.getMobileNumber();
-        if (memberRepository.existsBusyOccupancyForMobileAcrossSpaces(mobileNumber, managedSpaceIds)) {
-            throw new BusinessException(
-                    "This resident currently has an active or reserved occupancy and cannot be moved in again",
-                    HttpStatus.CONFLICT);
-        }
-
         Optional<MemberEntity> existingInTarget =
                 memberRepository.findActiveBySpaceIdAndMobileNumber(targetSpaceId, mobileNumber);
         if (existingInTarget.isPresent()) {
@@ -363,7 +373,7 @@ public class MemberMasterService {
                 mobileNumber,
                 MembershipRole.TENANT,
                 source.getGender(),
-                source.getMealBillingType());
+                mealBillingForImport(targetSpace, source));
 
         MemberResponse created = createMember(targetSpaceId, callerId, createRequest);
         MemberEntity targetMember = memberRepository
@@ -414,7 +424,7 @@ public class MemberMasterService {
                 mobileNumber,
                 MembershipRole.CUSTOMER,
                 source.getGender(),
-                source.getMealBillingType());
+                mealBillingForImport(targetSpace, source));
 
         MemberResponse created = createMember(targetSpaceId, callerId, createRequest);
         MemberEntity targetMember = memberRepository
@@ -443,6 +453,27 @@ public class MemberMasterService {
         }
         String trimmed = search.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    /** Digits from a phone query, using the same 91/0 stripping as stored mobiles. */
+    private static String mobileSearchDigits(String search) {
+        if (search == null) {
+            return null;
+        }
+        String digits = search.replaceAll("\\D", "");
+        if (digits.length() == 12 && digits.startsWith("91")) {
+            digits = digits.substring(2);
+        } else if (digits.length() == 11 && digits.startsWith("0")) {
+            digits = digits.substring(1);
+        }
+        return digits.length() >= 4 ? digits : null;
+    }
+
+    private MealBillingType mealBillingForImport(SpaceEntity targetSpace, MemberEntity source) {
+        if (!mealAccessService.isMealsApplicableForSpace(targetSpace)) {
+            return null;
+        }
+        return source.getMealBillingType();
     }
 
     /**
@@ -509,7 +540,9 @@ public class MemberMasterService {
         member.setMobileNumber(mobileNumber);
         member.setRole(request.getRole());
         member.setGender(request.getGender());
-        member.setMealBillingType(request.getMealBillingType());
+        if (mealAccessService.isMealsApplicableForSpace(member.getSpace())) {
+            member.setMealBillingType(request.getMealBillingType());
+        }
         member.setUser(existingUser.orElse(null));
 
         if (existingUser.isPresent()) {
@@ -956,12 +989,6 @@ public class MemberMasterService {
         }
         if (!IMPORTABLE_MEMBER_STATUSES.contains(source.getStatus())) {
             throw new BusinessException("This resident is blocked or suspended and cannot be imported");
-        }
-        if (source.getOccupancyStatus() == MemberOccupancyStatus.ALLOCATED
-                || source.getOccupancyStatus() == MemberOccupancyStatus.RESERVED) {
-            throw new BusinessException(
-                    "This resident currently has an active or reserved occupancy and cannot be moved in again",
-                    HttpStatus.CONFLICT);
         }
     }
 

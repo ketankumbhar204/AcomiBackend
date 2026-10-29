@@ -140,6 +140,8 @@ class MealSharePreviewServiceTest {
         assertThat(preview.getSlots()).hasSize(1);
         assertThat(preview.getSlots().get(0).getMealType()).isEqualTo(MealType.BREAKFAST);
         assertThat(preview.getMessageText()).doesNotContain("(not published)");
+        assertThat(preview.getMessageText()).contains(
+                "https://www.acomi.in/open.html");
     }
 
     @Test
@@ -198,6 +200,8 @@ class MealSharePreviewServiceTest {
         assertThat(preview.getMessageText()).contains("Chapati, Dal Fry");
         assertThat(preview.getMessageText()).contains("2. Not available for Lunch");
         assertThat(preview.getMessageText()).contains("Eligible participants: 1");
+        assertThat(preview.getMessageText()).contains(
+                "https://www.acomi.in/open.html");
     }
 
     @Test
@@ -213,6 +217,8 @@ class MealSharePreviewServiceTest {
         assertThat(preview.getSlots()).hasSize(1);
         assertThat(preview.getSlots().get(0).getLines().get(0).getLabel()).isEqualTo("(not published)");
         assertThat(preview.getMessageText()).contains("(not published)");
+        assertThat(preview.getMessageText()).contains(
+                "https://www.acomi.in/open.html");
     }
 
     private MealParticipationEntity participation(LocalDate date) {
