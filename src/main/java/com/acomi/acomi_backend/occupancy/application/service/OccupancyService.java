@@ -9,6 +9,8 @@ import com.acomi.acomi_backend.member.domain.model.MemberCategory;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.MemberRepository;
 import com.acomi.acomi_backend.notification.application.service.OccupancyNotificationSyncService;
+import com.acomi.acomi_backend.occupancy.api.dto.request.ExtendOccupancyRequest;
+import com.acomi.acomi_backend.occupancy.api.dto.response.ExtendOccupancyResponse;
 import com.acomi.acomi_backend.occupancy.api.dto.request.AllocateOccupancyRequest;
 import com.acomi.acomi_backend.occupancy.api.dto.request.CancelReservationRequest;
 import com.acomi.acomi_backend.occupancy.api.dto.request.MoveInOccupancyRequest;
@@ -20,20 +22,26 @@ import com.acomi.acomi_backend.occupancy.api.dto.response.CurrentOccupancySummar
 import com.acomi.acomi_backend.occupancy.api.dto.response.MemberOccupancyListResponse;
 import com.acomi.acomi_backend.occupancy.api.dto.response.OccupancyHistoryEntryResponse;
 import com.acomi.acomi_backend.occupancy.api.dto.response.OccupancyResponse;
+import com.acomi.acomi_backend.occupancy.api.dto.response.ReservationCancellationPreviewResponse;
 import com.acomi.acomi_backend.occupancy.domain.model.AllocationTargetType;
 import com.acomi.acomi_backend.occupancy.domain.model.MemberOccupancyStatus;
+import com.acomi.acomi_backend.occupancy.application.support.ShortStayRules;
 import com.acomi.acomi_backend.occupancy.domain.model.OccupancyHistoryEvent;
+import com.acomi.acomi_backend.occupancy.domain.model.OccupancyPricingBasis;
 import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
+import com.acomi.acomi_backend.occupancy.domain.model.StayKind;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyHistoryEntity;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyHistoryRepository;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
 import com.acomi.acomi_backend.payment.application.service.PaymentMonthSnapshotService;
+import com.acomi.acomi_backend.payment.application.service.PaymentSettlementService;
 import com.acomi.acomi_backend.payment.application.service.SpacePaymentGenerationService;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.repository.UserRepository;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -67,7 +75,10 @@ public class OccupancyService {
     private final OccupancyAmenityService occupancyAmenityService;
     private final OccupancyNotificationSyncService occupancyNotificationSyncService;
     private final SpacePaymentGenerationService paymentGenerationService;
+    private final PaymentSettlementService paymentSettlementService;
     private final PaymentMonthSnapshotService paymentMonthSnapshotService;
+    private final OccupancyExtensionService occupancyExtensionService;
+    private final StayRangeGuard stayRangeGuard;
 
     @Transactional
     public OccupancyResponse reserve(UUID spaceId, UUID callerId, ReserveOccupancyRequest request) {
@@ -91,7 +102,7 @@ public class OccupancyService {
                 request.getBedId(),
                 request.getRoomId(),
                 request.getUnitId());
-        assertTargetNotHeld(target);
+        assertTargetNotHeld(target, null, request.getMoveInDate(), request.getExpectedExitDate());
 
         LocalDateTime now = LocalDateTime.now();
         MemberCategory category = request.getMemberCategory() != null
@@ -105,11 +116,57 @@ public class OccupancyService {
                 .memberCategory(category)
                 .remarks(request.getRemarks())
                 .build();
+        applyStayChoice(
+                space,
+                occupancy,
+                request.getStayKind(),
+                request.getAgreedTotal(),
+                request.getRentSnapshot(),
+                request.getMoveInDate(),
+                request.getExpectedExitDate());
+        // Capture pricing on the reservation; activation payments are created only on move-in.
+        // SHORT: rentSnapshot is the daily rate (stay rent = daily × nights stored in agreedTotal).
+        if (request.getRentSnapshot() != null && occupancy.getRentSnapshot() == null) {
+            occupancy.setRentSnapshot(request.getRentSnapshot());
+        }
+        if (request.getDepositSnapshot() != null) {
+            occupancy.setDepositSnapshot(request.getDepositSnapshot());
+        }
+        if (request.getFoodEnabled() != null) {
+            occupancy.setFoodEnabled(request.getFoodEnabled());
+        }
+        if (request.getFoodIncludedInRent() != null) {
+            occupancy.setFoodIncludedInRent(request.getFoodIncludedInRent());
+        }
+        if (request.getFoodChargeSnapshot() != null) {
+            occupancy.setFoodChargeSnapshot(request.getFoodChargeSnapshot());
+        }
+
+        BigDecimal bookingAdvance = request.getBookingAdvanceAmount();
+        if (bookingAdvance != null && bookingAdvance.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException("Booking advance cannot be negative");
+        }
+        if (bookingAdvance != null && bookingAdvance.compareTo(BigDecimal.ZERO) > 0) {
+            occupancy.setBookingAdvanceAmount(bookingAdvance);
+        }
 
         occupancy = occupancyRepository.save(occupancy);
         accommodationStatusSyncService.markReserved(target);
         member.setOccupancyStatus(MemberOccupancyStatus.RESERVED);
         memberRepository.save(member);
+
+        if (bookingAdvance != null && bookingAdvance.compareTo(BigDecimal.ZERO) > 0) {
+            boolean collected = Boolean.TRUE.equals(request.getBookingAdvanceCollected());
+            paymentGenerationService.createReservationFirstPeriodRentSplit(
+                    occupancy,
+                    bookingAdvance,
+                    collected,
+                    request.getBookingAdvancePaymentMethod(),
+                    callerId);
+            LocalDate start = occupancy.getMoveInDate() != null ? occupancy.getMoveInDate() : LocalDate.now();
+            paymentMonthSnapshotService.refreshAfterMutation(
+                    spaceId, callerId, YearMonth.from(start).toString());
+        }
 
         recordHistory(occupancy, OccupancyHistoryEvent.RESERVED, null, targetSnapshot(target), actor, now, request.getRemarks());
         occupancyNotificationSyncService.onReservationCreated(occupancy);
@@ -121,7 +178,7 @@ public class OccupancyService {
         log.info("Move-in occupancy: spaceId={}, occupancyId={}, callerId={}", spaceId, occupancyId, callerId);
 
         occupancyAccessService.assertCanManageOccupancy(spaceId, callerId);
-        accommodationAccessService.loadAccommodationSpace(spaceId);
+        SpaceEntity space = accommodationAccessService.loadAccommodationSpace(spaceId);
         UserEntity actor = loadUser(callerId);
 
         MoveInOccupancyRequest body = request != null ? request : new MoveInOccupancyRequest();
@@ -151,6 +208,22 @@ public class OccupancyService {
         if (body.getRemarks() != null && !body.getRemarks().isBlank()) {
             occupancy.setRemarks(body.getRemarks());
         }
+        applyStayChoice(
+                space,
+                occupancy,
+                body.getStayKind(),
+                body.getAgreedTotal(),
+                body.getRentSnapshot(),
+                effectiveMoveIn,
+                occupancy.getExpectedExitDate());
+        stayRangeGuard.assertAvailable(
+                occupancy.getTargetType(),
+                occupancy.getBed() != null ? occupancy.getBed().getId() : null,
+                occupancy.getRoom() != null ? occupancy.getRoom().getId() : null,
+                occupancy.getUnit() != null ? occupancy.getUnit().getId() : null,
+                effectiveMoveIn,
+                occupancy.getExpectedExitDate(),
+                occupancy.getId());
 
         OccupancyTargetService.ResolvedTarget target = toResolvedTarget(occupancy);
         contractSnapshotService.applyActivationSnapshot(
@@ -171,6 +244,15 @@ public class OccupancyService {
         return toResponse(occupancy);
     }
 
+    @Transactional(readOnly = true)
+    public ReservationCancellationPreviewResponse previewReservationCancellation(
+            UUID spaceId, UUID occupancyId, UUID callerId) {
+        occupancyAccessService.assertCanManageOccupancy(spaceId, callerId);
+        accommodationAccessService.loadAccommodationSpace(spaceId);
+        OccupancyEntity occupancy = loadReservedOccupancy(spaceId, occupancyId);
+        return paymentSettlementService.previewReservationCancellation(spaceId, occupancy, callerId);
+    }
+
     @Transactional
     public OccupancyResponse cancelReservation(
             UUID spaceId, UUID occupancyId, UUID callerId, CancelReservationRequest request) {
@@ -185,7 +267,23 @@ public class OccupancyService {
         TargetSnapshot fromTarget = targetSnapshot(occupancy);
         LocalDateTime now = LocalDateTime.now();
 
+        // Settle / cancel reservation payment obligations before closing the occupancy.
+        paymentSettlementService.settleReservationCancellation(
+                spaceId,
+                occupancy,
+                callerId,
+                body.getSettlements(),
+                body.getRemarks() != null && !body.getRemarks().isBlank()
+                        ? body.getRemarks()
+                        : "Reservation cancelled");
+
         closeOccupancy(occupancy, actor, now, body.getRemarks());
+        // Rebuild financial snapshot after VACATED so Expected does not reinflate for
+        // never-moved-in cancellations on a later ensureMonth heal.
+        String snapshotMonth = occupancy.getMoveInDate() != null
+                ? java.time.YearMonth.from(occupancy.getMoveInDate()).toString()
+                : java.time.YearMonth.from(now).toString();
+        paymentSettlementService.refreshMonthSnapshot(spaceId, callerId, snapshotMonth);
         accommodationStatusSyncService.releaseTarget(
                 fromTarget.targetType(),
                 fromTarget.bedId(),
@@ -220,17 +318,27 @@ public class OccupancyService {
                 request.getBedId(),
                 request.getRoomId(),
                 request.getUnitId());
-        assertTargetNotHeld(target);
 
         LocalDate today = LocalDate.now();
+        LocalDate moveInDate = resolveAllocateMoveInDate(request, today);
         LocalDateTime now = LocalDateTime.now();
-        LocalDate expectedExit = request.getExpectedCheckoutDate();
+        LocalDate expectedExit = resolveAllocatePlannedEnd(request);
+        validatePlannedEndAfterStart(moveInDate, expectedExit);
+        assertTargetNotHeld(target, null, moveInDate, expectedExit);
 
-        OccupancyEntity occupancy = buildOccupancy(space, member, target, actor, now, OccupancyStatus.ACTIVE, today, now)
+        OccupancyEntity occupancy = buildOccupancy(space, member, target, actor, now, OccupancyStatus.ACTIVE, moveInDate, now)
                 .expectedCheckoutDate(expectedExit)
                 .expectedExitDate(expectedExit)
                 .remarks(request.getRemarks())
                 .build();
+        applyStayChoice(
+                space,
+                occupancy,
+                request.getStayKind(),
+                request.getAgreedTotal(),
+                request.getRentSnapshot(),
+                moveInDate,
+                expectedExit);
 
         occupancy = occupancyRepository.save(occupancy);
         contractSnapshotService.applyActivationSnapshot(
@@ -269,10 +377,10 @@ public class OccupancyService {
                 request.getBedId(),
                 request.getRoomId(),
                 request.getUnitId());
-        assertTargetNotHeld(newTarget);
 
         LocalDate today = LocalDate.now();
         LocalDateTime now = LocalDateTime.now();
+        assertTargetNotHeld(newTarget, current.getId(), today, null);
         closeOccupancy(current, actor, now, request.getRemarks());
         accommodationStatusSyncService.releaseTarget(
                 fromTarget.targetType(),
@@ -280,7 +388,7 @@ public class OccupancyService {
                 fromTarget.roomId(),
                 fromTarget.unitId());
 
-        OccupancyEntity next = buildOccupancy(
+        OccupancyEntity.OccupancyEntityBuilder nextBuilder = buildOccupancy(
                         space,
                         current.getMember(),
                         newTarget,
@@ -289,8 +397,42 @@ public class OccupancyService {
                         OccupancyStatus.ACTIVE,
                         today,
                         now)
-                .remarks(request.getRemarks())
-                .build();
+                .remarks(request.getRemarks());
+
+        OccupancyEntity next;
+        if (request.getStayKind() != null) {
+            // Destination stay type wins. Do not inherit a Short Stay checkout onto OPEN_ENDED.
+            LocalDate destEnd = request.getExpectedExitDate();
+            if (request.getStayKind() == StayKind.SHORT && destEnd == null) {
+                destEnd = current.getExpectedExitDate();
+            }
+            if (request.getStayKind() == StayKind.OPEN_ENDED) {
+                destEnd = request.getExpectedExitDate(); // null unless owner sends one
+            }
+            nextBuilder.expectedExitDate(destEnd).expectedCheckoutDate(destEnd);
+            next = nextBuilder.build();
+            applyStayChoice(
+                    space,
+                    next,
+                    request.getStayKind(),
+                    request.getAgreedTotal(),
+                    request.getRentSnapshot(),
+                    today,
+                    destEnd);
+            if (request.getStayKind() != StayKind.SHORT) {
+                // Destination left short-stay pricing; do not keep source agreed total.
+                next.setAgreedTotal(null);
+                // applyStayChoice already set MONTHLY→null or OPEN_ENDED→DAILY_RATE.
+            }
+        } else {
+            next = nextBuilder
+                    .stayKind(current.getStayKind())
+                    .pricingBasis(current.getPricingBasis())
+                    .agreedTotal(current.getAgreedTotal())
+                    .expectedExitDate(current.getExpectedExitDate())
+                    .expectedCheckoutDate(current.getExpectedCheckoutDate())
+                    .build();
+        }
 
         next = occupancyRepository.save(next);
         contractSnapshotService.applyTransferSnapshot(
@@ -324,7 +466,7 @@ public class OccupancyService {
         accommodationAccessService.loadAccommodationSpace(spaceId);
         UserEntity actor = loadUser(callerId);
 
-        OccupancyEntity occupancy = loadActiveOccupancy(spaceId, occupancyId);
+        OccupancyEntity occupancy = loadActiveOccupancyForUpdate(spaceId, occupancyId);
         occupancyAccessService.assertSubjectIsResident(occupancy.getMember());
         TargetSnapshot fromTarget = targetSnapshot(occupancy);
         LocalDateTime now = LocalDateTime.now();
@@ -335,6 +477,17 @@ public class OccupancyService {
                 fromTarget.bedId(),
                 fromTarget.roomId(),
                 fromTarget.unitId());
+
+        // OPEN_ENDED daily-rate: close period immediately and bill actual days through vacate.
+        paymentGenerationService.settleOpenEndedRentOnVacate(occupancy);
+        LocalDate vacatedDate =
+                occupancy.getVacatedAt() != null ? occupancy.getVacatedAt().toLocalDate() : null;
+        if (vacatedDate != null && occupancy.getSpace() != null) {
+            paymentMonthSnapshotService.refreshAfterMutation(
+                    occupancy.getSpace().getId(),
+                    callerId,
+                    YearMonth.from(vacatedDate).toString());
+        }
 
         refreshMemberOccupancyStatus(occupancy.getMember(), spaceId);
         mealOccupancyBridgeService.onVacate(occupancy.getMember(), actor);
@@ -440,6 +593,7 @@ public class OccupancyService {
                 .memberId(occupancy.getMember().getId())
                 .memberName(occupancy.getMember().getFullName())
                 .occupancyStatus(occupancy.getStatus())
+                .stayKind(occupancy.getStayKind())
                 .build());
     }
 
@@ -486,6 +640,7 @@ public class OccupancyService {
         return CurrentOccupancySummaryResponse.builder()
                 .occupancyId(occupancy.getId())
                 .occupancyStatus(occupancy.getStatus())
+                .stayKind(occupancy.getStayKind())
                 .targetType(occupancy.getTargetType())
                 .buildingId(occupancy.getBuilding().getId())
                 .buildingName(occupancy.getBuilding().getName())
@@ -530,6 +685,26 @@ public class OccupancyService {
         }
     }
 
+    @Transactional
+    public ExtendOccupancyResponse extend(
+            UUID spaceId, UUID occupancyId, UUID callerId, ExtendOccupancyRequest request) {
+        OccupancyExtensionService.Result result =
+                occupancyExtensionService.extend(spaceId, occupancyId, callerId, request);
+        return ExtendOccupancyResponse.builder()
+                .occupancy(toResponse(result.occupancy()))
+                .chargeId(result.chargeId())
+                .build();
+    }
+
+    private OccupancyEntity loadActiveOccupancyForUpdate(UUID spaceId, UUID occupancyId) {
+        OccupancyEntity occupancy = occupancyRepository.findByIdAndSpaceIdForUpdate(occupancyId, spaceId)
+                .orElseThrow(() -> new ResourceNotFoundException("Occupancy", "id", occupancyId));
+        if (occupancy.getStatus() != OccupancyStatus.ACTIVE) {
+            throw new BusinessException("Occupancy is not active");
+        }
+        return occupancy;
+    }
+
     private OccupancyEntity loadActiveOccupancy(UUID spaceId, UUID occupancyId) {
         OccupancyEntity occupancy = occupancyRepository.findByIdAndSpaceId(occupancyId, spaceId)
                 .orElseThrow(() -> new ResourceNotFoundException("Occupancy", "id", occupancyId));
@@ -571,30 +746,159 @@ public class OccupancyService {
         memberRepository.save(member);
     }
 
-    private void assertTargetNotHeld(OccupancyTargetService.ResolvedTarget target) {
+    private void applyStayChoice(
+            SpaceEntity space,
+            OccupancyEntity occupancy,
+            StayKind requestedKind,
+            BigDecimal requestedAgreedTotal,
+            BigDecimal rentSnapshot,
+            LocalDate start,
+            LocalDate plannedEnd) {
+        StayKind kind = requestedKind != null ? requestedKind : occupancy.getStayKind();
+        BigDecimal agreed = requestedAgreedTotal != null ? requestedAgreedTotal : occupancy.getAgreedTotal();
+        if (kind == null) {
+            if (requestedAgreedTotal != null) {
+                throw new BusinessException("AGREED_TOTAL_NOT_ALLOWED", ShortStayRules.AGREED_TOTAL_NOT_ALLOWED);
+            }
+            return;
+        }
+        if (kind == StayKind.MONTHLY) {
+            if (requestedAgreedTotal != null) {
+                throw new BusinessException("AGREED_TOTAL_NOT_ALLOWED", ShortStayRules.AGREED_TOTAL_NOT_ALLOWED);
+            }
+            occupancy.setStayKind(StayKind.MONTHLY);
+            occupancy.setAgreedTotal(null);
+            occupancy.setPricingBasis(null);
+            return;
+        }
+        if (kind == StayKind.OPEN_ENDED) {
+            if (requestedAgreedTotal != null) {
+                throw new BusinessException("AGREED_TOTAL_NOT_ALLOWED", ShortStayRules.AGREED_TOTAL_NOT_ALLOWED);
+            }
+            // New Until I Leave uses owner-entered daily rent in rent_snapshot.
+            // Legacy OPEN_ENDED rows keep pricing_basis null and monthly rent_snapshot meaning.
+            occupancy.setStayKind(StayKind.OPEN_ENDED);
+            occupancy.setAgreedTotal(null);
+            occupancy.setPricingBasis(OccupancyPricingBasis.DAILY_RATE);
+            return;
+        }
+        if (kind != StayKind.SHORT) {
+            if (requestedAgreedTotal != null) {
+                throw new BusinessException("AGREED_TOTAL_NOT_ALLOWED", ShortStayRules.AGREED_TOTAL_NOT_ALLOWED);
+            }
+            occupancy.setStayKind(kind);
+            return;
+        }
+        // Stay type is per occupancy; spaces.short_stay_enabled is not an eligibility gate.
+        // Prefer owner daily rate in rentSnapshot; agreedTotal becomes daily × nights (or legacy fixed).
+        BigDecimal stayRent = ShortStayRules.resolveStayRent(start, plannedEnd, rentSnapshot, agreed);
+        occupancy.setStayKind(StayKind.SHORT);
+        occupancy.setAgreedTotal(stayRent);
+        occupancy.setPricingBasis(OccupancyPricingBasis.FIXED_TOTAL);
+        if (rentSnapshot != null) {
+            occupancy.setRentSnapshot(rentSnapshot);
+        }
+    }
+
+    private LocalDate resolveAllocatePlannedEnd(AllocateOccupancyRequest request) {
+        LocalDate checkout = request.getExpectedCheckoutDate();
+        LocalDate exit = request.getExpectedExitDate();
+        if (checkout != null && exit != null && !checkout.equals(exit)) {
+            throw new BusinessException("expectedExitDate and expectedCheckoutDate must be the same planned end date");
+        }
+        return checkout != null ? checkout : exit;
+    }
+
+    private LocalDate resolveAllocateMoveInDate(AllocateOccupancyRequest request, LocalDate today) {
+        LocalDate moveInDate = request.getMoveInDate() != null ? request.getMoveInDate() : today;
+        if (moveInDate.isAfter(today)) {
+            throw new BusinessException("Move-in date cannot be in the future for an active allocation. Reserve the stay instead.");
+        }
+        return moveInDate;
+    }
+
+    private void validatePlannedEndAfterStart(LocalDate start, LocalDate plannedEnd) {
+        if (start != null && plannedEnd != null && !plannedEnd.isAfter(start)) {
+            throw new BusinessException("Planned end date must be after the move-in date");
+        }
+    }
+
+    private void assertTargetNotHeld(
+            OccupancyTargetService.ResolvedTarget target,
+            UUID excludeOccupancyId,
+            LocalDate start,
+            LocalDate exclusiveEnd) {
         switch (target.getTargetType()) {
             case BED -> {
                 UUID bedId = target.getBed().getId();
-                if (occupancyRepository.existsByBedIdAndStatus(bedId, OccupancyStatus.ACTIVE)
-                        || occupancyRepository.existsByBedIdAndStatus(bedId, OccupancyStatus.RESERVED)) {
+                if (bedHeld(bedId, OccupancyStatus.ACTIVE, excludeOccupancyId)
+                        || bedHeld(bedId, OccupancyStatus.RESERVED, excludeOccupancyId)) {
+                    throw new BusinessException("Bed is not available");
+                }
+                if (target.getRoom() != null
+                        && (roomTargetHeld(target.getRoom().getId(), OccupancyStatus.ACTIVE, excludeOccupancyId)
+                                || roomTargetHeld(
+                                        target.getRoom().getId(), OccupancyStatus.RESERVED, excludeOccupancyId))) {
                     throw new BusinessException("Bed is not available");
                 }
             }
             case ROOM -> {
                 UUID roomId = target.getRoom().getId();
-                if (occupancyRepository.existsByRoomIdAndStatus(roomId, OccupancyStatus.ACTIVE)
-                        || occupancyRepository.existsByRoomIdAndStatus(roomId, OccupancyStatus.RESERVED)) {
+                if (roomTargetHeld(roomId, OccupancyStatus.ACTIVE, excludeOccupancyId)
+                        || roomTargetHeld(roomId, OccupancyStatus.RESERVED, excludeOccupancyId)
+                        || bedTargetInRoom(roomId, OccupancyStatus.ACTIVE, excludeOccupancyId)
+                        || bedTargetInRoom(roomId, OccupancyStatus.RESERVED, excludeOccupancyId)) {
                     throw new BusinessException("Room is not available");
                 }
             }
             case UNIT -> {
                 UUID unitId = target.getUnit().getId();
-                if (occupancyRepository.existsByUnitIdAndStatus(unitId, OccupancyStatus.ACTIVE)
-                        || occupancyRepository.existsByUnitIdAndStatus(unitId, OccupancyStatus.RESERVED)) {
+                if (unitHeld(unitId, OccupancyStatus.ACTIVE, excludeOccupancyId)
+                        || unitHeld(unitId, OccupancyStatus.RESERVED, excludeOccupancyId)) {
                     throw new BusinessException("Unit is not available");
                 }
             }
         }
+        stayRangeGuard.assertAvailable(
+                target.getTargetType(),
+                target.getBed() != null ? target.getBed().getId() : null,
+                target.getRoom() != null ? target.getRoom().getId() : null,
+                target.getUnit() != null ? target.getUnit().getId() : null,
+                start,
+                exclusiveEnd,
+                excludeOccupancyId);
+    }
+
+    private boolean bedHeld(UUID bedId, OccupancyStatus status, UUID excludeOccupancyId) {
+        if (excludeOccupancyId == null) {
+            return occupancyRepository.existsByBedIdAndStatus(bedId, status);
+        }
+        return occupancyRepository.existsByBedIdAndStatusAndIdNot(bedId, status, excludeOccupancyId);
+    }
+
+    private boolean roomTargetHeld(UUID roomId, OccupancyStatus status, UUID excludeOccupancyId) {
+        if (excludeOccupancyId == null) {
+            return occupancyRepository.existsByRoomIdAndTargetTypeAndStatus(
+                    roomId, AllocationTargetType.ROOM, status);
+        }
+        return occupancyRepository.existsByRoomIdAndTargetTypeAndStatusAndIdNot(
+                roomId, AllocationTargetType.ROOM, status, excludeOccupancyId);
+    }
+
+    private boolean bedTargetInRoom(UUID roomId, OccupancyStatus status, UUID excludeOccupancyId) {
+        if (excludeOccupancyId == null) {
+            return occupancyRepository.existsByRoomIdAndTargetTypeAndStatus(
+                    roomId, AllocationTargetType.BED, status);
+        }
+        return occupancyRepository.existsByRoomIdAndTargetTypeAndStatusAndIdNot(
+                roomId, AllocationTargetType.BED, status, excludeOccupancyId);
+    }
+
+    private boolean unitHeld(UUID unitId, OccupancyStatus status, UUID excludeOccupancyId) {
+        if (excludeOccupancyId == null) {
+            return occupancyRepository.existsByUnitIdAndStatus(unitId, status);
+        }
+        return occupancyRepository.existsByUnitIdAndStatusAndIdNot(unitId, status, excludeOccupancyId);
     }
 
     private void recordHistory(

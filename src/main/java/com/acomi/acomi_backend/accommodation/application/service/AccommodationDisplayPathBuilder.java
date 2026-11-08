@@ -25,6 +25,9 @@ public final class AccommodationDisplayPathBuilder {
             appendSegment(path, row.getUnitName());
         }
         appendSegment(path, row.getRoomName());
+        if (row.getTargetType() == AllocationTargetType.ROOM) {
+            return path.toString();
+        }
         appendSegment(path, row.getBedName());
         return path.toString();
     }
@@ -38,7 +41,6 @@ public final class AccommodationDisplayPathBuilder {
         String building = firstNonBlank(row.getBuildingCode(), abbreviate(row.getBuildingName()));
         String floor = row.getFloorName() != null ? abbreviate(row.getFloorName()) : null;
         String room = firstNonBlank(row.getRoomNumber(), abbreviate(row.getRoomName()));
-        String bed = firstNonBlank(row.getBedNumber(), abbreviate(row.getBedName()));
         StringBuilder shortPath = new StringBuilder(building);
         if (floor != null) {
             shortPath.append("-").append(floor);
@@ -46,6 +48,10 @@ public final class AccommodationDisplayPathBuilder {
         if (room != null) {
             shortPath.append("-").append(room);
         }
+        if (row.getTargetType() == AllocationTargetType.ROOM) {
+            return shortPath.toString();
+        }
+        String bed = firstNonBlank(row.getBedNumber(), abbreviate(row.getBedName()));
         if (bed != null) {
             shortPath.append("-").append(bed);
         }

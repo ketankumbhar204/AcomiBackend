@@ -3,6 +3,7 @@ package com.acomi.acomi_backend.occupancy.api.dto.response;
 import com.acomi.acomi_backend.member.domain.model.MemberCategory;
 import com.acomi.acomi_backend.occupancy.domain.model.AllocationTargetType;
 import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
+import com.acomi.acomi_backend.occupancy.domain.model.StayKind;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyChargeSnapshotEntity;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
@@ -46,7 +47,17 @@ public class OccupancyResponse {
     private LocalDate expectedExitDate;
     private MemberCategory memberCategory;
     private boolean agreementSigned;
+    private StayKind stayKind;
+    /** FIXED_TOTAL (SHORT), DAILY_RATE (new OPEN_ENDED), or null (monthly / legacy). */
+    private String pricingBasis;
+    private BigDecimal agreedTotal;
     private BigDecimal rentSnapshot;
+    /** Reservation booking advance (portion of first-period rent). Null/zero = none. */
+    private BigDecimal bookingAdvanceAmount;
+    /** Previous daily/monthly rate retained when rent was revised. */
+    private BigDecimal priorRentSnapshot;
+    /** Calendar date the current rentSnapshot became effective (day-level for OPEN_ENDED). */
+    private LocalDate rentEffectiveMonth;
     private BigDecimal depositSnapshot;
     private boolean foodEnabled;
     private BigDecimal foodChargeSnapshot;
@@ -104,7 +115,13 @@ public class OccupancyResponse {
                 .expectedExitDate(expectedExit)
                 .memberCategory(entity.getMemberCategory())
                 .agreementSigned(entity.isAgreementSigned())
+                .stayKind(entity.getStayKind())
+                .pricingBasis(entity.getPricingBasis())
+                .agreedTotal(entity.getAgreedTotal())
                 .rentSnapshot(entity.getRentSnapshot())
+                .bookingAdvanceAmount(entity.getBookingAdvanceAmount())
+                .priorRentSnapshot(entity.getPriorRentSnapshot())
+                .rentEffectiveMonth(entity.getRentEffectiveMonth())
                 .depositSnapshot(entity.getDepositSnapshot())
                 .foodEnabled(entity.isFoodEnabled())
                 .foodChargeSnapshot(entity.getFoodChargeSnapshot())

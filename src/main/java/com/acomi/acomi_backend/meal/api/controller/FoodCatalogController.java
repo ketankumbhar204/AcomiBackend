@@ -4,6 +4,7 @@ import com.acomi.acomi_backend.common.security.SecurityUtils;
 import com.acomi.acomi_backend.common.web.ApiResponse;
 import com.acomi.acomi_backend.meal.api.dto.request.CreateFoodCategoryRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.CreateFoodItemRequest;
+import com.acomi.acomi_backend.meal.api.dto.request.UpdateFoodCategoryRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.UpdateFoodItemDefaultPriceRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.UpdateFoodItemExtraRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.UpdateFoodItemRequest;
@@ -52,6 +53,17 @@ public class FoodCatalogController {
         FoodCategoryResponse response = foodCatalogService.createCategory(spaceId, callerId, request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success("Food category created successfully", response));
+    }
+
+    @PutMapping("/food-categories/{categoryId}")
+    public ResponseEntity<ApiResponse<FoodCategoryResponse>> updateCategory(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID categoryId,
+            @RequestBody @Valid UpdateFoodCategoryRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Food category updated successfully",
+                foodCatalogService.updateCategory(spaceId, categoryId, callerId, request)));
     }
 
     @PostMapping("/food-categories/{categoryId}/deactivate")

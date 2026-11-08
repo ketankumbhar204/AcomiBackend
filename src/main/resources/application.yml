@@ -57,6 +57,21 @@ acomi:
   jwt:
     # 30 days so closing the app overnight does not force another login.
     expiration-ms: ${JWT_EXPIRATION_MS:2592000000}
+  billing:
+    monthly-rent:
+      enabled: ${ACOMI_MONTHLY_RENT_ENABLED:true}
+      # 01:10 on the 1st, Asia/Kolkata. Catch-up retries a missed 1st. Startup catch-up is on in production.
+      cron: ${ACOMI_MONTHLY_RENT_CRON:0 10 1 1 * *}
+      catch-up-cron: ${ACOMI_MONTHLY_RENT_CATCHUP_CRON:0 20 2 * * *}
+      notification-cron: ${ACOMI_MONTHLY_RENT_NOTIFICATION_CRON:0 */15 * * * *}
+      catch-up-on-startup: ${ACOMI_MONTHLY_RENT_CATCHUP_ON_STARTUP:false}
+      recovery-months: ${ACOMI_MONTHLY_RENT_RECOVERY_MONTHS:2}
+      zone: ${ACOMI_MONTHLY_RENT_ZONE:Asia/Kolkata}
+    open-ended-month-close:
+      enabled: ${ACOMI_OPEN_ENDED_MONTH_CLOSE_ENABLED:true}
+      # 00:40 on the 1st–3rd so a missed 1st still closes the previous month. Does not bill the open month.
+      cron: ${ACOMI_OPEN_ENDED_MONTH_CLOSE_CRON:0 40 0 1-3 * *}
+      zone: ${ACOMI_OPEN_ENDED_MONTH_CLOSE_ZONE:Asia/Kolkata}
   reminders:
     scheduler:
       enabled: ${ACOMI_REMINDERS_SCHEDULER_ENABLED:true}

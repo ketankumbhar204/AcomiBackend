@@ -5,12 +5,15 @@ import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import jakarta.persistence.LockModeType;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -29,6 +32,13 @@ public interface OccupancyRepository extends JpaRepository<OccupancyEntity, UUID
             WHERE o.id = :id AND o.space.id = :spaceId
             """)
     Optional<OccupancyEntity> findByIdAndSpaceId(@Param("id") UUID id, @Param("spaceId") UUID spaceId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT o FROM OccupancyEntity o
+            WHERE o.id = :id AND o.space.id = :spaceId
+            """)
+    Optional<OccupancyEntity> findByIdAndSpaceIdForUpdate(@Param("id") UUID id, @Param("spaceId") UUID spaceId);
 
     @Query("""
             SELECT o FROM OccupancyEntity o
@@ -73,12 +83,29 @@ public interface OccupancyRepository extends JpaRepository<OccupancyEntity, UUID
 
     boolean existsByBedIdAndStatus(UUID bedId, OccupancyStatus status);
 
+    boolean existsByBedIdAndStatusAndIdNot(UUID bedId, OccupancyStatus status, UUID occupancyId);
+
     boolean existsByRoomIdAndStatus(UUID roomId, OccupancyStatus status);
 
     boolean existsByRoomIdAndTargetTypeAndStatus(
             UUID roomId, AllocationTargetType targetType, OccupancyStatus status);
 
+    boolean existsByRoomIdAndTargetTypeAndStatusAndIdNot(
+            UUID roomId, AllocationTargetType targetType, OccupancyStatus status, UUID occupancyId);
+
     boolean existsByUnitIdAndStatus(UUID unitId, OccupancyStatus status);
+
+    boolean existsByUnitIdAndStatusAndIdNot(UUID unitId, OccupancyStatus status, UUID occupancyId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<OccupancyEntity> findByBed_IdAndStatusIn(UUID bedId, Collection<OccupancyStatus> statuses);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<OccupancyEntity> findByRoom_IdAndTargetTypeAndStatusIn(
+            UUID roomId, AllocationTargetType targetType, Collection<OccupancyStatus> statuses);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    List<OccupancyEntity> findByUnit_IdAndStatusIn(UUID unitId, Collection<OccupancyStatus> statuses);
 
     @Query("SELECT COUNT(o) > 0 FROM OccupancyEntity o WHERE o.space.id = :spaceId")
     boolean existsBySpaceId(@Param("spaceId") UUID spaceId);
@@ -211,6 +238,20 @@ public interface OccupancyRepository extends JpaRepository<OccupancyEntity, UUID
             @Param("spaceId") UUID spaceId,
             @Param("status") OccupancyStatus status,
             @Param("exitDate") LocalDate exitDate);
+
+    @Query("""
+            SELECT o FROM OccupancyEntity o
+            JOIN FETCH o.member
+            WHERE o.space.id = :spaceId
+              AND o.status = :status
+              AND o.vacatedAt IS NULL
+              AND o.expectedExitDate IS NOT NULL
+              AND o.expectedExitDate < :businessDate
+            """)
+    List<OccupancyEntity> findActiveStaysPastPlannedEnd(
+            @Param("spaceId") UUID spaceId,
+            @Param("status") OccupancyStatus status,
+            @Param("businessDate") LocalDate businessDate);
 
     @Query("""
             SELECT o FROM OccupancyEntity o

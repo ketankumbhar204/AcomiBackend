@@ -53,8 +53,35 @@ public final class PaymentDueStatusCalculator {
         Objects.requireNonNull(businessDate, "businessDate");
 
         BigDecimal total = payment.getAmount() != null ? payment.getAmount() : BigDecimal.ZERO;
-        // Current ledger: PAID means fully collected; no partial paidAmount column yet.
-        BigDecimal paid = payment.getPaymentStatus() == SpacePaymentStatus.PAID ? total : BigDecimal.ZERO;
+        // CANCELLED obligations have no customer liability.
+        if (payment.getPaymentStatus() == SpacePaymentStatus.CANCELLED) {
+            return DueStatus.builder()
+                    .totalAmount(total)
+                    .paidAmount(BigDecimal.ZERO)
+                    .outstandingAmount(BigDecimal.ZERO)
+                    .settlementStatus(PaymentSettlementStatus.PAID)
+                    .overdue(false)
+                    .daysOverdue(0)
+                    .reminderEligible(false)
+                    .businessDate(businessDate)
+                    .build();
+        }
+        // REFUNDED / PAID: original collection happened; refunds are tracked separately.
+        // Outstanding stays 0 — refunds reduce net collected, they do not reopen dues.
+        if (payment.getPaymentStatus() == SpacePaymentStatus.REFUNDED
+                || payment.getPaymentStatus() == SpacePaymentStatus.PAID) {
+            return DueStatus.builder()
+                    .totalAmount(total)
+                    .paidAmount(total)
+                    .outstandingAmount(BigDecimal.ZERO)
+                    .settlementStatus(PaymentSettlementStatus.PAID)
+                    .overdue(false)
+                    .daysOverdue(0)
+                    .reminderEligible(false)
+                    .businessDate(businessDate)
+                    .build();
+        }
+        BigDecimal paid = BigDecimal.ZERO;
         BigDecimal outstanding = total.subtract(paid).max(BigDecimal.ZERO);
 
         PaymentSettlementStatus settlement;

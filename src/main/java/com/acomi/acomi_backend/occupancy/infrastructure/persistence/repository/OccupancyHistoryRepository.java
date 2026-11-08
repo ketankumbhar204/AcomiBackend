@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository;
 
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyHistoryEntity;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -20,4 +21,6 @@ public interface OccupancyHistoryRepository extends JpaRepository<OccupancyHisto
             @Param("spaceId") UUID spaceId, @Param("memberId") UUID memberId);
 
     List<OccupancyHistoryEntity> findByOccupancyIdOrderByPerformedAtDesc(UUID occupancyId);
+
+    Optional<OccupancyHistoryEntity> findByOccupancy_IdAndIdempotencyKey(UUID occupancyId, String idempotencyKey);
 }

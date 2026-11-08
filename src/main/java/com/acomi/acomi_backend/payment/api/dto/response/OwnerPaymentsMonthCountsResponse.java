@@ -12,6 +12,8 @@ public class OwnerPaymentsMonthCountsResponse {
     private int changesRequested;
     private int paid;
     private int rejected;
+    private int refunded;
+    private int cancelled;
     private int history;
     private int pendingMembers;
 }

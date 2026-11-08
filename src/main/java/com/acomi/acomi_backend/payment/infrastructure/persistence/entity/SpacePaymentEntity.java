@@ -161,4 +161,22 @@ public class SpacePaymentEntity extends BaseEntity {
 
     @Column(name = "tax_amount", precision = 12, scale = 2)
     private BigDecimal taxAmount;
+
+    /**
+     * For {@link SpacePaymentCategory#REFUND} rows: the original collected obligation this refund
+     * settles. Null for normal obligations.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "related_payment_id")
+    private SpacePaymentEntity relatedPayment;
+
+    /** Completed refund total against this obligation (cash returned). */
+    @Builder.Default
+    @Column(name = "refunded_amount", nullable = false, precision = 12, scale = 2)
+    private BigDecimal refundedAmount = BigDecimal.ZERO;
+
+    /** Explicitly retained portion of a collected obligation (not a refund). */
+    @Builder.Default
+    @Column(name = "retained_amount", nullable = false, precision = 12, scale = 2)
+    private BigDecimal retainedAmount = BigDecimal.ZERO;
 }

@@ -11,6 +11,7 @@ import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.B
 import com.acomi.acomi_backend.accommodation.infrastructure.persistence.entity.RoomEntity;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.occupancy.domain.model.AllocationTargetType;
+import com.acomi.acomi_backend.occupancy.domain.model.StayKind;
 import com.acomi.acomi_backend.occupancy.domain.model.TransferRentPolicy;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyChargeSnapshotRepository;
@@ -307,6 +308,136 @@ class OccupancyContractSnapshotServiceTest {
         assertThat(next.isFoodEnabled()).isTrue();
         assertThat(next.getFoodChargeSnapshot()).isNull();
         assertThat(next.isFoodIncludedInRent()).isTrue();
+    }
+
+    @Test
+    void applyActivationSnapshot_shortStayKeepsAgreedTotalOutOfMonthlyRent() {
+        occupancy.setStayKind(StayKind.SHORT);
+        occupancy.setAgreedTotal(new BigDecimal("5600"));
+
+        contractSnapshotService.applyActivationSnapshot(
+                occupancy,
+                OccupancyContractSnapshotService.ContractSnapshotInput.builder()
+                        .foodEnabled(false)
+                        .build(),
+                target,
+                space,
+                LocalDateTime.now());
+
+        assertThat(occupancy.getRentSnapshot()).isNull();
+        assertThat(occupancy.getAgreedTotal()).isEqualByComparingTo("5600");
+    }
+
+    @Test
+    void applyActivationSnapshot_shortStayPersistsDailyRentSnapshot() {
+        occupancy.setStayKind(StayKind.SHORT);
+        occupancy.setAgreedTotal(new BigDecimal("2800"));
+
+        contractSnapshotService.applyActivationSnapshot(
+                occupancy,
+                OccupancyContractSnapshotService.ContractSnapshotInput.builder()
+                        .rentSnapshot(new BigDecimal("400"))
+                        .foodEnabled(false)
+                        .build(),
+                target,
+                space,
+                LocalDateTime.now());
+
+        assertThat(occupancy.getRentSnapshot()).isEqualByComparingTo("400");
+        assertThat(occupancy.getAgreedTotal()).isEqualByComparingTo("2800");
+    }
+
+    @Test
+    void applyTransferSnapshot_shortStayDoesNotCopyCatalogRent() {
+        OccupancyEntity previous = OccupancyEntity.builder()
+                .stayKind(StayKind.SHORT)
+                .agreedTotal(new BigDecimal("5600"))
+                .depositSnapshot(BigDecimal.ZERO)
+                .build();
+        previous.setId(java.util.UUID.randomUUID());
+        OccupancyEntity next = OccupancyEntity.builder()
+                .space(space)
+                .stayKind(StayKind.SHORT)
+                .agreedTotal(new BigDecimal("5600"))
+                .build();
+        next.setId(java.util.UUID.randomUUID());
+
+        contractSnapshotService.applyTransferSnapshot(
+                next,
+                OccupancyContractSnapshotService.ContractSnapshotInput.builder()
+                        .foodEnabled(false)
+                        .build(),
+                TransferRentPolicy.APPLY_NEW,
+                previous,
+                target,
+                space,
+                LocalDateTime.now());
+
+        assertThat(next.getRentSnapshot()).isNull();
+        assertThat(next.getAgreedTotal()).isEqualByComparingTo("5600");
+    }
+
+    @Test
+    void applyTransferSnapshot_shortSourceToMonthlyAllowsRentSnapshot() {
+        OccupancyEntity previous = OccupancyEntity.builder()
+                .stayKind(StayKind.SHORT)
+                .agreedTotal(new BigDecimal("5600"))
+                .depositSnapshot(new BigDecimal("1500"))
+                .foodEnabled(false)
+                .build();
+        previous.setId(java.util.UUID.randomUUID());
+        OccupancyEntity next = OccupancyEntity.builder()
+                .space(space)
+                .stayKind(StayKind.MONTHLY)
+                .build();
+        next.setId(java.util.UUID.randomUUID());
+
+        contractSnapshotService.applyTransferSnapshot(
+                next,
+                OccupancyContractSnapshotService.ContractSnapshotInput.builder()
+                        .rentSnapshot(new BigDecimal("9000"))
+                        .foodEnabled(false)
+                        .build(),
+                TransferRentPolicy.APPLY_NEW,
+                previous,
+                target,
+                space,
+                LocalDateTime.now());
+
+        assertThat(next.getRentSnapshot()).isEqualByComparingTo("9000");
+        assertThat(next.getDepositSnapshot()).isEqualByComparingTo("10000");
+    }
+
+    @Test
+    void applyTransferSnapshot_monthlySourceToShortKeepsDepositAndNullRent() {
+        OccupancyEntity previous = OccupancyEntity.builder()
+                .stayKind(StayKind.MONTHLY)
+                .rentSnapshot(new BigDecimal("8000"))
+                .depositSnapshot(new BigDecimal("5000"))
+                .foodEnabled(false)
+                .build();
+        previous.setId(java.util.UUID.randomUUID());
+        OccupancyEntity next = OccupancyEntity.builder()
+                .space(space)
+                .stayKind(StayKind.SHORT)
+                .agreedTotal(new BigDecimal("3200"))
+                .build();
+        next.setId(java.util.UUID.randomUUID());
+
+        contractSnapshotService.applyTransferSnapshot(
+                next,
+                OccupancyContractSnapshotService.ContractSnapshotInput.builder()
+                        .foodEnabled(false)
+                        .build(),
+                TransferRentPolicy.KEEP,
+                previous,
+                target,
+                space,
+                LocalDateTime.now());
+
+        assertThat(next.getRentSnapshot()).isNull();
+        assertThat(next.getDepositSnapshot()).isEqualByComparingTo("5000");
+        assertThat(next.getAgreedTotal()).isEqualByComparingTo("3200");
     }
 }
 

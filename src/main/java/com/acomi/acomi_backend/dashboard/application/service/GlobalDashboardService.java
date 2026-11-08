@@ -227,6 +227,7 @@ public class GlobalDashboardService {
             case PENDING_INVITATION -> "Pending Invitations";
             case MOVE_IN_SCHEDULED_TODAY -> "Today's Move-ins";
             case MOVE_OUT_SCHEDULED_TODAY -> "Today's Move-outs";
+            case STAY_OVERDUE_ACTIVE -> "Stays past planned end";
             case RESERVATION_STARTING_TODAY -> "Reservations Starting Today";
             case COMPLAINT_PENDING -> "Complaints Pending";
             case COMPLAINT_OVERDUE -> "Complaints Overdue";

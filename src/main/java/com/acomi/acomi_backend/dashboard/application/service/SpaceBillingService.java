@@ -163,15 +163,38 @@ public class SpaceBillingService {
         }
 
         boolean rentFromOccupancy = false;
-        if (occupancy != null && accommodationApplicable) {
+        // OPEN_ENDED daily-rate accrues in an open month but must not enter Expected until a
+        // payable rent obligation exists (month closed / vacated) — same gate as payment generation.
+        // Otherwise Expected exceeds Pending with no matching payment rows (Sunrise PG 77 Nov 2026).
+        if (occupancy != null
+                && accommodationApplicable
+                && OccupancyBillingCalculator.contributesToExpectedCharges(occupancy, month)) {
             var occupancyBilling =
                     OccupancyBillingCalculator.computeBilling(occupancy, month, space);
             if (occupancyBilling != null
                     && occupancyBilling.getTotalAmount() != null
                     && occupancyBilling.getTotalAmount().signum() > 0) {
-                expectedCharges = expectedCharges.add(occupancyBilling.getTotalAmount());
-                hasExpected = true;
-                rentFromOccupancy = true;
+                BigDecimal occupancyRent = occupancyBilling.getTotalAmount();
+                // Cancelled unpaid rent obligations reduce Expected even when occupancy billing wins.
+                BigDecimal cancelledRent =
+                        spacePaymentLedgerSupport.sumCancelledRecurringRentAmount(memberPayments);
+                BigDecimal reissuedRent =
+                        spacePaymentLedgerSupport.sumOpenReissuedMonthlyRent(memberPayments);
+                if (reissuedRent.signum() > 0) {
+                    cancelledRent = cancelledRent.subtract(reissuedRent).max(BigDecimal.ZERO);
+                }
+                if (cancelledRent.signum() > 0) {
+                    occupancyRent = occupancyRent.subtract(cancelledRent).max(BigDecimal.ZERO);
+                }
+                if (occupancyRent.signum() > 0) {
+                    expectedCharges = expectedCharges.add(occupancyRent);
+                    hasExpected = true;
+                    rentFromOccupancy = true;
+                } else {
+                    // All occupancy rent for the month was cancelled — do not fall through to
+                    // re-add the same cancelled rows via payment fallback.
+                    rentFromOccupancy = true;
+                }
             }
         }
         if (!rentFromOccupancy) {
@@ -184,6 +207,17 @@ public class SpaceBillingService {
 
         BigDecimal extraObligations =
                 spacePaymentLedgerSupport.sumNonRecurringObligationAmount(memberPayments);
+        if (rentFromOccupancy) {
+            // RENT/ADVANCE is a split of first-period rent already counted via occupancy billing.
+            // Adding it again would inflate expected (e.g. ₹6,000 rent + ₹2,000 advance = ₹8,000).
+            BigDecimal rentAdvance = spacePaymentLedgerSupport.sumRentAdvanceAmount(memberPayments);
+            if (rentAdvance.signum() > 0) {
+                extraObligations = extraObligations.subtract(rentAdvance);
+                if (extraObligations.signum() < 0) {
+                    extraObligations = BigDecimal.ZERO;
+                }
+            }
+        }
         if (extraObligations.compareTo(BigDecimal.ZERO) > 0) {
             expectedCharges = expectedCharges.add(extraObligations);
             hasExpected = true;
@@ -200,8 +234,10 @@ public class SpaceBillingService {
         BigDecimal collectedAmount = hasCollected ? collected : null;
         BigDecimal underReview =
                 underReviewAmount.compareTo(BigDecimal.ZERO) > 0 ? underReviewAmount : null;
+        BigDecimal pendingAmount = spacePaymentLedgerSupport.computePendingAmount(
+                expected, collectedAmount, underReview, memberPayments);
         BigDecimal pending =
-                spacePaymentLedgerSupport.computePendingAmount(expected, collectedAmount, underReview);
+                pendingAmount != null && pendingAmount.signum() > 0 ? pendingAmount : null;
 
         MemberPaymentLedgerRowResponse.MemberPaymentLedgerRowResponseBuilder rowBuilder =
                 MemberPaymentLedgerRowResponse.builder()
@@ -265,12 +301,13 @@ public class SpaceBillingService {
         BigDecimal expected;
         BigDecimal collected;
         BigDecimal underReview;
+        List<MemberPaymentLedgerRowResponse> payPerMealRows = rows;
         if (messSpace && hasPrepaidMembers && !hasPayPerMealMembers) {
             expected = null;
             collected = prepaidBalance != null ? prepaidBalance.getAmountCollected() : null;
             underReview = null;
         } else {
-            List<MemberPaymentLedgerRowResponse> payPerMealRows = messSpace
+            payPerMealRows = messSpace
                     ? rows.stream()
                             .filter(row -> row.getMealBillingType() != MealBillingType.PREPAID_BALANCE)
                             .toList()
@@ -291,11 +328,15 @@ public class SpaceBillingService {
                         ? prepaidBalance.getCurrencyCode()
                         : DEFAULT_CURRENCY);
 
+        List<MemberPaymentLedgerRowResponse> pendingRows =
+                messSpace && hasPrepaidMembers && !hasPayPerMealMembers ? rows : payPerMealRows;
         return DashboardFinancialSummaryResponse.builder()
                 .expectedCharges(expected)
                 .collected(collected)
                 .underReview(underReview)
-                .pending(spacePaymentLedgerSupport.computePendingAmount(expected, collected, underReview))
+                .pending(sumNullable(pendingRows.stream()
+                        .map(MemberPaymentLedgerRowResponse::getPending)
+                        .toList()))
                 .currencyCode(currencyCode)
                 .source(resolveSource(space, hasMealParticipation))
                 .mealBillingType(space.getMealBillingType())

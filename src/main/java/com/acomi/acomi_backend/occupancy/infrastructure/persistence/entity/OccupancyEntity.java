@@ -13,6 +13,7 @@ import com.acomi.acomi_backend.member.domain.model.MemberCategory;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.occupancy.domain.model.AllocationTargetType;
 import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
+import com.acomi.acomi_backend.occupancy.domain.model.StayKind;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import jakarta.persistence.Column;
@@ -122,8 +123,31 @@ public class OccupancyEntity extends BaseEntity implements BusinessReferenced {
     @Column(name = "agreement_signed", nullable = false)
     private boolean agreementSigned = false;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "stay_kind", length = 20)
+    private StayKind stayKind;
+
+    @Column(name = "pricing_basis", length = 30)
+    private String pricingBasis;
+
+    @Column(name = "agreed_total", precision = 12, scale = 2)
+    private BigDecimal agreedTotal;
+
     @Column(name = "rent_snapshot", precision = 12, scale = 2)
     private BigDecimal rentSnapshot;
+
+    /**
+     * Reservation-only: portion of first-period rent collected/agreed as booking advance.
+     * Null or zero means payments are not created until move-in (legacy behaviour).
+     */
+    @Column(name = "booking_advance_amount", precision = 12, scale = 2)
+    private BigDecimal bookingAdvanceAmount;
+
+    @Column(name = "prior_rent_snapshot", precision = 12, scale = 2)
+    private BigDecimal priorRentSnapshot;
+
+    @Column(name = "rent_effective_month")
+    private LocalDate rentEffectiveMonth;
 
     @Builder.Default
     @Column(name = "deposit_snapshot", nullable = false, precision = 12, scale = 2)

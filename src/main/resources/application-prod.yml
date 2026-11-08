@@ -19,6 +19,9 @@ spring:
     clean-disabled: true
 
 acomi:
+  billing:
+    monthly-rent:
+      catch-up-on-startup: ${ACOMI_MONTHLY_RENT_CATCHUP_ON_STARTUP:true}
   jwt:
     secret: ${JWT_SECRET}
   otp:

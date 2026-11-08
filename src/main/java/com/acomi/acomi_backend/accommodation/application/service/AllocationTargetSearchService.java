@@ -60,7 +60,15 @@ public class AllocationTargetSearchService {
                     pageable);
             case UNIT -> searchRepository.searchUnitTargets(
                     spaceId, normalizedQuery, buildingId, unitId, status, onlySelectable, pageable);
-            case ROOM -> Page.empty(pageable);
+            case ROOM -> searchRepository.searchRoomTargets(
+                    spaceId,
+                    normalizedQuery,
+                    buildingId,
+                    floorId,
+                    unitId,
+                    status,
+                    onlySelectable,
+                    pageable);
         };
 
         return PagedResponse.from(page.map(this::toResponse));

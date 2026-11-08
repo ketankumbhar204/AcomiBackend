@@ -914,6 +914,45 @@ class MemberMasterServiceTest {
     }
 
     @Test
+    void searchImportCandidates_sameSpaceVacatedTenantIsAvailableForMoveIn() {
+        MemberEntity vacatedHere = MemberEntity.builder()
+                .space(space)
+                .fullName("Priya Nair")
+                .mobileNumber("9876543210")
+                .role(MembershipRole.TENANT)
+                .isActive(true)
+                .status(MemberStatus.ACTIVE)
+                .occupancyStatus(MemberOccupancyStatus.VACATED)
+                .depositAmount(BigDecimal.ZERO)
+                .depositPaid(BigDecimal.ZERO)
+                .depositRefunded(BigDecimal.ZERO)
+                .build();
+        vacatedHere.setId(UUID.randomUUID());
+        vacatedHere.setCreatedAt(LocalDateTime.now());
+
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, spaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                eq(ownerId),
+                eq(List.of(MembershipRole.OWNER, MembershipRole.MANAGER)),
+                any()))
+                .thenReturn(List.of(spaceId));
+        when(memberRepository.searchImportCandidates(
+                eq(spaceId), eq(List.of(spaceId)), eq(null), eq(null)))
+                .thenReturn(List.of(vacatedHere));
+
+        List<MemberImportCandidateResponse> result =
+                memberMasterService.searchImportCandidates(spaceId, ownerId, null);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).isAlreadyInTargetSpace()).isTrue();
+        assertThat(result.get(0).isAvailableForMoveIn()).isTrue();
+        assertThat(result.get(0).getFullName()).isEqualTo("Priya Nair");
+    }
+
+    @Test
     void searchImportCandidates_normalizesMobileQuery() {
         when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
         when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(

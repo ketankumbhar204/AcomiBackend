@@ -37,13 +37,17 @@ public final class PaymentMonthCountsSupport {
         int changesRequested = byStatus.getOrDefault(SpacePaymentStatus.UPDATE_REQUESTED, 0L).intValue();
         int paid = byStatus.getOrDefault(SpacePaymentStatus.PAID, 0L).intValue();
         int rejected = byStatus.getOrDefault(SpacePaymentStatus.REJECTED, 0L).intValue();
+        int refunded = byStatus.getOrDefault(SpacePaymentStatus.REFUNDED, 0L).intValue();
+        int cancelled = byStatus.getOrDefault(SpacePaymentStatus.CANCELLED, 0L).intValue();
         return OwnerPaymentsMonthCountsResponse.builder()
                 .pendingReview(submitted + changesRequested)
                 .submitted(submitted)
                 .changesRequested(changesRequested)
                 .paid(paid)
                 .rejected(rejected)
-                .history(paid + rejected)
+                .refunded(refunded)
+                .cancelled(cancelled)
+                .history(paid + rejected + refunded + cancelled)
                 .pendingMembers(pendingMembers)
                 .build();
     }
@@ -54,6 +58,8 @@ public final class PaymentMonthCountsSupport {
         int changesRequested = 0;
         int paid = 0;
         int rejected = 0;
+        int refunded = 0;
+        int cancelled = 0;
         for (SpacePaymentStatus status : statuses) {
             if (status == SpacePaymentStatus.UNDER_REVIEW || status == SpacePaymentStatus.PROOF_UPLOADED) {
                 submitted += 1;
@@ -63,6 +69,10 @@ public final class PaymentMonthCountsSupport {
                 paid += 1;
             } else if (status == SpacePaymentStatus.REJECTED) {
                 rejected += 1;
+            } else if (status == SpacePaymentStatus.REFUNDED) {
+                refunded += 1;
+            } else if (status == SpacePaymentStatus.CANCELLED) {
+                cancelled += 1;
             }
         }
         return OwnerPaymentsMonthCountsResponse.builder()
@@ -71,7 +81,9 @@ public final class PaymentMonthCountsSupport {
                 .changesRequested(changesRequested)
                 .paid(paid)
                 .rejected(rejected)
-                .history(paid + rejected)
+                .refunded(refunded)
+                .cancelled(cancelled)
+                .history(paid + rejected + refunded + cancelled)
                 .pendingMembers(pendingMembers)
                 .build();
     }

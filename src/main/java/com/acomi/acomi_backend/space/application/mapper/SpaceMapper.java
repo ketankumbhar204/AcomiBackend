@@ -26,6 +26,7 @@ public final class SpaceMapper {
                 .active(entity.isActive())
                 .defaultFoodCharge(entity.getDefaultFoodCharge())
                 .foodIncludedInRent(entity.isFoodIncludedInRent())
+                .shortStayEnabled(entity.isShortStayEnabled())
                 .genderPolicy(entity.getGenderPolicy())
                 .mealBillingType(entity.getMealBillingType())
                 .prepaidBalanceUnit(entity.getPrepaidBalanceUnit())
@@ -47,6 +48,9 @@ public final class SpaceMapper {
         if (request.getFoodIncludedInRent() != null) {
             builder.foodIncludedInRent(request.getFoodIncludedInRent());
         }
+        if (request.getShortStayEnabled() != null) {
+            builder.shortStayEnabled(request.getShortStayEnabled());
+        }
         if (request.getGenderPolicy() != null) {
             builder.genderPolicy(request.getGenderPolicy());
         } else {
@@ -63,6 +67,7 @@ public final class SpaceMapper {
         entity.setContactNumber(space.getContactNumber());
         entity.setDefaultFoodCharge(space.getDefaultFoodCharge());
         entity.setFoodIncludedInRent(space.isFoodIncludedInRent());
+        entity.setShortStayEnabled(space.isShortStayEnabled());
         entity.setGenderPolicy(space.getGenderPolicy());
         entity.setMealBillingType(space.getMealBillingType());
         entity.setPrepaidBalanceUnit(space.getPrepaidBalanceUnit());

@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.occupancy.api.dto.response;
 
 import com.acomi.acomi_backend.occupancy.domain.model.AllocationTargetType;
 import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
+import com.acomi.acomi_backend.occupancy.domain.model.StayKind;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
 import java.util.UUID;
@@ -15,6 +16,8 @@ public class CurrentOccupancySummaryResponse {
 
     private UUID occupancyId;
     private OccupancyStatus occupancyStatus;
+    /** Persisted stay kind; null for legacy rows that predate stay_kind. */
+    private StayKind stayKind;
     private AllocationTargetType targetType;
     private UUID buildingId;
     private String buildingName;

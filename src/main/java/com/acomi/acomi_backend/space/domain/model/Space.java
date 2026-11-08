@@ -22,6 +22,9 @@ public class Space {
     private boolean active;
     private BigDecimal defaultFoodCharge;
     private boolean foodIncludedInRent;
+
+    @Builder.Default
+    private boolean shortStayEnabled = false;
     private GenderPolicy genderPolicy;
     private MealBillingType mealBillingType;
     private PrepaidBalanceUnit prepaidBalanceUnit;

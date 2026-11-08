@@ -10,6 +10,7 @@ import static org.mockito.Mockito.when;
 
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.meal.api.dto.request.CreateFoodItemRequest;
+import com.acomi.acomi_backend.meal.api.dto.request.UpdateFoodCategoryRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.UpdateFoodItemDefaultPriceRequest;
 import com.acomi.acomi_backend.meal.domain.model.FoodScope;
 import com.acomi.acomi_backend.meal.infrastructure.persistence.entity.FoodCategoryEntity;
@@ -351,6 +352,81 @@ class FoodCatalogServiceTest {
         assertThatThrownBy(() -> foodCatalogService.deactivateCategory(spaceId, categoryId, callerId))
                 .isInstanceOf(BusinessException.class)
                 .satisfies(ex -> assertThat(((BusinessException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
+    }
+
+    @Test
+    void updateCategory_renamesSpaceCategory() {
+        stubOwnerMembership();
+        SpaceEntity space = space();
+        UUID categoryId = UUID.randomUUID();
+        FoodCategoryEntity category = FoodCategoryEntity.builder()
+                .name("Test cartegory")
+                .scope(FoodScope.SPACE)
+                .space(space)
+                .owner(space.getOwner())
+                .sortOrder(99)
+                .isActive(true)
+                .build();
+        category.setId(categoryId);
+        UpdateFoodCategoryRequest request = new UpdateFoodCategoryRequest();
+        request.setName("  Test category  ");
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        when(foodCategoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+        when(foodCategoryRepository.save(category)).thenReturn(category);
+        when(foodItemRepository.countVisibleItemsGroupedByCategory(spaceId, space.getOwner().getId()))
+                .thenReturn(List.of(categoryItemCount(categoryId, 1L)));
+
+        var response = foodCatalogService.updateCategory(spaceId, categoryId, callerId, request);
+
+        assertThat(category.getName()).isEqualTo("Test category");
+        assertThat(response.getName()).isEqualTo("Test category");
+        assertThat(response.getCategoryId()).isEqualTo(categoryId);
+        assertThat(response.getItemCount()).isEqualTo(1);
+        verify(foodCategoryRepository).save(category);
+    }
+
+    @Test
+    void updateCategory_rejectsGlobalCategory() {
+        stubOwnerMembership();
+        SpaceEntity space = space();
+        UUID categoryId = UUID.randomUUID();
+        FoodCategoryEntity category = category("Breads", FoodScope.GLOBAL, 1);
+        category.setId(categoryId);
+        UpdateFoodCategoryRequest request = new UpdateFoodCategoryRequest();
+        request.setName("Roti");
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space));
+        when(foodCategoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+
+        assertThatThrownBy(() -> foodCatalogService.updateCategory(spaceId, categoryId, callerId, request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Only custom categories can be renamed")
+                .satisfies(ex -> assertThat(((BusinessException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
+        verify(foodCategoryRepository, never()).save(any());
+    }
+
+    @Test
+    void updateCategory_rejectsAnotherLibrary() {
+        stubOwnerMembership();
+        UUID categoryId = UUID.randomUUID();
+        SpaceEntity otherSpace = spaceForId(otherSpaceId);
+        FoodCategoryEntity category = FoodCategoryEntity.builder()
+                .name("Other")
+                .scope(FoodScope.SPACE)
+                .space(otherSpace)
+                .owner(otherSpace.getOwner())
+                .sortOrder(1)
+                .isActive(true)
+                .build();
+        category.setId(categoryId);
+        UpdateFoodCategoryRequest request = new UpdateFoodCategoryRequest();
+        request.setName("Renamed");
+        when(spaceRepository.findById(spaceId)).thenReturn(Optional.of(space()));
+        when(foodCategoryRepository.findById(categoryId)).thenReturn(Optional.of(category));
+
+        assertThatThrownBy(() -> foodCatalogService.updateCategory(spaceId, categoryId, callerId, request))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> assertThat(((BusinessException) ex).getStatus()).isEqualTo(HttpStatus.FORBIDDEN));
+        verify(foodCategoryRepository, never()).save(any());
     }
 
     @Test

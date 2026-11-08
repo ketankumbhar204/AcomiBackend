@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.occupancy.api.dto.request;
 
 import com.acomi.acomi_backend.occupancy.domain.model.AllocationTargetType;
+import com.acomi.acomi_backend.occupancy.domain.model.StayKind;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
@@ -28,10 +29,30 @@ public class AllocateOccupancyRequest {
     private UUID roomId;
     private UUID unitId;
 
+    @Schema(description = "Move-in date for the active allocation. Defaults to today when omitted.")
+    private LocalDate moveInDate;
+
+    @Schema(description = "Planned end date. Same meaning as expectedExitDate. If both are sent they must be equal.")
     private LocalDate expectedCheckoutDate;
+
+    @Schema(description = "Planned end date. Same meaning as expectedCheckoutDate. If both are sent they must be equal.")
+    private LocalDate expectedExitDate;
+
     private String remarks;
 
-    @Schema(description = "Monthly rent contract snapshot; required if target has no defaultRent")
+    @Schema(description = "MONTHLY, SHORT, or OPEN_ENDED. Omitted means a legacy monthly stay.")
+    private StayKind stayKind;
+
+    @Schema(
+            description =
+                    "Legacy fixed short-stay total. For new SHORT stays prefer rentSnapshot (daily rate);"
+                            + " server sets agreedTotal = daily × nights when daily rate is sent.")
+    private BigDecimal agreedTotal;
+
+    @Schema(
+            description =
+                    "Monthly rent (MONTHLY), daily rent (OPEN_ENDED / SHORT), or catalog rent."
+                            + " For SHORT this is ₹/night; stay rent is daily × nights.")
     private BigDecimal rentSnapshot;
 
     @Schema(description = "Security deposit contract snapshot; defaults to 0")

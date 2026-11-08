@@ -98,6 +98,12 @@ public class OccupancyHistoryEntity extends BaseEntity {
     @Column(name = "performed_at", nullable = false)
     private LocalDateTime performedAt;
 
+    @Column(name = "idempotency_key", length = 64)
+    private String idempotencyKey;
+
+    @Column(name = "extension_charge_id")
+    private UUID extensionChargeId;
+
     @Column(columnDefinition = "TEXT")
     private String remarks;
 }

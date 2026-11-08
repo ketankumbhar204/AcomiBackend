@@ -79,6 +79,66 @@ public interface AllocationTargetSearchRepository extends JpaRepository<com.acom
 
     @Query("""
             SELECT new com.acomi.acomi_backend.accommodation.infrastructure.persistence.projection.AllocationTargetSearchRow(
+                com.acomi.acomi_backend.occupancy.domain.model.AllocationTargetType.ROOM,
+                r.id,
+                COALESCE(bf.id, bu.id),
+                COALESCE(bf.name, bu.name),
+                COALESCE(bf.code, bu.code),
+                f.id,
+                f.name,
+                ru.id,
+                ru.name,
+                ru.unitNumber,
+                r.id,
+                r.name,
+                r.roomNumber,
+                NULL,
+                NULL,
+                NULL,
+                r.status,
+                r.defaultRent,
+                r.defaultDeposit
+            )
+            FROM RoomEntity r
+            LEFT JOIN r.floor f
+            LEFT JOIN f.building bf
+            LEFT JOIN r.unit ru
+            LEFT JOIN ru.building bu
+            WHERE r.isActive = true
+              AND (
+                  (f IS NOT NULL AND f.isActive = true AND bf.isActive = true AND bf.space.id = :spaceId)
+                  OR (ru IS NOT NULL AND ru.isActive = true AND bu.isActive = true AND bu.space.id = :spaceId)
+              )
+              AND (:buildingId IS NULL OR COALESCE(bf.id, bu.id) = :buildingId)
+              AND (:floorId IS NULL OR f.id = :floorId)
+              AND (:unitId IS NULL OR ru.id = :unitId)
+              AND (:status IS NULL OR r.status = :status)
+              AND (:selectableOnly = false OR r.status = com.acomi.acomi_backend.accommodation.domain.model.AccommodationStatus.AVAILABLE)
+              AND (
+                  :query IS NULL OR :query = ''
+                  OR LOWER(r.name) LIKE LOWER(CONCAT('%', :query, '%'))
+                  OR LOWER(r.roomNumber) LIKE LOWER(CONCAT('%', :query, '%'))
+                  OR LOWER(f.name) LIKE LOWER(CONCAT('%', :query, '%'))
+                  OR LOWER(CAST(f.floorNumber AS string)) LIKE LOWER(CONCAT('%', :query, '%'))
+                  OR LOWER(ru.name) LIKE LOWER(CONCAT('%', :query, '%'))
+                  OR LOWER(ru.unitNumber) LIKE LOWER(CONCAT('%', :query, '%'))
+                  OR LOWER(COALESCE(bf.name, bu.name)) LIKE LOWER(CONCAT('%', :query, '%'))
+                  OR LOWER(COALESCE(bf.code, bu.code)) LIKE LOWER(CONCAT('%', :query, '%'))
+              )
+            ORDER BY COALESCE(bf.name, bu.name), f.sortOrder, f.floorNumber, ru.unitNumber, r.roomNumber
+            """)
+    Page<AllocationTargetSearchRow> searchRoomTargets(
+            @Param("spaceId") UUID spaceId,
+            @Param("query") String query,
+            @Param("buildingId") UUID buildingId,
+            @Param("floorId") UUID floorId,
+            @Param("unitId") UUID unitId,
+            @Param("status") AccommodationStatus status,
+            @Param("selectableOnly") boolean selectableOnly,
+            Pageable pageable);
+
+    @Query("""
+            SELECT new com.acomi.acomi_backend.accommodation.infrastructure.persistence.projection.AllocationTargetSearchRow(
                 com.acomi.acomi_backend.occupancy.domain.model.AllocationTargetType.UNIT,
                 u.id,
                 b.id,

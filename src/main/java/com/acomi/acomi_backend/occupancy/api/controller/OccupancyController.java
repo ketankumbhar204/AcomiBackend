@@ -5,12 +5,15 @@ import com.acomi.acomi_backend.common.web.ApiResponse;
 import com.acomi.acomi_backend.common.web.PagedResponse;
 import com.acomi.acomi_backend.occupancy.api.dto.request.AllocateOccupancyRequest;
 import com.acomi.acomi_backend.occupancy.api.dto.request.CancelReservationRequest;
+import com.acomi.acomi_backend.occupancy.api.dto.request.ExtendOccupancyRequest;
 import com.acomi.acomi_backend.occupancy.api.dto.request.MoveInOccupancyRequest;
 import com.acomi.acomi_backend.occupancy.api.dto.request.ReserveOccupancyRequest;
 import com.acomi.acomi_backend.occupancy.api.dto.request.TransferOccupancyRequest;
 import com.acomi.acomi_backend.occupancy.api.dto.request.VacateOccupancyRequest;
+import com.acomi.acomi_backend.occupancy.api.dto.response.ExtendOccupancyResponse;
 import com.acomi.acomi_backend.occupancy.api.dto.response.MemberOccupancyListResponse;
 import com.acomi.acomi_backend.occupancy.api.dto.response.OccupancyResponse;
+import com.acomi.acomi_backend.occupancy.api.dto.response.ReservationCancellationPreviewResponse;
 import com.acomi.acomi_backend.occupancy.application.service.OccupancyService;
 import com.acomi.acomi_backend.occupancy.domain.model.AllocationTargetType;
 import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
@@ -62,8 +65,23 @@ public class OccupancyController {
         return ResponseEntity.ok(ApiResponse.success("Move-in completed successfully", response));
     }
 
+    @GetMapping("/occupancies/{occupancyId}/cancellation-settlement")
+    @Operation(
+            summary = "Preview reservation cancellation settlement",
+            description = "Lists reservation payment obligations and allowed cancel/refund/retain actions. OWNER or MANAGER only.")
+    public ResponseEntity<ApiResponse<ReservationCancellationPreviewResponse>> previewReservationCancellation(
+            @PathVariable UUID spaceId, @PathVariable UUID occupancyId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        ReservationCancellationPreviewResponse response =
+                occupancyService.previewReservationCancellation(spaceId, occupancyId, callerId);
+        return ResponseEntity.ok(ApiResponse.success("Cancellation settlement preview", response));
+    }
+
     @PostMapping("/occupancies/{occupancyId}/cancel-reservation")
-    @Operation(summary = "Cancel reservation", description = "Cancels a RESERVED occupancy and releases inventory. OWNER or MANAGER only.")
+    @Operation(
+            summary = "Cancel reservation",
+            description =
+                    "Cancels a RESERVED occupancy, auto-cancels unpaid obligations, requires settlement for collected payments, and releases inventory. OWNER or MANAGER only.")
     public ResponseEntity<ApiResponse<OccupancyResponse>> cancelReservation(
             @PathVariable UUID spaceId,
             @PathVariable UUID occupancyId,
@@ -104,6 +122,17 @@ public class OccupancyController {
         VacateOccupancyRequest body = request != null ? request : new VacateOccupancyRequest();
         OccupancyResponse response = occupancyService.vacate(spaceId, occupancyId, callerId, body);
         return ResponseEntity.ok(ApiResponse.success("Member vacated successfully", response));
+    }
+
+    @PostMapping("/occupancies/{occupancyId}/extend")
+    @Operation(summary = "Extend stay", description = "Moves the planned end of an active stay. OWNER or MANAGER only. Does not create a second deposit.")
+    public ResponseEntity<ApiResponse<ExtendOccupancyResponse>> extend(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID occupancyId,
+            @RequestBody @Valid ExtendOccupancyRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        ExtendOccupancyResponse response = occupancyService.extend(spaceId, occupancyId, callerId, request);
+        return ResponseEntity.ok(ApiResponse.success("Stay extended successfully", response));
     }
 
     @GetMapping("/occupancies/{occupancyId}")

@@ -4,6 +4,7 @@ import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
 import com.acomi.acomi_backend.member.infrastructure.persistence.repository.SpaceMembershipRepository;
 import com.acomi.acomi_backend.notification.application.port.in.PublishNotificationCommand;
+import com.acomi.acomi_backend.notification.application.support.OverdueStayAlertRules;
 import com.acomi.acomi_backend.notification.domain.model.NotificationCategory;
 import com.acomi.acomi_backend.notification.domain.model.NotificationEntityType;
 import com.acomi.acomi_backend.notification.domain.model.NotificationPriority;
@@ -12,6 +13,8 @@ import com.acomi.acomi_backend.notification.infrastructure.persistence.entity.Sp
 import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
+import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -33,25 +36,42 @@ public class OccupancyNotificationSyncService {
     private static final Set<NotificationType> OCCUPANCY_ACTION_TYPES = EnumSet.of(
             NotificationType.MOVE_IN_SCHEDULED_TODAY,
             NotificationType.MOVE_OUT_SCHEDULED_TODAY,
-            NotificationType.RESERVATION_STARTING_TODAY);
+            NotificationType.RESERVATION_STARTING_TODAY,
+            NotificationType.STAY_OVERDUE_ACTIVE);
 
     private final OccupancyRepository occupancyRepository;
+    private final SpaceRepository spaceRepository;
     private final SpaceMembershipRepository membershipRepository;
     private final NotificationService notificationService;
+    private final OverdueStayAlertPublisher overdueStayAlertPublisher;
 
     @Transactional
     public void syncSpace(UUID spaceId) {
-        LocalDate today = LocalDate.now();
+        LocalDate businessDate = spaceRepository.findById(spaceId)
+                .map(space -> OverdueStayAlertRules.businessDate(space, Clock.systemUTC()))
+                .orElse(null);
+        syncSpace(spaceId, businessDate, LocalDate.now());
+    }
+
+    /**
+     * {@code jvmToday} is only the checkout-today clock. {@code businessDate} is only the overdue alert.
+     */
+    @Transactional
+    public void syncSpace(UUID spaceId, LocalDate businessDate, LocalDate jvmToday) {
         List<UUID> managerIds = managerUserIds(spaceId);
         if (managerIds.isEmpty()) {
             return;
         }
 
         List<OccupancyEntity> startingReservations =
-                occupancyRepository.findBySpaceIdAndStatusAndMoveInDate(spaceId, OccupancyStatus.RESERVED, today);
+                occupancyRepository.findBySpaceIdAndStatusAndMoveInDate(spaceId, OccupancyStatus.RESERVED, jvmToday);
         List<OccupancyEntity> moveOutsToday =
                 occupancyRepository.findBySpaceIdAndStatusAndExpectedExitDate(
-                        spaceId, OccupancyStatus.ACTIVE, today);
+                        spaceId, OccupancyStatus.ACTIVE, jvmToday);
+        List<OccupancyEntity> overdueStays = businessDate == null
+                ? List.of()
+                : occupancyRepository.findActiveStaysPastPlannedEnd(
+                        spaceId, OccupancyStatus.ACTIVE, businessDate);
 
         Set<String> expectedKeys = new HashSet<>();
 
@@ -91,18 +111,52 @@ public class OccupancyNotificationSyncService {
             }
         }
 
+        for (OccupancyEntity occupancy : overdueStays) {
+            if (!OverdueStayAlertRules.isOverdue(
+                    occupancy.getStatus(),
+                    occupancy.getVacatedAt(),
+                    occupancy.getExpectedExitDate(),
+                    businessDate)) {
+                continue;
+            }
+            for (UUID managerId : managerIds) {
+                String key = OverdueStayAlertRules.dedupeKey(occupancy.getId(), businessDate, managerId);
+                expectedKeys.add(key);
+                overdueStayAlertPublisher.publishOnce(PublishNotificationCommand.builder()
+                        .spaceId(spaceId)
+                        .userId(managerId)
+                        .entityType(NotificationEntityType.OCCUPANCY)
+                        .entityId(occupancy.getId())
+                        .notificationType(NotificationType.STAY_OVERDUE_ACTIVE)
+                        .category(NotificationCategory.ACTION_REQUIRED)
+                        .priority(NotificationPriority.HIGH)
+                        .title("Stay still active")
+                        .message(memberLabel(occupancy)
+                                + "'s planned end has passed and the stay is still active.")
+                        .actionLabel("View stay")
+                        .actionRoute("DashboardOccupancyList")
+                        .dedupeKey(key)
+                        .build());
+            }
+        }
+
         for (UUID managerId : managerIds) {
             for (SpaceNotificationEntity open : notificationService.listOpenActions(spaceId, managerId)) {
                 if (!OCCUPANCY_ACTION_TYPES.contains(open.getNotificationType())) {
                     continue;
                 }
-                if (!expectedKeys.contains(open.getDedupeKey())) {
-                    notificationService.resolveOpenForEntity(
-                            spaceId,
-                            NotificationEntityType.OCCUPANCY,
-                            open.getEntityId(),
-                            open.getNotificationType());
+                if (expectedKeys.contains(open.getDedupeKey())) {
+                    continue;
                 }
+                if (open.getNotificationType() == NotificationType.STAY_OVERDUE_ACTIVE) {
+                    notificationService.resolveOpenDedupeKey(spaceId, open.getDedupeKey());
+                    continue;
+                }
+                notificationService.resolveOpenForEntity(
+                        spaceId,
+                        NotificationEntityType.OCCUPANCY,
+                        open.getEntityId(),
+                        open.getNotificationType());
             }
         }
     }
@@ -207,6 +261,11 @@ public class OccupancyNotificationSyncService {
                 NotificationEntityType.OCCUPANCY,
                 occupancy.getId(),
                 NotificationType.MOVE_OUT_SCHEDULED_TODAY);
+        notificationService.resolveOpenForEntity(
+                spaceId,
+                NotificationEntityType.OCCUPANCY,
+                occupancy.getId(),
+                NotificationType.STAY_OVERDUE_ACTIVE);
         for (UUID managerId : managerUserIds(spaceId)) {
             notificationService.publish(PublishNotificationCommand.builder()
                     .spaceId(spaceId)

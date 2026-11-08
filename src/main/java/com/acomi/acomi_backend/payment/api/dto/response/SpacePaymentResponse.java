@@ -1,7 +1,9 @@
 package com.acomi.acomi_backend.payment.api.dto.response;
 
+import com.acomi.acomi_backend.occupancy.domain.model.StayKind;
 import com.acomi.acomi_backend.payment.application.support.PaymentDueStatusCalculator;
 import com.acomi.acomi_backend.payment.application.support.PaymentDueStatusCalculator.DueStatus;
+import com.acomi.acomi_backend.payment.domain.model.PaymentFinancialDisposition;
 import com.acomi.acomi_backend.payment.domain.model.PaymentRejectionReason;
 import com.acomi.acomi_backend.payment.domain.model.PaymentSettlementStatus;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory;
@@ -29,6 +31,15 @@ public class SpacePaymentResponse {
     private String memberName;
     private String memberMobile;
     private UUID occupancyId;
+
+    /** Original obligation when this row is an explicit monthly-rent reissue. */
+    private UUID replacesPaymentId;
+    /**
+     * Stay type from the linked occupancy, when present.
+     * Null when the payment has no occupancy link or the occupancy has a legacy null stayKind.
+     * Never inferred from amount/category.
+     */
+    private StayKind stayKind;
     private SpacePaymentType paymentType;
     private SpacePaymentCategory paymentCategory;
     private String title;
@@ -72,6 +83,14 @@ public class SpacePaymentResponse {
     private Boolean isOverdue;
     private Integer daysOverdue;
     private Boolean reminderEligible;
+    /** Completed cash refunds against this obligation. */
+    private BigDecimal refundedAmount;
+    /** Explicitly retained collected amount (not refunded). */
+    private BigDecimal retainedAmount;
+    /** Collected − completed refunds. */
+    private BigDecimal netCollectedAmount;
+    private Boolean partiallyRefunded;
+    private PaymentFinancialDisposition financialDisposition;
 
     public static SpacePaymentResponse from(SpacePaymentEntity entity) {
         LocalDate today = entity.getSpace() != null
@@ -98,6 +117,18 @@ public class SpacePaymentResponse {
             LocalDate businessDate,
             String resolvedProofUrl) {
         DueStatus due = PaymentDueStatusCalculator.calculate(entity, businessDate);
+        BigDecimal refunded = entity.getRefundedAmount() != null
+                ? entity.getRefundedAmount()
+                : BigDecimal.ZERO;
+        BigDecimal retained = entity.getRetainedAmount() != null
+                ? entity.getRetainedAmount()
+                : BigDecimal.ZERO;
+        BigDecimal collected = due.getPaidAmount() != null ? due.getPaidAmount() : BigDecimal.ZERO;
+        BigDecimal netCollected = collected.subtract(refunded).max(BigDecimal.ZERO);
+        boolean partiallyRefunded = refunded.signum() > 0
+                && entity.getPaymentStatus() != SpacePaymentStatus.REFUNDED
+                && entity.getPaymentStatus() != SpacePaymentStatus.CANCELLED;
+        PaymentFinancialDisposition disposition = resolveDisposition(entity, refunded, retained);
         return SpacePaymentResponse.builder()
                 .paymentId(entity.getId())
                 .spaceId(entity.getSpace().getId())
@@ -105,6 +136,10 @@ public class SpacePaymentResponse {
                 .memberName(entity.getMember().getFullName())
                 .memberMobile(entity.getMember().getMobileNumber())
                 .occupancyId(entity.getOccupancy() != null ? entity.getOccupancy().getId() : null)
+                .replacesPaymentId(entity.getRelatedPayment() != null
+                        ? entity.getRelatedPayment().getId()
+                        : null)
+                .stayKind(entity.getOccupancy() != null ? entity.getOccupancy().getStayKind() : null)
                 .paymentType(entity.getPaymentType())
                 .paymentCategory(entity.getPaymentCategory())
                 .title(entity.getTitle())
@@ -147,7 +182,39 @@ public class SpacePaymentResponse {
                 .isOverdue(due.isOverdue())
                 .daysOverdue(due.getDaysOverdue())
                 .reminderEligible(due.isReminderEligible())
+                .refundedAmount(refunded)
+                .retainedAmount(retained)
+                .netCollectedAmount(netCollected)
+                .partiallyRefunded(partiallyRefunded)
+                .financialDisposition(disposition)
                 .build();
+    }
+
+    private static PaymentFinancialDisposition resolveDisposition(
+            SpacePaymentEntity entity, BigDecimal refunded, BigDecimal retained) {
+        if (entity.getPaymentStatus() == SpacePaymentStatus.CANCELLED) {
+            return PaymentFinancialDisposition.CANCELLED_UNPAID;
+        }
+        if (entity.getPaymentStatus() == SpacePaymentStatus.REFUNDED) {
+            return PaymentFinancialDisposition.FULLY_REFUNDED;
+        }
+        if (entity.getPaymentStatus() != SpacePaymentStatus.PAID) {
+            return PaymentFinancialDisposition.OPEN;
+        }
+        BigDecimal amount = entity.getAmount() != null ? entity.getAmount() : BigDecimal.ZERO;
+        if (refunded.signum() <= 0 && retained.signum() <= 0) {
+            return PaymentFinancialDisposition.COLLECTED_UNSETTLED;
+        }
+        if (refunded.compareTo(amount) >= 0) {
+            return PaymentFinancialDisposition.FULLY_REFUNDED;
+        }
+        if (retained.compareTo(amount) >= 0) {
+            return PaymentFinancialDisposition.FULLY_RETAINED;
+        }
+        if (refunded.signum() > 0) {
+            return PaymentFinancialDisposition.PARTIALLY_REFUNDED;
+        }
+        return PaymentFinancialDisposition.FULLY_RETAINED;
     }
 
     public static SpacePaymentResponse from(
@@ -164,9 +231,11 @@ public class SpacePaymentResponse {
                 .memberName(memberName)
                 .memberMobile(memberMobile)
                 .occupancyId(occupancyId)
+                .stayKind(stayKind)
                 .paymentType(paymentType)
                 .paymentCategory(paymentCategory)
                 .title(title)
+                .description(description)
                 .amount(amount)
                 .currencyCode(currencyCode)
                 .dueDate(dueDate)
@@ -205,6 +274,11 @@ public class SpacePaymentResponse {
                 .isOverdue(isOverdue)
                 .daysOverdue(daysOverdue)
                 .reminderEligible(reminderEligible)
+                .refundedAmount(refundedAmount)
+                .retainedAmount(retainedAmount)
+                .netCollectedAmount(netCollectedAmount)
+                .partiallyRefunded(partiallyRefunded)
+                .financialDisposition(financialDisposition)
                 .build();
     }
 }

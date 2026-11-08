@@ -83,7 +83,8 @@ class InquiryPaymentConfigServiceTest {
         request.setAndroidFreeDailyLimit(8);
         request.setAndroidHourlyRateLimit(15);
 
-        InquiryPaymentConfigResponse response = service.adminUpdate(request, adminId);
+        service.adminUpdate(request, adminId);
+        InquiryPaymentConfigResponse response = service.adminGet(adminId);
 
         assertThat(config.getWebFreeDailyLimit()).isEqualTo(2);
         assertThat(config.getViewHereDailyLimit()).isZero();
@@ -96,9 +97,9 @@ class InquiryPaymentConfigServiceTest {
         assertThat(config.getUpiId()).isEqualTo("shop@upi");
         assertThat(config.getQrFileId()).isNotNull();
         assertThat(response.getViewHereDailyLimit()).isZero();
-        assertThat(response.isWebViewHereEnabled()).isFalse();
+        assertThat(response.getWebViewHereEnabled()).isFalse();
         assertThat(response.getAndroidViewHereDailyLimit()).isEqualTo(9);
-        assertThat(response.isAndroidViewHereEnabled()).isTrue();
+        assertThat(response.getAndroidViewHereEnabled()).isTrue();
         assertThat(response.getWebFreeDailyLimit()).isEqualTo(2);
         assertThat(response.getConfigId()).isEqualTo(config.getId());
     }

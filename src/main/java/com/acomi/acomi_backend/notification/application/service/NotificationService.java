@@ -184,6 +184,23 @@ public class NotificationService {
         notificationRepository.saveAll(open);
     }
 
+    @Transactional
+    public void resolveOpenDedupeKey(UUID spaceId, String dedupeKey) {
+        if (spaceId == null || dedupeKey == null || dedupeKey.isBlank()) {
+            return;
+        }
+        notificationRepository.findBySpaceIdAndDedupeKeyAndStatusIn(spaceId, dedupeKey, OPEN_STATUSES)
+                .ifPresent(notification -> {
+                    LocalDateTime now = LocalDateTime.now();
+                    notification.setStatus(NotificationStatus.RESOLVED);
+                    notification.setResolvedAt(now);
+                    if (notification.getReadAt() == null) {
+                        notification.setReadAt(now);
+                    }
+                    notificationRepository.save(notification);
+                });
+    }
+
     /** Resolve open notifications for an entity, limited to specific recipients (e.g. managers only). */
     @Transactional
     public void resolveOpenForEntityUsers(

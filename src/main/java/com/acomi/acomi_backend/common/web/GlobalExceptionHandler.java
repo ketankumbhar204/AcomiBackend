@@ -1,8 +1,6 @@
 package com.acomi.acomi_backend.common.web;
 
 import com.acomi.acomi_backend.common.exception.AlreadyDeliveredException;
-import com.acomi.acomi_backend.servicecontact.api.dto.ServiceContactDuplicateResponse;
-import com.acomi.acomi_backend.servicecontact.application.ServiceContactDuplicateException;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.RateLimitedException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
@@ -89,20 +87,6 @@ public class GlobalExceptionHandler {
                         .message(ex.getMessage())
                         .errorCode(ex.getErrorCode())
                         .data(Map.of("retryAfterSeconds", ex.getRetryAfterSeconds()))
-                        .timestamp(LocalDateTime.now())
-                        .build());
-    }
-
-    @ExceptionHandler(ServiceContactDuplicateException.class)
-    public ResponseEntity<ApiResponse<ServiceContactDuplicateResponse>> handleServiceContactDuplicate(
-            ServiceContactDuplicateException ex) {
-        log.info("Duplicate service contact: {}", ex.getMessage());
-        return ResponseEntity.status(ex.getStatus())
-                .body(ApiResponse.<ServiceContactDuplicateResponse>builder()
-                        .success(false)
-                        .message(ex.getMessage())
-                        .errorCode(ex.getErrorCode())
-                        .data(ex.getPayload())
                         .timestamp(LocalDateTime.now())
                         .build());
     }

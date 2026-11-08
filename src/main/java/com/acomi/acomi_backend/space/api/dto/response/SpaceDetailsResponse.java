@@ -37,6 +37,9 @@ public class SpaceDetailsResponse {
     @Schema(description = "When true, food is mandatory and included in rent (no separate food charge line)")
     private boolean foodIncludedInRent;
 
+    @Schema(description = "When true, the owner can create a short stay in this space")
+    private boolean shortStayEnabled;
+
     @Schema(description = "Who the listing is for", implementation = GenderPolicy.class)
     private GenderPolicy genderPolicy;
 
@@ -75,6 +78,7 @@ public class SpaceDetailsResponse {
                 .contactNumber(space.getContactNumber())
                 .ownerId(space.getOwnerId())
                 .foodIncludedInRent(space.isFoodIncludedInRent())
+                .shortStayEnabled(space.isShortStayEnabled())
                 .genderPolicy(space.getGenderPolicy())
                 .defaultFoodCharge(space.getDefaultFoodCharge())
                 .mealBillingType(space.getMealBillingType())

@@ -14,6 +14,7 @@ import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.Occup
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.repository.OccupancyRepository;
 import com.acomi.acomi_backend.payment.api.dto.request.CreateSpacePaymentRequest;
 import com.acomi.acomi_backend.payment.api.dto.request.MarkPaymentReceivedRequest;
+import com.acomi.acomi_backend.payment.api.dto.request.ReissueMonthlyRentRequest;
 import com.acomi.acomi_backend.payment.api.dto.request.ReviewSpacePaymentRequest;
 import com.acomi.acomi_backend.payment.api.dto.request.SubmitSpacePaymentProofRequest;
 import com.acomi.acomi_backend.payment.api.dto.response.PaymentTimelineEventResponse;
@@ -456,6 +457,101 @@ public class SpacePaymentService {
                 payment, PaymentTimelineEventType.CREATED, "Created manually by owner/manager", callerId);
         refreshSnapshotQuietly(payment, callerId);
         return toResponse(payment);
+    }
+
+    /**
+     * Creates a new pending monthly rent row linked to a cancelled or fully refunded one.
+     * The original row and its settlement history are not changed. The scheduler does not
+     * call this method.
+     */
+    @Transactional
+    public SpacePaymentResponse reissueMonthlyRent(
+            UUID spaceId, UUID paymentId, UUID callerId, ReissueMonthlyRentRequest request) {
+        accessService.requireManagePayments(spaceId, callerId);
+        if (request == null || request.getReason() == null || request.getReason().isBlank()) {
+            throw new BusinessException("A reason is required to reissue monthly rent", HttpStatus.BAD_REQUEST);
+        }
+        String reason = request.getReason().trim();
+        if (reason.length() > 500) {
+            throw new BusinessException("Reason is too long", HttpStatus.BAD_REQUEST);
+        }
+        SpacePaymentEntity original = loadPayment(spaceId, paymentId);
+        if (original.getPaymentType() != SpacePaymentType.RENT
+                || original.getPaymentCategory() != SpacePaymentCategory.MONTHLY) {
+            throw new BusinessException(
+                    "Only a monthly rent obligation can be reissued", HttpStatus.BAD_REQUEST);
+        }
+        if (original.getPaymentStatus() != SpacePaymentStatus.CANCELLED
+                && original.getPaymentStatus() != SpacePaymentStatus.REFUNDED) {
+            throw new BusinessException(
+                    "REISSUE_NOT_CLOSED",
+                    "Reissue applies only to a cancelled or fully refunded monthly rent row",
+                    HttpStatus.CONFLICT);
+        }
+        List<SpacePaymentEntity> period = paymentRepository
+                .findAllBySpaceIdAndMemberIdAndMonthAndPaymentTypeAndPaymentCategory(
+                        spaceId,
+                        original.getMember().getId(),
+                        original.getMonth(),
+                        SpacePaymentType.RENT,
+                        SpacePaymentCategory.MONTHLY);
+        boolean openExists = period.stream()
+                .anyMatch(row -> row.getPaymentStatus() != SpacePaymentStatus.CANCELLED
+                        && row.getPaymentStatus() != SpacePaymentStatus.REFUNDED);
+        if (openExists) {
+            throw new BusinessException(
+                    "MONTHLY_RENT_ALREADY_OPEN",
+                    "An open monthly rent row already exists for this period",
+                    HttpStatus.CONFLICT);
+        }
+        boolean replacementOpen = paymentRepository.findByRelatedPayment_Id(original.getId()).stream()
+                .anyMatch(row -> row.getPaymentType() == SpacePaymentType.RENT
+                        && row.getPaymentCategory() == SpacePaymentCategory.MONTHLY
+                        && row.getPaymentStatus() != SpacePaymentStatus.CANCELLED
+                        && row.getPaymentStatus() != SpacePaymentStatus.REFUNDED);
+        if (replacementOpen) {
+            throw new BusinessException(
+                    "MONTHLY_RENT_ALREADY_REISSUED",
+                    "This monthly rent row already has an open replacement",
+                    HttpStatus.CONFLICT);
+        }
+
+        SpacePaymentEntity replacement = SpacePaymentEntity.builder()
+                .space(original.getSpace())
+                .member(original.getMember())
+                .occupancy(original.getOccupancy())
+                .paymentType(SpacePaymentType.RENT)
+                .paymentCategory(SpacePaymentCategory.MONTHLY)
+                .title(original.getTitle())
+                .description("Reissue of payment " + original.getId())
+                .amount(original.getAmount())
+                .currencyCode(original.getCurrencyCode() != null ? original.getCurrencyCode() : "INR")
+                .dueDate(original.getDueDate())
+                .month(original.getMonth())
+                .paymentStatus(SpacePaymentStatus.PENDING)
+                .targetLabel(original.getTargetLabel())
+                .relatedPayment(original)
+                .remarks("Reissued monthly rent. Reason: " + reason)
+                .billingPeriodStart(original.getBillingPeriodStart())
+                .billingPeriodEnd(original.getBillingPeriodEnd())
+                .billableDays(original.getBillableDays())
+                .daysInMonth(original.getDaysInMonth())
+                .prorated(original.isProrated())
+                .configuredMonthlyAmount(original.getConfiguredMonthlyAmount())
+                .taxEnabled(original.isTaxEnabled())
+                .taxRatePercent(original.getTaxRatePercent())
+                .priceTaxMode(original.getPriceTaxMode())
+                .baseAmount(original.getBaseAmount())
+                .taxAmount(original.getTaxAmount())
+                .build();
+        replacement = paymentRepository.save(replacement);
+        timelineService.record(
+                replacement,
+                PaymentTimelineEventType.CREATED,
+                "Reissued from " + original.getId() + " by " + callerId + ". Reason: " + reason,
+                callerId);
+        refreshSnapshotQuietly(replacement, callerId);
+        return SpacePaymentResponse.from(replacement);
     }
 
     private void validateManualPaymentType(SpacePaymentType type, SpacePaymentCategory category) {

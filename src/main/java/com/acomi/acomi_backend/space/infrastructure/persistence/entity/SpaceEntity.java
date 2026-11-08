@@ -92,6 +92,10 @@ public class SpaceEntity extends BaseEntity implements BusinessReferenced {
     private boolean foodIncludedInRent = false;
 
     @Builder.Default
+    @Column(name = "short_stay_enabled", nullable = false)
+    private boolean shortStayEnabled = false;
+
+    @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "meal_billing_type", nullable = false, length = 20)
     private MealBillingType mealBillingType = MealBillingType.PAY_PER_MEAL;

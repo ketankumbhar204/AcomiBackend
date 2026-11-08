@@ -16,6 +16,8 @@ public enum NotificationType {
     PAYMENT_REJECTED,
     PAYMENT_UPDATE_REQUESTED,
     PAYMENT_REMINDER_SENT,
+    /** Informational. Sent to the customer after a monthly rent row is created. Not an overdue reminder. */
+    PAYMENT_GENERATED,
 
     // Meals — actionable
     MEAL_POLL_NOT_PUBLISHED,
@@ -37,6 +39,11 @@ public enum NotificationType {
     RESERVATION_STARTING_TODAY,
     MOVE_IN_SCHEDULED_TODAY,
     MOVE_OUT_SCHEDULED_TODAY,
+    /**
+     * Active stay whose planned end is before the space business date.
+     * Distinct from {@link #MOVE_OUT_SCHEDULED_TODAY}. Does not vacate the stay.
+     */
+    STAY_OVERDUE_ACTIVE,
     VACANT_RESERVED_BED,
     EXPIRED_RESERVATION,
 

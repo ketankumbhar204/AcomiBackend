@@ -58,6 +58,8 @@ public class PaymentsQueryService {
     public static final String QUEUE_PENDING_REVIEW = "PENDING_REVIEW";
     public static final String QUEUE_PAID = "PAID";
     public static final String QUEUE_REJECTED = "REJECTED";
+    public static final String QUEUE_REFUNDED = "REFUNDED";
+    public static final String QUEUE_CANCELLED = "CANCELLED";
     public static final String QUEUE_HISTORY = "HISTORY";
 
     private final DashboardAccessService dashboardAccessService;
@@ -182,16 +184,27 @@ public class PaymentsQueryService {
         boolean hideMeals = space != null && !MealPricingPolicy.usesSeparateMealBilling(space);
         SpacePaymentType excludeType = hideMeals ? SpacePaymentType.MEAL : null;
 
-        Page<SpacePaymentEntity> entityPage = paymentRepository.searchPaged(
-                spaceId,
-                month.toString(),
-                null,
-                statusesEmpty ? EnumSet.noneOf(SpacePaymentStatus.class) : statuses,
-                statusesEmpty,
-                null,
-                excludeType,
-                null,
-                pageable);
+        Page<SpacePaymentEntity> entityPage;
+        if (QUEUE_REFUNDED.equals(resolvedQueue)) {
+            // Includes full refunds, partial refunds (PAID + refundedAmount > 0), and REFUND rows.
+            entityPage = paymentRepository.searchRefundRelatedPaged(
+                    spaceId, month.toString(), excludeType, pageable);
+        } else if (QUEUE_PAID.equals(resolvedQueue)) {
+            // Exclude partially refunded originals from the Paid chip.
+            entityPage = paymentRepository.searchPurePaidPaged(
+                    spaceId, month.toString(), excludeType, pageable);
+        } else {
+            entityPage = paymentRepository.searchPaged(
+                    spaceId,
+                    month.toString(),
+                    null,
+                    statusesEmpty ? EnumSet.noneOf(SpacePaymentStatus.class) : statuses,
+                    statusesEmpty,
+                    null,
+                    excludeType,
+                    null,
+                    pageable);
+        }
 
         List<UUID> ids = entityPage.getContent().stream().map(SpacePaymentEntity::getId).toList();
         Map<UUID, SpacePaymentEntity> byId = ids.isEmpty()
@@ -224,7 +237,23 @@ public class PaymentsQueryService {
         for (Object[] row : paymentRepository.countGroupedByStatus(spaceId, month)) {
             byStatus.put((SpacePaymentStatus) row[0], (Long) row[1]);
         }
-        return PaymentMonthCountsSupport.fromStatusMap(byStatus, pendingMembers);
+        OwnerPaymentsMonthCountsResponse base =
+                PaymentMonthCountsSupport.fromStatusMap(byStatus, pendingMembers);
+        int paid = (int) paymentRepository.countPurePaid(spaceId, month);
+        int refunded = (int) paymentRepository.countRefundRelated(spaceId, month);
+        int rejected = base.getRejected();
+        int cancelled = base.getCancelled();
+        return OwnerPaymentsMonthCountsResponse.builder()
+                .pendingReview(base.getPendingReview())
+                .submitted(base.getSubmitted())
+                .changesRequested(base.getChangesRequested())
+                .paid(paid)
+                .rejected(rejected)
+                .refunded(refunded)
+                .cancelled(cancelled)
+                .history(paid + rejected + refunded + cancelled)
+                .pendingMembers(pendingMembers)
+                .build();
     }
 
     private static Set<SpacePaymentStatus> statusesForQueue(String queue) {
@@ -238,9 +267,15 @@ public class PaymentsQueryService {
                     SpacePaymentStatus.UPDATE_REQUESTED);
             case QUEUE_PAID -> EnumSet.of(SpacePaymentStatus.PAID);
             case QUEUE_REJECTED -> EnumSet.of(SpacePaymentStatus.REJECTED);
-            case QUEUE_HISTORY -> EnumSet.of(SpacePaymentStatus.PAID, SpacePaymentStatus.REJECTED);
+            case QUEUE_REFUNDED -> EnumSet.of(SpacePaymentStatus.REFUNDED);
+            case QUEUE_CANCELLED -> EnumSet.of(SpacePaymentStatus.CANCELLED);
+            case QUEUE_HISTORY -> EnumSet.of(
+                    SpacePaymentStatus.PAID,
+                    SpacePaymentStatus.REJECTED,
+                    SpacePaymentStatus.REFUNDED,
+                    SpacePaymentStatus.CANCELLED);
             default -> throw new BusinessException(
-                    "Invalid queue. Use SUBMITTED, NEEDS_UPDATE, PENDING_REVIEW, PAID, REJECTED, HISTORY",
+                    "Invalid queue. Use SUBMITTED, NEEDS_UPDATE, PENDING_REVIEW, PAID, REJECTED, REFUNDED, CANCELLED, HISTORY",
                     HttpStatus.BAD_REQUEST);
         };
     }

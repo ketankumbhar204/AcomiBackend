@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.occupancy.application.service;
 
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.occupancy.api.dto.request.OccupancyChargeLineRequest;
+import com.acomi.acomi_backend.occupancy.domain.model.StayKind;
 import com.acomi.acomi_backend.occupancy.domain.model.TransferRentPolicy;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyChargeSnapshotEntity;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
@@ -31,7 +32,7 @@ public class OccupancyContractSnapshotService {
             OccupancyTargetService.ResolvedTarget target,
             SpaceEntity space,
             LocalDateTime lockedAt) {
-        ResolvedContractSnapshot snapshot = resolveActivationSnapshot(input, target, space);
+        ResolvedContractSnapshot snapshot = resolveActivationSnapshot(occupancy, input, target, space);
         persistSnapshot(occupancy, snapshot, lockedAt);
     }
 
@@ -45,7 +46,7 @@ public class OccupancyContractSnapshotService {
             LocalDateTime lockedAt) {
         TransferRentPolicy policy = rentPolicy != null ? rentPolicy : TransferRentPolicy.APPLY_NEW;
         ResolvedContractSnapshot snapshot =
-                resolveTransferSnapshot(input, policy, previousOccupancy, newTarget, space);
+                resolveTransferSnapshot(input, policy, previousOccupancy, newOccupancy, newTarget, space);
         persistSnapshot(newOccupancy, snapshot, lockedAt);
     }
 
@@ -54,8 +55,14 @@ public class OccupancyContractSnapshotService {
     }
 
     private ResolvedContractSnapshot resolveActivationSnapshot(
-            ContractSnapshotInput input, OccupancyTargetService.ResolvedTarget target, SpaceEntity space) {
+            OccupancyEntity occupancy,
+            ContractSnapshotInput input,
+            OccupancyTargetService.ResolvedTarget target,
+            SpaceEntity space) {
         OccupancyPricingCatalogService.CatalogDefaults catalog = pricingCatalogService.resolve(target);
+        if (occupancy.getStayKind() == StayKind.SHORT) {
+            return resolveShortSnapshot(occupancy, input, space, catalog.getDefaultDeposit());
+        }
         BigDecimal rent = firstNonNull(input.getRentSnapshot(), catalog.getDefaultRent());
         if (rent == null) {
             throw new BusinessException("RENT_SNAPSHOT_REQUIRED", "Rent is required when activating occupancy");
@@ -68,9 +75,46 @@ public class OccupancyContractSnapshotService {
             ContractSnapshotInput input,
             TransferRentPolicy policy,
             OccupancyEntity previous,
+            OccupancyEntity destination,
             OccupancyTargetService.ResolvedTarget newTarget,
             SpaceEntity space) {
         OccupancyPricingCatalogService.CatalogDefaults catalog = pricingCatalogService.resolve(newTarget);
+        // Destination stay kind drives pricing. Legacy transfers that omit stayKind copy the source
+        // kind onto destination before this runs, so null here still means "same as previous".
+        StayKind destKind = destination.getStayKind() != null ? destination.getStayKind() : previous.getStayKind();
+        if (destKind == StayKind.SHORT) {
+            BigDecimal agreed =
+                    destination.getAgreedTotal() != null ? destination.getAgreedTotal() : previous.getAgreedTotal();
+            // Daily rate only from request, destination SHORT snapshot, or prior SHORT daily —
+            // never from a MONTHLY catalog rent_snapshot on the source occupancy.
+            BigDecimal daily = input.getRentSnapshot();
+            if (daily == null) {
+                daily = destination.getRentSnapshot();
+            }
+            if (daily == null && previous.getStayKind() == StayKind.SHORT) {
+                daily = previous.getRentSnapshot();
+            }
+            if ((agreed == null || agreed.signum() <= 0) && (daily == null || daily.signum() <= 0)) {
+                throw new BusinessException("AGREED_TOTAL_REQUIRED", "Agreed total is required for a short stay");
+            }
+            BigDecimal deposit = switch (policy) {
+                case KEEP -> previous.getDepositSnapshot() != null ? previous.getDepositSnapshot() : BigDecimal.ZERO;
+                case APPLY_NEW, CUSTOM -> firstNonNull(
+                        input.getDepositSnapshot(), catalog.getDefaultDeposit(), BigDecimal.ZERO);
+            };
+            if (policy == TransferRentPolicy.KEEP && input.getFoodEnabled() == null) {
+                return ResolvedContractSnapshot.builder()
+                        .rentSnapshot(daily)
+                        .depositSnapshot(deposit)
+                        .foodEnabled(previous.isFoodEnabled())
+                        .foodChargeSnapshot(previous.getFoodChargeSnapshot())
+                        .foodIncludedInRent(previous.isFoodIncludedInRent())
+                        .otherCharges(copyChargeLines(previous))
+                        .build();
+            }
+            // rentSnapshot on SHORT is daily rate (₹/night), not monthly catalog rent.
+            return resolveFoodAndCharges(input, space, daily, deposit);
+        }
 
         BigDecimal rent = switch (policy) {
             case KEEP -> previous.getRentSnapshot();
@@ -106,6 +150,18 @@ public class OccupancyContractSnapshotService {
         }
 
         return resolveFoodAndCharges(input, space, rent, deposit);
+    }
+
+    private ResolvedContractSnapshot resolveShortSnapshot(
+            OccupancyEntity occupancy, ContractSnapshotInput input, SpaceEntity space, BigDecimal defaultDeposit) {
+        if (occupancy.getAgreedTotal() == null || occupancy.getAgreedTotal().signum() <= 0) {
+            throw new BusinessException("AGREED_TOTAL_REQUIRED", "Agreed total is required for a short stay");
+        }
+        BigDecimal deposit = firstNonNull(input.getDepositSnapshot(), defaultDeposit, BigDecimal.ZERO);
+        // Prefer request daily rate; else keep occupancy daily rate from applyStayChoice.
+        BigDecimal daily =
+                input.getRentSnapshot() != null ? input.getRentSnapshot() : occupancy.getRentSnapshot();
+        return resolveFoodAndCharges(input, space, daily, deposit);
     }
 
     private ResolvedContractSnapshot resolveFoodAndCharges(
@@ -172,7 +228,14 @@ public class OccupancyContractSnapshotService {
     }
 
     private void persistSnapshot(OccupancyEntity occupancy, ResolvedContractSnapshot snapshot, LocalDateTime lockedAt) {
-        validateAmount(snapshot.getRentSnapshot(), "Rent");
+        if (occupancy.getStayKind() == StayKind.SHORT) {
+            // rentSnapshot is the daily rate (₹/night); optional for legacy fixed-total rows.
+            if (snapshot.getRentSnapshot() != null) {
+                validateAmount(snapshot.getRentSnapshot(), "Daily rent");
+            }
+        } else {
+            validateAmount(snapshot.getRentSnapshot(), "Rent");
+        }
         validateAmount(snapshot.getDepositSnapshot(), "Deposit");
         if (snapshot.isFoodEnabled() && !snapshot.isFoodIncludedInRent()) {
             validateAmount(snapshot.getFoodChargeSnapshot(), "Food charge");

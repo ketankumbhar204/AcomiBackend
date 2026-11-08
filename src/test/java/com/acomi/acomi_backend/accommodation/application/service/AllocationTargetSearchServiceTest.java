@@ -148,6 +148,55 @@ class AllocationTargetSearchServiceTest {
         assertThat(response.getContent().get(0).getDisplayPath()).isEqualTo("Block A · Flat 101");
     }
 
+    @Test
+    void searchAllocationTargets_returnsRoomsWhenRequestedForCoLiving() {
+        SpaceEntity space = SpaceEntity.builder().name("Co").type(SpaceType.CO_LIVING).isActive(true).build();
+        space.setId(spaceId);
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        AccommodationAccessTestSupport.stubMembership(
+                spaceMembershipRepository, callerId, spaceId, space, MembershipRole.MANAGER);
+
+        UUID roomId = UUID.randomUUID();
+        UUID unitId = UUID.randomUUID();
+        AllocationTargetSearchRow row = new AllocationTargetSearchRow(
+                AllocationTargetType.ROOM,
+                roomId,
+                UUID.randomUUID(),
+                "Block A",
+                "A",
+                null,
+                null,
+                unitId,
+                "Flat 1",
+                "1",
+                roomId,
+                "Room CL1",
+                "CL1",
+                null,
+                null,
+                null,
+                AccommodationStatus.AVAILABLE,
+                new BigDecimal("9000"),
+                new BigDecimal("3000"));
+        Pageable pageable = PageRequest.of(0, 20);
+        when(searchRepository.searchRoomTargets(
+                        eq(spaceId), eq("CL1"), eq(null), eq(null), eq(null), eq(null), eq(true), eq(pageable)))
+                .thenReturn(new PageImpl<>(List.of(row), pageable, 1));
+
+        PagedResponse<AllocationTargetSearchResponse> response = searchService.searchAllocationTargets(
+                spaceId, callerId, "CL1", AllocationTargetType.ROOM, null, null, null, null, true, pageable);
+
+        verify(searchRepository)
+                .searchRoomTargets(eq(spaceId), eq("CL1"), eq(null), eq(null), eq(null), eq(null), eq(true), eq(pageable));
+        assertThat(response.getContent()).hasSize(1);
+        AllocationTargetSearchResponse item = response.getContent().get(0);
+        assertThat(item.getTargetType()).isEqualTo(AllocationTargetType.ROOM);
+        assertThat(item.getRoomId()).isEqualTo(roomId);
+        assertThat(item.getDisplayPath()).isEqualTo("Block A · Flat 1 · Room CL1");
+        assertThat(item.getDisplayPathShort()).doesNotContain("null");
+        assertThat(item.isSelectable()).isTrue();
+    }
+
     private void stubPgSpaceAccess() {
         SpaceEntity space = SpaceEntity.builder().name("PG").type(SpaceType.PG).isActive(true).build();
         space.setId(spaceId);

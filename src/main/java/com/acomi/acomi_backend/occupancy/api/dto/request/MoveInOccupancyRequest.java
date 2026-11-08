@@ -1,5 +1,6 @@
 package com.acomi.acomi_backend.occupancy.api.dto.request;
 
+import com.acomi.acomi_backend.occupancy.domain.model.StayKind;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
@@ -17,6 +18,12 @@ public class MoveInOccupancyRequest {
 
     private LocalDate moveInDate;
     private LocalDate expectedExitDate;
+
+    @Schema(description = "MONTHLY, SHORT, or OPEN_ENDED. Omitted keeps the kind stored on the reservation.")
+    private StayKind stayKind;
+
+    @Schema(description = "Owner-entered short-stay total. Required for SHORT. Not a nightly rate.")
+    private BigDecimal agreedTotal;
 
     @Schema(description = "Allow move-in before scheduled moveInDate")
     private boolean allowEarlyMoveIn;

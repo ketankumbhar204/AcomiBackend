@@ -299,15 +299,17 @@ public class MemberMasterService {
     }
 
     /**
-     * Lodging move-in cannot reuse someone who already has a bed. Import into another
-     * space still lists that person; it copies membership and leaves the source stay.
+     * Lodging move-in cannot reuse someone who already has a bed (ALLOCATED/RESERVED).
+     * Same-space vacated / never-occupied TENANTs stay eligible — that is the normal
+     * "Select Existing Resident" path. Cross-space candidates with a busy stay stay
+     * listed for membership import, but availableForMoveIn is false until they vacate.
      */
     private static MemberImportCandidateResponse toImportCandidate(
             MemberEntity member, UUID targetSpaceId, boolean blockBusyMoveIn) {
         boolean alreadyInTarget = member.getSpace().getId().equals(targetSpaceId);
         boolean busy = member.getOccupancyStatus() == MemberOccupancyStatus.ALLOCATED
                 || member.getOccupancyStatus() == MemberOccupancyStatus.RESERVED;
-        boolean availableForMoveIn = !alreadyInTarget && !(blockBusyMoveIn && busy);
+        boolean availableForMoveIn = !(blockBusyMoveIn && busy);
         return MemberImportCandidateResponse.from(member, targetSpaceId, availableForMoveIn);
     }
 

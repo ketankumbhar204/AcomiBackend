@@ -4,6 +4,7 @@ import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.common.exception.ResourceNotFoundException;
 import com.acomi.acomi_backend.meal.api.dto.request.CreateFoodCategoryRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.CreateFoodItemRequest;
+import com.acomi.acomi_backend.meal.api.dto.request.UpdateFoodCategoryRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.UpdateFoodItemDefaultPriceRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.UpdateFoodItemExtraRequest;
 import com.acomi.acomi_backend.meal.api.dto.request.UpdateFoodItemRequest;
@@ -84,6 +85,37 @@ public class FoodCatalogService {
                 .isActive(true)
                 .build());
         return FoodCategoryResponse.from(category, 0);
+    }
+
+    @Transactional
+    public FoodCategoryResponse updateCategory(
+            UUID spaceId, UUID categoryId, UUID callerId, UpdateFoodCategoryRequest request) {
+        mealAccessService.requireManageMeals(spaceId, callerId);
+        SpaceEntity space = loadSpace(spaceId);
+        FoodCategoryEntity category = foodCategoryRepository
+                .findById(categoryId)
+                .orElseThrow(() -> new ResourceNotFoundException("FoodCategory", "id", categoryId));
+        if (!category.isActive()) {
+            throw new ResourceNotFoundException("FoodCategory", "id", categoryId);
+        }
+        if (category.getScope() != FoodScope.SPACE) {
+            throw new BusinessException("Only custom categories can be renamed", HttpStatus.FORBIDDEN);
+        }
+        MenuLibraryOwnership.requireSameLibrary(
+                space,
+                category.getOwner(),
+                category.getSpace(),
+                "Category does not belong to this space");
+        category.setName(request.getName().trim());
+        FoodCategoryEntity saved = foodCategoryRepository.save(category);
+        long itemCount = foodItemRepository
+                .countVisibleItemsGroupedByCategory(spaceId, MenuLibraryOwnership.ownerId(space))
+                .stream()
+                .filter(row -> categoryId.equals(row.getCategoryId()))
+                .map(FoodItemRepository.CategoryItemCount::getItemCount)
+                .findFirst()
+                .orElse(0L);
+        return FoodCategoryResponse.from(saved, itemCount);
     }
 
     @Transactional(readOnly = true)

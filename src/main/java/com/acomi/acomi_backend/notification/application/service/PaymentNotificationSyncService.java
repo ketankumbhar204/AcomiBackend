@@ -210,7 +210,9 @@ public class PaymentNotificationSyncService {
                     .category(NotificationCategory.INFORMATION)
                     .priority(NotificationPriority.LOW)
                     .title(resubmit ? "Payment updated" : "Payment submitted")
-                    .message(payment.getTitle() + " is waiting for owner review")
+                    .message(payment.getTitle() + " · ₹"
+                            + payment.getAmount().toPlainString()
+                            + " is waiting for owner review")
                     .actionRoute("PaymentDetail")
                     .dedupeKey("INFO:" + NotificationType.PAYMENT_SUBMITTED + ":" + payment.getId() + ":"
                             + tenantUserId)
@@ -261,7 +263,9 @@ public class PaymentNotificationSyncService {
                     .category(NotificationCategory.SUCCESS)
                     .priority(NotificationPriority.MEDIUM)
                     .title("Payment recorded")
-                    .message("Your payment was recorded.")
+                    .message(payment.getTitle() + " · ₹"
+                            + payment.getAmount().toPlainString()
+                            + " was recorded.")
                     .dedupeKey("INFO:" + NotificationType.PAYMENT_APPROVED + ":" + payment.getId() + ":"
                             + tenantUserId)
                     .build());

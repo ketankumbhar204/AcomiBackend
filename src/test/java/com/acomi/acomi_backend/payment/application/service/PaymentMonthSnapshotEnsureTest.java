@@ -14,6 +14,7 @@ import com.acomi.acomi_backend.dashboard.application.support.PayPerMealBillingCa
 import com.acomi.acomi_backend.dashboard.application.support.SpacePaymentLedgerSupport;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.occupancy.domain.model.OccupancyStatus;
+import com.acomi.acomi_backend.occupancy.domain.model.StayKind;
 import com.acomi.acomi_backend.occupancy.infrastructure.persistence.entity.OccupancyEntity;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentType;
@@ -205,6 +206,40 @@ class PaymentMonthSnapshotEnsureTest {
         when(summaryRepository.existsBySpaceIdAndMonth(spaceId, "2026-09")).thenReturn(true);
         when(summaryRepository.findBySpaceIdAndMonth(spaceId, "2026-09")).thenReturn(Optional.of(summary));
         when(paymentRepository.findBySpaceIdAndMonth(spaceId, "2026-09")).thenReturn(List.of(rent));
+        when(spacePaymentLedgerSupport.sumUnderReviewAmount(any())).thenReturn(BigDecimal.ZERO);
+        when(occupancyRepository.findBillableBySpaceIdForMonth(eq(spaceId), any(), any(), any()))
+                .thenReturn(List.of(occupancy));
+
+        service.ensureMonth(spaceId, callerId, month);
+
+        verify(paymentGenerationService, never()).syncExpectedPayments(any(), any(), any());
+        verify(spaceBillingService, never()).buildLedger(any(), any(), any());
+    }
+
+    @Test
+    void ensureMonth_doesNotHealMonthlyRentForAShortStay() {
+        YearMonth month = YearMonth.of(2026, 11);
+        SpacePaymentMonthSummaryEntity summary = SpacePaymentMonthSummaryEntity.builder()
+                .spaceId(spaceId)
+                .month("2026-11")
+                .expectedCharges(new BigDecimal("5600"))
+                .pending(new BigDecimal("5600"))
+                .build();
+        MemberEntity member = MemberEntity.builder().fullName("Short stay").build();
+        member.setId(UUID.randomUUID());
+        OccupancyEntity occupancy = OccupancyEntity.builder()
+                .status(OccupancyStatus.ACTIVE)
+                .stayKind(StayKind.SHORT)
+                .member(member)
+                .moveInDate(LocalDate.of(2026, 11, 1))
+                .actualMoveInAt(LocalDateTime.of(2026, 11, 1, 10, 0))
+                .rentSnapshot(new BigDecimal("5600"))
+                .agreedTotal(new BigDecimal("5600"))
+                .build();
+
+        when(summaryRepository.existsBySpaceIdAndMonth(spaceId, "2026-11")).thenReturn(true);
+        when(summaryRepository.findBySpaceIdAndMonth(spaceId, "2026-11")).thenReturn(Optional.of(summary));
+        when(paymentRepository.findBySpaceIdAndMonth(spaceId, "2026-11")).thenReturn(List.of());
         when(spacePaymentLedgerSupport.sumUnderReviewAmount(any())).thenReturn(BigDecimal.ZERO);
         when(occupancyRepository.findBillableBySpaceIdForMonth(eq(spaceId), any(), any(), any()))
                 .thenReturn(List.of(occupancy));

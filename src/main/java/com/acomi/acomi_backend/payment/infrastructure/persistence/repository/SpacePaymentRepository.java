@@ -114,6 +114,98 @@ public interface SpacePaymentRepository extends JpaRepository<SpacePaymentEntity
             @Param("paymentCategory") SpacePaymentCategory paymentCategory,
             Pageable pageable);
 
+    /**
+     * Refunded history queue: full REFUNDED, partial (PAID with refundedAmount &gt; 0),
+     * and REFUND child cash-out rows.
+     */
+    @Query(
+            value = """
+                    SELECT p FROM SpacePaymentEntity p
+                    JOIN p.member m
+                    WHERE p.space.id = :spaceId
+                      AND p.month = :month
+                      AND (:excludePaymentType IS NULL OR p.paymentType <> :excludePaymentType)
+                      AND (
+                        p.paymentStatus = com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus.REFUNDED
+                        OR p.paymentCategory = com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory.REFUND
+                        OR (
+                          p.paymentStatus = com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus.PAID
+                          AND COALESCE(p.refundedAmount, 0) > 0
+                        )
+                      )
+                    """,
+            countQuery = """
+                    SELECT COUNT(p) FROM SpacePaymentEntity p
+                    JOIN p.member m
+                    WHERE p.space.id = :spaceId
+                      AND p.month = :month
+                      AND (:excludePaymentType IS NULL OR p.paymentType <> :excludePaymentType)
+                      AND (
+                        p.paymentStatus = com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus.REFUNDED
+                        OR p.paymentCategory = com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory.REFUND
+                        OR (
+                          p.paymentStatus = com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus.PAID
+                          AND COALESCE(p.refundedAmount, 0) > 0
+                        )
+                      )
+                    """)
+    Page<SpacePaymentEntity> searchRefundRelatedPaged(
+            @Param("spaceId") UUID spaceId,
+            @Param("month") String month,
+            @Param("excludePaymentType") SpacePaymentType excludePaymentType,
+            Pageable pageable);
+
+    /** Paid history queue: collected with no refund activity (excludes partial refunds). */
+    @Query(
+            value = """
+                    SELECT p FROM SpacePaymentEntity p
+                    JOIN p.member m
+                    WHERE p.space.id = :spaceId
+                      AND p.month = :month
+                      AND (:excludePaymentType IS NULL OR p.paymentType <> :excludePaymentType)
+                      AND p.paymentStatus = com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus.PAID
+                      AND p.paymentCategory <> com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory.REFUND
+                      AND COALESCE(p.refundedAmount, 0) = 0
+                    """,
+            countQuery = """
+                    SELECT COUNT(p) FROM SpacePaymentEntity p
+                    JOIN p.member m
+                    WHERE p.space.id = :spaceId
+                      AND p.month = :month
+                      AND (:excludePaymentType IS NULL OR p.paymentType <> :excludePaymentType)
+                      AND p.paymentStatus = com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus.PAID
+                      AND p.paymentCategory <> com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory.REFUND
+                      AND COALESCE(p.refundedAmount, 0) = 0
+                    """)
+    Page<SpacePaymentEntity> searchPurePaidPaged(
+            @Param("spaceId") UUID spaceId,
+            @Param("month") String month,
+            @Param("excludePaymentType") SpacePaymentType excludePaymentType,
+            Pageable pageable);
+
+    @Query("""
+            SELECT COUNT(p) FROM SpacePaymentEntity p
+            WHERE p.space.id = :spaceId AND p.month = :month
+              AND (
+                p.paymentStatus = com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus.REFUNDED
+                OR p.paymentCategory = com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory.REFUND
+                OR (
+                  p.paymentStatus = com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus.PAID
+                  AND COALESCE(p.refundedAmount, 0) > 0
+                )
+              )
+            """)
+    long countRefundRelated(@Param("spaceId") UUID spaceId, @Param("month") String month);
+
+    @Query("""
+            SELECT COUNT(p) FROM SpacePaymentEntity p
+            WHERE p.space.id = :spaceId AND p.month = :month
+              AND p.paymentStatus = com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus.PAID
+              AND p.paymentCategory <> com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory.REFUND
+              AND COALESCE(p.refundedAmount, 0) = 0
+            """)
+    long countPurePaid(@Param("spaceId") UUID spaceId, @Param("month") String month);
+
     @Query("""
             SELECT p FROM SpacePaymentEntity p
             JOIN FETCH p.member
@@ -135,12 +227,35 @@ public interface SpacePaymentRepository extends JpaRepository<SpacePaymentEntity
             """)
     List<Object[]> countGroupedByStatus(@Param("spaceId") UUID spaceId, @Param("month") String month);
 
-    Optional<SpacePaymentEntity> findBySpaceIdAndMemberIdAndMonthAndPaymentTypeAndPaymentCategory(
+    List<SpacePaymentEntity> findAllBySpaceIdAndMemberIdAndMonthAndPaymentTypeAndPaymentCategory(
             UUID spaceId,
             UUID memberId,
             String month,
             SpacePaymentType paymentType,
             SpacePaymentCategory paymentCategory);
+
+    /**
+     * One generated period can contain a closed row and a later reissue. Prefer the open
+     * obligation. A cancelled or refunded row is returned only when nothing open remains,
+     * so automatic billing can refuse to recreate it.
+     */
+    default Optional<SpacePaymentEntity> findBySpaceIdAndMemberIdAndMonthAndPaymentTypeAndPaymentCategory(
+            UUID spaceId,
+            UUID memberId,
+            String month,
+            SpacePaymentType paymentType,
+            SpacePaymentCategory paymentCategory) {
+        List<SpacePaymentEntity> rows = findAllBySpaceIdAndMemberIdAndMonthAndPaymentTypeAndPaymentCategory(
+                spaceId, memberId, month, paymentType, paymentCategory);
+        if (rows == null || rows.isEmpty()) {
+            return Optional.empty();
+        }
+        Optional<SpacePaymentEntity> open = rows.stream()
+                .filter(row -> row.getPaymentStatus() != SpacePaymentStatus.CANCELLED
+                        && row.getPaymentStatus() != SpacePaymentStatus.REFUNDED)
+                .findFirst();
+        return open.isPresent() ? open : Optional.of(rows.get(0));
+    }
 
     Optional<SpacePaymentEntity>
             findBySpaceIdAndMemberIdAndMonthAndPaymentTypeAndPaymentCategoryAndDueDate(
@@ -241,4 +356,53 @@ public interface SpacePaymentRepository extends JpaRepository<SpacePaymentEntity
             """)
     List<SpacePaymentEntity> findDepositLedgerRows(
             @Param("spaceId") UUID spaceId, @Param("memberId") UUID memberId);
+
+    Optional<SpacePaymentEntity>
+            findByOccupancy_IdAndPaymentTypeAndPaymentCategoryAndBillingPeriodStartAndBillingPeriodEnd(
+                    UUID occupancyId,
+                    SpacePaymentType paymentType,
+                    SpacePaymentCategory paymentCategory,
+                    java.time.LocalDate billingPeriodStart,
+                    java.time.LocalDate billingPeriodEnd);
+
+    List<SpacePaymentEntity> findByOccupancy_Id(UUID occupancyId);
+
+    List<SpacePaymentEntity> findByRelatedPayment_Id(UUID relatedPaymentId);
+
+    /**
+     * OPEN_ENDED daily-rate RENT/MONTHLY rows — used for read-only premature-bill reconciliation.
+     * Does not mutate data.
+     */
+    @Query("""
+            SELECT p FROM SpacePaymentEntity p
+            JOIN FETCH p.member
+            JOIN FETCH p.space
+            JOIN FETCH p.occupancy o
+            WHERE p.paymentType = com.acomi.acomi_backend.payment.domain.model.SpacePaymentType.RENT
+              AND p.paymentCategory = com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory.MONTHLY
+              AND o.stayKind = com.acomi.acomi_backend.occupancy.domain.model.StayKind.OPEN_ENDED
+              AND o.pricingBasis = 'DAILY_RATE'
+            ORDER BY p.createdAt ASC
+            """)
+    List<SpacePaymentEntity> findOpenEndedDailyRateMonthlyRentPayments();
+
+    /**
+     * Automatic rent rows that never received an outbox event. Used only to retry
+     * notification enqueue after a crash between payment insert and outbox insert.
+     */
+    @Query("""
+            SELECT p FROM SpacePaymentEntity p
+            JOIN FETCH p.member m
+            LEFT JOIN FETCH m.user
+            JOIN FETCH p.space
+            WHERE p.remarks = :remarks
+              AND p.paymentType = com.acomi.acomi_backend.payment.domain.model.SpacePaymentType.RENT
+              AND p.paymentCategory = com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory.MONTHLY
+              AND p.paymentStatus = com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus.PENDING
+              AND NOT EXISTS (
+                  SELECT n.id FROM MonthlyBillingNotificationEntity n
+                  WHERE n.paymentId = p.id AND n.eventType = :eventType)
+            """)
+    List<SpacePaymentEntity> findPendingAutomaticRentWithoutNotification(
+            @Param("remarks") String remarks, @Param("eventType") String eventType, Pageable pageable);
 }

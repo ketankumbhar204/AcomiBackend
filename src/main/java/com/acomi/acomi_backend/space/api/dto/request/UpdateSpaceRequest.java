@@ -40,6 +40,9 @@ public class UpdateSpaceRequest {
     @Schema(description = "When true, food is mandatory and bundled in rentSnapshot (no separate food charge)")
     private Boolean foodIncludedInRent;
 
+    @Schema(description = "When true, this space can create a short stay. Omitted values are left unchanged.")
+    private Boolean shortStayEnabled;
+
     @Schema(description = "Who the listing is for. Omitted values are left unchanged.", implementation = GenderPolicy.class)
     private GenderPolicy genderPolicy;
 

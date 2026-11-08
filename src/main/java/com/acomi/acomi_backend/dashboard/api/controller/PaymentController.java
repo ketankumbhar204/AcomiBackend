@@ -5,10 +5,14 @@ import com.acomi.acomi_backend.common.web.ApiResponse;
 import com.acomi.acomi_backend.dashboard.api.dto.response.MemberPaymentLedgerResponse;
 import com.acomi.acomi_backend.dashboard.application.service.DashboardAccessService;
 import com.acomi.acomi_backend.dashboard.application.service.SpaceBillingService;
+import com.acomi.acomi_backend.payment.api.dto.request.CancelSpacePaymentRequest;
 import com.acomi.acomi_backend.payment.api.dto.request.CreateSpacePaymentRequest;
 import com.acomi.acomi_backend.payment.api.dto.request.MarkPaymentReceivedRequest;
+import com.acomi.acomi_backend.payment.api.dto.request.ReissueMonthlyRentRequest;
 import com.acomi.acomi_backend.payment.api.dto.request.ReviewSpacePaymentRequest;
+import com.acomi.acomi_backend.payment.api.dto.request.SettleSpacePaymentRequest;
 import com.acomi.acomi_backend.payment.api.dto.request.SubmitSpacePaymentProofRequest;
+import com.acomi.acomi_backend.payment.api.dto.response.PaymentSettlementResponse;
 import com.acomi.acomi_backend.payment.api.dto.response.OverduePaymentResponse;
 import com.acomi.acomi_backend.payment.api.dto.response.OverduePaymentsPageResponse;
 import com.acomi.acomi_backend.payment.api.dto.response.OwnerPaymentsMonthResponse;
@@ -24,8 +28,10 @@ import com.acomi.acomi_backend.payment.application.service.OverduePaymentService
 import com.acomi.acomi_backend.payment.application.service.OwnerPaymentsMonthService;
 import com.acomi.acomi_backend.payment.application.service.PaymentReminderEligibilityService;
 import com.acomi.acomi_backend.payment.application.service.PaymentReminderService;
+import com.acomi.acomi_backend.payment.application.service.PaymentSettlementService;
 import com.acomi.acomi_backend.payment.application.service.PaymentsQueryService;
 import com.acomi.acomi_backend.payment.application.service.SpacePaymentService;
+import java.util.List;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentCategory;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentStatus;
 import com.acomi.acomi_backend.payment.domain.model.SpacePaymentType;
@@ -55,6 +61,7 @@ public class PaymentController {
     private final DashboardAccessService dashboardAccessService;
     private final SpaceBillingService spaceBillingService;
     private final SpacePaymentService spacePaymentService;
+    private final PaymentSettlementService paymentSettlementService;
     private final OwnerPaymentsMonthService ownerPaymentsMonthService;
     private final PaymentsQueryService paymentsQueryService;
     private final OverduePaymentService overduePaymentService;
@@ -254,6 +261,18 @@ public class PaymentController {
                 paymentReminderService.prepareOwnerReminder(spaceId, paymentId, callerId)));
     }
 
+    @PostMapping("/{paymentId}/reissue")
+    @Operation(summary = "Reissue a cancelled or fully refunded monthly rent obligation")
+    public ResponseEntity<ApiResponse<SpacePaymentResponse>> reissueMonthlyRent(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID paymentId,
+            @RequestBody @Valid ReissueMonthlyRentRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Monthly rent reissued",
+                spacePaymentService.reissueMonthlyRent(spaceId, paymentId, callerId, request)));
+    }
+
     @PostMapping
     @Operation(summary = "Create a manual payment obligation (OWNER/MANAGER)")
     public ResponseEntity<ApiResponse<SpacePaymentResponse>> createPayment(
@@ -324,5 +343,49 @@ public class PaymentController {
         return ResponseEntity.ok(ApiResponse.success(
                 "Payment timeline fetched successfully",
                 spacePaymentService.getTimeline(spaceId, paymentId, callerId)));
+    }
+
+    @PostMapping("/{paymentId}/cancel")
+    @Operation(
+            summary = "Cancel an unpaid payment",
+            description = "OWNER/MANAGER only. Cancels PENDING/under-review/rejected obligations. "
+                    + "Collected (PAID) payments must use /settle instead.")
+    public ResponseEntity<ApiResponse<SpacePaymentResponse>> cancelPayment(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID paymentId,
+            @RequestBody(required = false) @Valid CancelSpacePaymentRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Payment cancelled",
+                paymentSettlementService.cancelUnpaidPayment(
+                        spaceId,
+                        paymentId,
+                        callerId,
+                        request != null ? request : new CancelSpacePaymentRequest())));
+    }
+
+    @PostMapping("/{paymentId}/settle")
+    @Operation(
+            summary = "Settle a collected payment",
+            description = "OWNER/MANAGER only. Full refund, partial refund, and/or retain. "
+                    + "Creates a REFUND payment row for refunded amounts; retains are audited without deleting the original PAID row.")
+    public ResponseEntity<ApiResponse<SpacePaymentResponse>> settlePayment(
+            @PathVariable UUID spaceId,
+            @PathVariable UUID paymentId,
+            @RequestBody @Valid SettleSpacePaymentRequest request) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Payment settled",
+                paymentSettlementService.settleCollectedPayment(spaceId, paymentId, callerId, request)));
+    }
+
+    @GetMapping("/{paymentId}/settlements")
+    @Operation(summary = "List settlement history for a payment")
+    public ResponseEntity<ApiResponse<List<PaymentSettlementResponse>>> listSettlements(
+            @PathVariable UUID spaceId, @PathVariable UUID paymentId) {
+        UUID callerId = SecurityUtils.getCurrentUserId();
+        return ResponseEntity.ok(ApiResponse.success(
+                "Payment settlements fetched",
+                paymentSettlementService.listSettlements(spaceId, paymentId, callerId)));
     }
 }

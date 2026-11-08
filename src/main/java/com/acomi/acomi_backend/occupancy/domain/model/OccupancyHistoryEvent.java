@@ -6,5 +6,6 @@ public enum OccupancyHistoryEvent {
     VACATED,
     RESERVED,
     MOVE_IN,
-    RESERVATION_CANCELLED
+    RESERVATION_CANCELLED,
+    EXTENDED
 }

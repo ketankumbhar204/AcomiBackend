@@ -168,6 +168,10 @@ public class PaymentMonthSnapshotService {
             if (!OccupancyBillingCalculator.isBillableInMonth(occupancy, month)) {
                 continue;
             }
+            // OPEN_ENDED daily-rate: missing RENT in an open month is intentional — do not heal.
+            if (!OccupancyBillingCalculator.shouldGeneratePayableRent(occupancy, month)) {
+                continue;
+            }
             BigDecimal rent = occupancy.getRentSnapshot();
             if (rent == null || rent.signum() <= 0 || occupancy.getMember() == null) {
                 continue;
@@ -286,9 +290,12 @@ public class PaymentMonthSnapshotService {
         BigDecimal expected = entity.getExpectedCharges();
         BigDecimal collected = entity.getCollected();
         BigDecimal underReview = entity.getUnderReview();
-        // Always recompute residual so stale snapshot pending cannot disagree with under-review KPIs.
-        BigDecimal pending = computePendingAmount(expected, collected, underReview);
-        MemberPaymentStatus status = reconcileStatus(expected, collected, underReview, entity.getStatus());
+        // Trust pending persisted by SpaceBillingService rebuild (unpaid-obligation SoT).
+        // Do not recompute residual expected − collected − underReview here — that reopens
+        // Pending after refunds when the underlying obligation remains valid.
+        BigDecimal pending = entity.getPending();
+        MemberPaymentStatus status =
+                reconcileStatus(expected, collected, underReview, pending, entity.getStatus());
         return MemberPaymentLedgerRowResponse.builder()
                 .memberId(entity.getMemberId())
                 .memberName(entity.getMemberName())
@@ -311,14 +318,14 @@ public class PaymentMonthSnapshotService {
             BigDecimal expected,
             BigDecimal collected,
             BigDecimal underReview,
+            BigDecimal pending,
             MemberPaymentStatus stored) {
         if (stored == MemberPaymentStatus.UPDATE_REQUESTED
                 || stored == MemberPaymentStatus.REJECTED) {
             return stored;
         }
-        BigDecimal pending = computePendingAmount(expected, collected, underReview);
-        boolean monetaryResidual = pending != null && pending.compareTo(java.math.BigDecimal.ZERO) > 0;
-        if (monetaryResidual) {
+        boolean monetaryPending = pending != null && pending.compareTo(java.math.BigDecimal.ZERO) > 0;
+        if (monetaryPending) {
             boolean hasCollected = collected != null && collected.compareTo(java.math.BigDecimal.ZERO) > 0;
             boolean hasUnderReview =
                     underReview != null && underReview.compareTo(java.math.BigDecimal.ZERO) > 0;
@@ -341,27 +348,11 @@ public class PaymentMonthSnapshotService {
                     ? MemberPaymentStatus.PAID
                     : MemberPaymentStatus.NONE;
         }
-        if (collected == null || collected.compareTo(java.math.BigDecimal.ZERO) <= 0) {
-            return MemberPaymentStatus.PENDING;
-        }
-        if (collected.compareTo(expected) >= 0) {
+        if (collected != null && collected.compareTo(java.math.BigDecimal.ZERO) > 0) {
+            // Settled after refund/retain even when net collected < expected.
             return MemberPaymentStatus.PAID;
         }
-        return MemberPaymentStatus.PARTIAL;
-    }
-
-    private static java.math.BigDecimal computePendingAmount(
-            java.math.BigDecimal expected,
-            java.math.BigDecimal collected,
-            java.math.BigDecimal underReview) {
-        if (expected == null) {
-            return null;
-        }
-        java.math.BigDecimal collectedAmount =
-                collected != null ? collected : java.math.BigDecimal.ZERO;
-        java.math.BigDecimal underReviewAmount =
-                underReview != null ? underReview : java.math.BigDecimal.ZERO;
-        return expected.subtract(collectedAmount).subtract(underReviewAmount).max(java.math.BigDecimal.ZERO);
+        return MemberPaymentStatus.PENDING;
     }
 
     public static DashboardFinancialSummaryResponse toFinancial(SpacePaymentMonthSummaryEntity entity) {
