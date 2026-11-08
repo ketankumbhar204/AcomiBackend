@@ -58,6 +58,36 @@ class MealOccupancyPolicyTest {
     }
 
     @Test
+    void allowsMealEnrollment_trueForReservedTenantBeforeMoveIn() {
+        when(occupancyRepository.findActiveBySpaceIdAndMemberId(spaceId, memberId))
+                .thenReturn(Optional.empty());
+        when(occupancyRepository.findReservedBySpaceIdAndMemberId(spaceId, memberId))
+                .thenReturn(Optional.of(OccupancyEntity.builder()
+                        .space(pgSpace)
+                        .status(OccupancyStatus.RESERVED)
+                        .moveInDate(LocalDate.now().plusDays(3))
+                        .build()));
+
+        assertThat(policy.allowsMealEnrollment(pgSpace, memberId, LocalDate.now())).isTrue();
+    }
+
+    @Test
+    void allowsMealEnrollment_falseWhenTenantHasNoStay() {
+        when(occupancyRepository.findActiveBySpaceIdAndMemberId(spaceId, memberId))
+                .thenReturn(Optional.empty());
+        when(occupancyRepository.findReservedBySpaceIdAndMemberId(spaceId, memberId))
+                .thenReturn(Optional.empty());
+
+        assertThat(policy.allowsMealEnrollment(pgSpace, memberId, LocalDate.now())).isFalse();
+    }
+
+    @Test
+    void allowsMealEnrollment_trueForMessWithoutOccupancy() {
+        SpaceEntity messSpace = SpaceEntity.builder().type(SpaceType.MESS).build();
+        assertThat(policy.allowsMealEnrollment(messSpace, memberId, LocalDate.now())).isTrue();
+    }
+
+    @Test
     void hasOccupancyOnDate_falseWhenPgTenantHasNoActiveOccupancy() {
         when(occupancyRepository.findActiveBySpaceIdAndMemberId(spaceId, memberId))
                 .thenReturn(Optional.empty());

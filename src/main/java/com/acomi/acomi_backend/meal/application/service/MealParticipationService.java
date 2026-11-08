@@ -247,11 +247,7 @@ public class MealParticipationService {
     }
 
     private void assertOccupancyForEnrollment(SpaceEntity space, MemberEntity member, LocalDate effectiveFrom) {
-        if (!occupancyPolicy.requiresActiveOccupancy(space.getType())) {
-            return;
-        }
-        LocalDate targetDate = effectiveFrom != null ? effectiveFrom : LocalDate.now();
-        if (!occupancyPolicy.hasOccupancyOnDate(space, member.getId(), targetDate)) {
+        if (!occupancyPolicy.allowsMealEnrollment(space, member.getId(), effectiveFrom)) {
             throw new BusinessException(
                     "Move in the tenant to a bed before enabling meals",
                     HttpStatus.BAD_REQUEST);

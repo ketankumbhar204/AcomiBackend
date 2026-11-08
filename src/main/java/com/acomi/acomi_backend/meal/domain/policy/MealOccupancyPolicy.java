@@ -61,6 +61,23 @@ public class MealOccupancyPolicy {
                 .orElse(false);
     }
 
+    /**
+     * Food can be turned on for a moved-in stay, or for a current reservation before move-in.
+     * Daily meal eligibility still requires an active occupancy on that date.
+     */
+    public boolean allowsMealEnrollment(SpaceEntity space, UUID memberId, LocalDate effectiveFrom) {
+        if (!requiresActiveOccupancy(space.getType())) {
+            return true;
+        }
+        LocalDate targetDate = effectiveFrom != null ? effectiveFrom : LocalDate.now();
+        if (hasOccupancyOnDate(space, memberId, targetDate)) {
+            return true;
+        }
+        return occupancyRepository
+                .findReservedBySpaceIdAndMemberId(space.getId(), memberId)
+                .isPresent();
+    }
+
     public boolean hasOccupancyOnDate(
             SpaceEntity space, UUID memberId, LocalDate date, Set<UUID> preloadedOccupiedMemberIds) {
         if (!requiresActiveOccupancy(space.getType())) {
