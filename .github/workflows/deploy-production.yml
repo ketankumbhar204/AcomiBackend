@@ -1,0 +1,60 @@
+name: Deploy backend
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type deploy to replace the production container
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/aws-production' && github.event.inputs.confirm == 'deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::118588069159:role/acomi-github-backend-deploy
+          aws-region: ap-south-1
+
+      - name: Build and push an immutable image
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_SHA::12}"
+          registry="118588069159.dkr.ecr.ap-south-1.amazonaws.com"
+          image="${registry}/acomi-backend:${tag}"
+          if aws ecr describe-images --repository-name acomi-backend --image-ids "imageTag=${tag}" >/dev/null 2>&1; then
+            echo "Image ${tag} already exists"
+          else
+            aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin "$registry"
+            docker build --platform linux/amd64 -t "$image" .
+            docker push "$image"
+          fi
+          echo "IMAGE_TAG=${tag}" >> "$GITHUB_ENV"
+
+      - name: Deploy on EC2 and wait for health
+        run: |
+          set -euo pipefail
+          command_id="$(aws ssm send-command \
+            --instance-ids i-0c0a259cad76fd191 \
+            --document-name AWS-RunShellScript \
+            --timeout-seconds 600 \
+            --parameters commands="/usr/local/sbin/acomi-deploy-backend.sh ${IMAGE_TAG}" \
+            --query Command.CommandId --output text)"
+          for _ in $(seq 1 40); do
+            status="$(aws ssm get-command-invocation --command-id "$command_id" --instance-id i-0c0a259cad76fd191 --query Status --output text 2>/dev/null || true)"
+            case "$status" in
+              Success) exit 0 ;;
+              Failed|Cancelled|TimedOut) exit 1 ;;
+            esac
+            sleep 15
+          done
+          exit 1
