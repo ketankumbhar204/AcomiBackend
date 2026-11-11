@@ -375,12 +375,20 @@ public class SpaceDiscoverService {
     private static PriceBasis listedPriceBasis(
             SpaceEntity space, PropertyRegistrationEntity property, MessRegistrationEntity mess) {
         if (property != null) {
-            return property.getPriceBasis() != null
-                    ? property.getPriceBasis()
-                    : PriceBasis.forPropertyType(space.getType());
+            if (property.getPriceBasis() != null) {
+                return property.getPriceBasis();
+            }
+            // Corporate Stay has no type default; omit rather than failing the whole page.
+            if (space.getType() == SpaceType.CORPORATE_STAY) {
+                return null;
+            }
+            return PriceBasis.forPropertyType(space.getType());
         }
         if (mess != null) {
             return mess.getMonthlyPriceBasis() != null ? mess.getMonthlyPriceBasis() : PriceBasis.PER_UNIT;
+        }
+        if (space.getType() == SpaceType.CORPORATE_STAY) {
+            return null;
         }
         return PriceBasis.forPropertyType(space.getType());
     }
