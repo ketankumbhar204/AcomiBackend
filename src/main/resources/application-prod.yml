@@ -66,6 +66,13 @@ springdoc:
   swagger-ui:
     enabled: ${SWAGGER_ENABLED:false}
 
+management:
+  health:
+    # SMTP is configured but sending stays off until ACOMI_MAIL_ENABLED=true.
+    # An empty password otherwise makes /actuator/health return 503 and the deploy rolls back.
+    mail:
+      enabled: ${ACOMI_MAIL_ENABLED:false}
+
 logging:
   level:
     root: info
