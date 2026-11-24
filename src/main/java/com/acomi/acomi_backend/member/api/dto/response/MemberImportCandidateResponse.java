@@ -34,7 +34,7 @@ public class MemberImportCandidateResponse {
     @Schema(description = "True when this member already exists in the target space")
     private boolean alreadyInTargetSpace;
 
-    @Schema(description = "True when the resident has no ACTIVE/RESERVED occupancy across managed lodging spaces")
+    @Schema(description = "False only when this person already has an active or reserved stay in the destination space")
     private boolean availableForMoveIn;
 
     public static MemberImportCandidateResponse from(

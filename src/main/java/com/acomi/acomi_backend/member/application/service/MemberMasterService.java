@@ -59,6 +59,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -242,8 +243,10 @@ public class MemberMasterService {
 
     /**
      * Search reusable members for the target space.
-     * Lodging targets: active and vacated TENANTs across managed accommodation spaces.
-     * An allocated stay stays listed; move-in eligibility is separate from import.
+     * Lodging targets: TENANTs across managed accommodation spaces and CUSTOMERs from
+     * managed Mess spaces. Selecting a Mess customer creates a new TENANT association
+     * and leaves the Mess CUSTOMER row unchanged.
+     * An allocated stay in another space stays selectable; only a destination stay blocks.
      * Mess targets: CUSTOMERs from managed Mess spaces and TENANTs from managed lodging
      * (PG→Mess reuse). Concurrent Mess memberships are allowed.
      */
@@ -266,7 +269,7 @@ public class MemberMasterService {
         assertAccommodationSpace(targetSpace);
 
         List<UUID> managedSpaceIds = spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
-                callerId, OWNER_OR_MANAGER, ACCOMMODATION_SPACE_TYPES);
+                callerId, OWNER_OR_MANAGER, MESS_IMPORT_SOURCE_TYPES);
         if (managedSpaceIds.isEmpty() || !managedSpaceIds.contains(targetSpaceId)) {
             return List.of();
         }
@@ -275,9 +278,10 @@ public class MemberMasterService {
         List<MemberEntity> candidates = memberRepository.searchImportCandidates(
                 targetSpaceId, managedSpaceIds, normalizedSearch, mobileSearchDigits(normalizedSearch));
 
-        return candidates.stream()
-                .map(member -> toImportCandidate(member, targetSpaceId, true))
-                .toList();
+        return dedupeImportCandidates(
+                candidates.stream()
+                        .map(member -> toImportCandidate(member, targetSpaceId, true))
+                        .toList());
     }
 
     private List<MemberImportCandidateResponse> searchMessImportCandidates(
@@ -293,29 +297,61 @@ public class MemberMasterService {
         List<MemberEntity> candidates = memberRepository.searchMessImportCandidates(
                 targetSpaceId, managedSpaceIds, normalizedSearch, mobileSearchDigits(normalizedSearch));
 
-        return candidates.stream()
-                .map(member -> toImportCandidate(member, targetSpaceId, false))
-                .toList();
+        return dedupeImportCandidates(
+                candidates.stream()
+                        .map(member -> toImportCandidate(member, targetSpaceId, false))
+                        .toList());
     }
 
     /**
-     * Lodging move-in cannot reuse someone who already has a bed (ALLOCATED/RESERVED).
-     * Same-space vacated / never-occupied TENANTs stay eligible — that is the normal
-     * "Select Existing Resident" path. Cross-space candidates with a busy stay stay
-     * listed for membership import, but availableForMoveIn is false until they vacate.
+     * Lodging move-in is blocked only when the same person already has an active or reserved
+     * stay in the destination space. An active stay in another managed property is allowed
+     * and keeps its own occupancy and financial records.
      */
-    private static MemberImportCandidateResponse toImportCandidate(
-            MemberEntity member, UUID targetSpaceId, boolean blockBusyMoveIn) {
-        boolean alreadyInTarget = member.getSpace().getId().equals(targetSpaceId);
-        boolean busy = member.getOccupancyStatus() == MemberOccupancyStatus.ALLOCATED
-                || member.getOccupancyStatus() == MemberOccupancyStatus.RESERVED;
-        boolean availableForMoveIn = !(blockBusyMoveIn && busy);
-        return MemberImportCandidateResponse.from(member, targetSpaceId, availableForMoveIn);
+    private MemberImportCandidateResponse toImportCandidate(
+            MemberEntity member, UUID targetSpaceId, boolean blockDestinationStay) {
+        boolean destinationConflict = false;
+        if (blockDestinationStay) {
+            destinationConflict = memberRepository.existsBusyOccupancyForMobileInSpace(
+                    member.getMobileNumber(), targetSpaceId);
+            if (!destinationConflict && member.getUser() != null && member.getUser().getId() != null) {
+                destinationConflict = memberRepository.existsBusyOccupancyForUserInSpace(
+                        member.getUser().getId(), targetSpaceId);
+            }
+        }
+        return MemberImportCandidateResponse.from(member, targetSpaceId, !destinationConflict);
+    }
+
+    /**
+     * One row per mobile: prefer move-in-eligible, then already-in-target, then stable order.
+     */
+    private static List<MemberImportCandidateResponse> dedupeImportCandidates(
+            List<MemberImportCandidateResponse> candidates) {
+        Map<String, MemberImportCandidateResponse> byMobile = new LinkedHashMap<>();
+        for (MemberImportCandidateResponse candidate : candidates) {
+            String mobile = candidate.getMobileNumber() == null ? "" : candidate.getMobileNumber();
+            MemberImportCandidateResponse existing = byMobile.get(mobile);
+            if (existing == null || preferImportCandidate(candidate, existing)) {
+                byMobile.put(mobile, candidate);
+            }
+        }
+        return List.copyOf(byMobile.values());
+    }
+
+    private static boolean preferImportCandidate(
+            MemberImportCandidateResponse candidate, MemberImportCandidateResponse existing) {
+        if (candidate.isAvailableForMoveIn() != existing.isAvailableForMoveIn()) {
+            return candidate.isAvailableForMoveIn();
+        }
+        if (candidate.isAlreadyInTargetSpace() != existing.isAlreadyInTargetSpace()) {
+            return candidate.isAlreadyInTargetSpace();
+        }
+        return false;
     }
 
     /**
      * Copies an eligible member into the target space.
-     * Lodging: TENANT only. Copies membership and leaves the source stay in place.
+     * Lodging: creates TENANT from a lodging TENANT or a Mess CUSTOMER. The source role is not changed.
      * Mess: creates CUSTOMER from Mess CUSTOMER or lodging TENANT; allows concurrent Mess memberships.
      * Does not copy occupancy, deposits, or meal participation. Copies profile basics,
      * emergency contact, and document metadata when present.
@@ -345,11 +381,10 @@ public class MemberMasterService {
 
         UUID sourceSpaceId = source.getSpace().getId();
         assertOwnerOrManager(sourceSpaceId, callerId);
-        assertAccommodationSpace(source.getSpace());
-        assertImportableSourceMember(source);
+        assertLodgingImportableSourceMember(source);
 
         List<UUID> managedSpaceIds = spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
-                callerId, OWNER_OR_MANAGER, ACCOMMODATION_SPACE_TYPES);
+                callerId, OWNER_OR_MANAGER, MESS_IMPORT_SOURCE_TYPES);
         if (!managedSpaceIds.contains(targetSpaceId) || !managedSpaceIds.contains(sourceSpaceId)) {
             throw new BusinessException(
                     "You do not manage both the source and target spaces", HttpStatus.FORBIDDEN);
@@ -473,6 +508,13 @@ public class MemberMasterService {
 
     private MealBillingType mealBillingForImport(SpaceEntity targetSpace, MemberEntity source) {
         if (!mealAccessService.isMealsApplicableForSpace(targetSpace)) {
+            return null;
+        }
+        // Mess meal settings stay on the CUSTOMER association. A new TENANT starts clean.
+        if (source.getSpace() != null && source.getSpace().getType() == SpaceType.MESS) {
+            return null;
+        }
+        if (source.getRole() == MembershipRole.CUSTOMER) {
             return null;
         }
         return source.getMealBillingType();
@@ -985,12 +1027,23 @@ public class MemberMasterService {
         }
     }
 
-    private void assertImportableSourceMember(MemberEntity source) {
-        if (source.getRole() != MembershipRole.TENANT) {
-            throw new BusinessException("Only TENANT residents can be imported for accommodation Move In");
-        }
+    /**
+     * Accommodation Move In accepts a lodging TENANT or a Mess CUSTOMER.
+     * The new destination row is always TENANT; this does not rewrite the source role.
+     */
+    private void assertLodgingImportableSourceMember(MemberEntity source) {
         if (!IMPORTABLE_MEMBER_STATUSES.contains(source.getStatus())) {
             throw new BusinessException("This resident is blocked or suspended and cannot be imported");
+        }
+        SpaceType sourceType = source.getSpace() != null ? source.getSpace().getType() : null;
+        MembershipRole role = source.getRole();
+        boolean messCustomer = sourceType == SpaceType.MESS && role == MembershipRole.CUSTOMER;
+        boolean lodgingTenant = sourceType != null
+                && ACCOMMODATION_SPACE_TYPES.contains(sourceType)
+                && role == MembershipRole.TENANT;
+        if (!messCustomer && !lodgingTenant) {
+            throw new BusinessException(
+                    "Only Mess customers or accommodation residents can be moved into accommodation");
         }
     }
 

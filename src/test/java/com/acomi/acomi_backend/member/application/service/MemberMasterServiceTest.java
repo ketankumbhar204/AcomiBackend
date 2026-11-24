@@ -69,6 +69,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -838,6 +840,8 @@ class MemberMasterServiceTest {
         when(memberRepository.searchImportCandidates(
                 eq(spaceId), eq(List.of(spaceId, sourceSpaceId)), eq(null), eq(null)))
                 .thenReturn(List.of(sourceMember));
+        when(memberRepository.existsBusyOccupancyForMobileInSpace(eq("9123456789"), eq(spaceId)))
+                .thenReturn(false);
 
         List<MemberImportCandidateResponse> result =
                 memberMasterService.searchImportCandidates(spaceId, ownerId, null);
@@ -847,6 +851,120 @@ class MemberMasterServiceTest {
         assertThat(result.get(0).getSourceSpaceName()).isEqualTo("PG B");
         assertThat(result.get(0).isAvailableForMoveIn()).isTrue();
         assertThat(result.get(0).isAlreadyInTargetSpace()).isFalse();
+    }
+
+    @Test
+    void searchImportCandidates_allowsActiveStayInAnotherSpace() {
+        UUID sourceSpaceId = UUID.randomUUID();
+        SpaceEntity sourceSpace = SpaceEntity.builder()
+                .owner(owner)
+                .name("Hostel A")
+                .type(SpaceType.HOSTEL)
+                .isActive(true)
+                .build();
+        sourceSpace.setId(sourceSpaceId);
+
+        MemberEntity vacatedElsewhere = MemberEntity.builder()
+                .space(sourceSpace)
+                .fullName("Busy Elsewhere")
+                .mobileNumber("9000000999")
+                .role(MembershipRole.TENANT)
+                .isActive(true)
+                .status(MemberStatus.ACTIVE)
+                .occupancyStatus(MemberOccupancyStatus.ALLOCATED)
+                .depositAmount(BigDecimal.ZERO)
+                .depositPaid(BigDecimal.ZERO)
+                .depositRefunded(BigDecimal.ZERO)
+                .build();
+        vacatedElsewhere.setId(UUID.randomUUID());
+        vacatedElsewhere.setCreatedAt(LocalDateTime.now());
+
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, spaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                eq(ownerId),
+                eq(List.of(MembershipRole.OWNER, MembershipRole.MANAGER)),
+                any()))
+                .thenReturn(List.of(spaceId, sourceSpaceId));
+        when(memberRepository.searchImportCandidates(
+                eq(spaceId), eq(List.of(spaceId, sourceSpaceId)), eq(null), eq(null)))
+                .thenReturn(List.of(vacatedElsewhere));
+        when(memberRepository.existsBusyOccupancyForMobileInSpace(eq("9000000999"), eq(spaceId)))
+                .thenReturn(false);
+
+        List<MemberImportCandidateResponse> result =
+                memberMasterService.searchImportCandidates(spaceId, ownerId, null);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).isAvailableForMoveIn()).isTrue();
+        assertThat(result.get(0).getSourceSpaceName()).isEqualTo("Hostel A");
+    }
+
+    @Test
+    void searchImportCandidates_dedupesSameMobilePreferringAvailable() {
+        UUID sourceSpaceId = UUID.randomUUID();
+        SpaceEntity sourceSpace = SpaceEntity.builder()
+                .owner(owner)
+                .name("Hostel A")
+                .type(SpaceType.HOSTEL)
+                .isActive(true)
+                .build();
+        sourceSpace.setId(sourceSpaceId);
+
+        MemberEntity busy = MemberEntity.builder()
+                .space(sourceSpace)
+                .fullName("Same Mobile")
+                .mobileNumber("9000000888")
+                .role(MembershipRole.TENANT)
+                .isActive(true)
+                .status(MemberStatus.ACTIVE)
+                .occupancyStatus(MemberOccupancyStatus.ALLOCATED)
+                .depositAmount(BigDecimal.ZERO)
+                .depositPaid(BigDecimal.ZERO)
+                .depositRefunded(BigDecimal.ZERO)
+                .build();
+        busy.setId(UUID.randomUUID());
+        busy.setCreatedAt(LocalDateTime.now());
+
+        MemberEntity freeHere = MemberEntity.builder()
+                .space(space)
+                .fullName("Same Mobile")
+                .mobileNumber("9000000888")
+                .role(MembershipRole.TENANT)
+                .isActive(true)
+                .status(MemberStatus.ACTIVE)
+                .occupancyStatus(MemberOccupancyStatus.VACATED)
+                .depositAmount(BigDecimal.ZERO)
+                .depositPaid(BigDecimal.ZERO)
+                .depositRefunded(BigDecimal.ZERO)
+                .build();
+        freeHere.setId(UUID.randomUUID());
+        freeHere.setCreatedAt(LocalDateTime.now());
+
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, spaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                eq(ownerId),
+                eq(List.of(MembershipRole.OWNER, MembershipRole.MANAGER)),
+                any()))
+                .thenReturn(List.of(spaceId, sourceSpaceId));
+        when(memberRepository.searchImportCandidates(
+                eq(spaceId), eq(List.of(spaceId, sourceSpaceId)), eq(null), eq(null)))
+                .thenReturn(List.of(busy, freeHere));
+        when(memberRepository.existsBusyOccupancyForMobileInSpace(eq("9000000888"), eq(spaceId)))
+                .thenReturn(false);
+
+        List<MemberImportCandidateResponse> result =
+                memberMasterService.searchImportCandidates(spaceId, ownerId, null);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getMobileNumber()).isEqualTo("9000000888");
+        assertThat(result.get(0).isAlreadyInTargetSpace()).isTrue();
+        assertThat(result.get(0).isAvailableForMoveIn()).isTrue();
     }
 
     @Test
@@ -902,6 +1020,10 @@ class MemberMasterServiceTest {
         when(memberRepository.searchImportCandidates(
                 eq(spaceId), eq(List.of(spaceId, sourceSpaceId)), eq("Rahul Sharma"), eq(null)))
                 .thenReturn(List.of(active, alreadyHere));
+        when(memberRepository.existsBusyOccupancyForMobileInSpace(eq("9123456789"), eq(spaceId)))
+                .thenReturn(false);
+        when(memberRepository.existsBusyOccupancyForMobileInSpace(eq("9000000000"), eq(spaceId)))
+                .thenReturn(true);
 
         List<MemberImportCandidateResponse> result =
                 memberMasterService.searchImportCandidates(spaceId, ownerId, "Rahul Sharma");
@@ -909,7 +1031,7 @@ class MemberMasterServiceTest {
         assertThat(result).extracting(MemberImportCandidateResponse::isAlreadyInTargetSpace)
                 .containsExactly(false, true);
         assertThat(result).extracting(MemberImportCandidateResponse::isAvailableForMoveIn)
-                .containsExactly(false, false);
+                .containsExactly(true, false);
         assertThat(result.get(0).getFullName()).isEqualTo("Rahul Sharma");
     }
 
@@ -942,6 +1064,8 @@ class MemberMasterServiceTest {
         when(memberRepository.searchImportCandidates(
                 eq(spaceId), eq(List.of(spaceId)), eq(null), eq(null)))
                 .thenReturn(List.of(vacatedHere));
+        when(memberRepository.existsBusyOccupancyForMobileInSpace(eq("9876543210"), eq(spaceId)))
+                .thenReturn(false);
 
         List<MemberImportCandidateResponse> result =
                 memberMasterService.searchImportCandidates(spaceId, ownerId, null);
@@ -1238,6 +1362,137 @@ class MemberMasterServiceTest {
 
         assertThat(response.getMemberId()).isEqualTo(existing.getId());
         verify(memberRepository, never()).save(any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = SpaceType.class, names = {"PG", "HOSTEL", "CO_LIVING", "RENTAL"})
+    void importMember_messCustomer_createsTenantAndLeavesCustomerUnchanged(SpaceType destinationType) {
+        space.setType(destinationType);
+        UUID sourceMessId = UUID.randomUUID();
+        UUID sourceMemberId = UUID.randomUUID();
+        SpaceEntity sourceMess = SpaceEntity.builder()
+                .owner(owner)
+                .name("Annapurna Mess")
+                .type(SpaceType.MESS)
+                .isActive(true)
+                .build();
+        sourceMess.setId(sourceMessId);
+
+        MemberEntity sourceMember = MemberEntity.builder()
+                .space(sourceMess)
+                .fullName("Dev Rao")
+                .mobileNumber("9000000504")
+                .role(MembershipRole.CUSTOMER)
+                .gender(MemberGender.MALE)
+                .isActive(true)
+                .status(MemberStatus.ACTIVE)
+                .occupancyStatus(MemberOccupancyStatus.VACATED)
+                .depositAmount(new BigDecimal("3500"))
+                .depositPaid(new BigDecimal("3500"))
+                .depositRefunded(BigDecimal.ZERO)
+                .build();
+        sourceMember.setId(sourceMemberId);
+        sourceMember.setCreatedAt(LocalDateTime.now());
+
+        ImportMemberRequest request = new ImportMemberRequest();
+        request.setSourceMemberId(sourceMemberId);
+
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, spaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, sourceMessId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(memberRepository.findByIdAndIsActiveTrue(sourceMemberId)).thenReturn(Optional.of(sourceMember));
+        when(spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                eq(ownerId),
+                eq(List.of(MembershipRole.OWNER, MembershipRole.MANAGER)),
+                any()))
+                .thenReturn(List.of(spaceId, sourceMessId));
+        when(memberRepository.findActiveBySpaceIdAndMobileNumber(spaceId, "9000000504"))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.empty());
+        when(userRepository.findByMobileNumber("9000000504")).thenReturn(Optional.empty());
+        when(userRepository.findByIdAndIsActiveTrue(ownerId)).thenReturn(Optional.of(owner));
+        when(memberRepository.save(any(MemberEntity.class))).thenAnswer(invocation -> {
+            MemberEntity member = invocation.getArgument(0);
+            if (member.getId() == null) {
+                member.setId(memberId);
+                member.setCreatedAt(LocalDateTime.now());
+            }
+            return member;
+        });
+        when(memberRepository.findByIdAndSpaceIdAndActiveTrue(memberId, spaceId)).thenAnswer(invocation -> {
+            MemberEntity created = activeMember("Dev Rao", "9000000504", MembershipRole.TENANT);
+            return Optional.of(created);
+        });
+        when(memberDocumentRepository.findByMemberIdOrderByUploadedAtDesc(sourceMemberId))
+                .thenReturn(List.of());
+
+        MemberResponse response = memberMasterService.importMember(spaceId, ownerId, request);
+
+        assertThat(response.getRole()).isEqualTo(MembershipRole.TENANT);
+        assertThat(response.getMemberId()).isNotEqualTo(sourceMemberId);
+        assertThat(sourceMember.getRole()).isEqualTo(MembershipRole.CUSTOMER);
+        assertThat(sourceMember.getDepositPaid()).isEqualByComparingTo("3500");
+        verify(memberRepository).save(org.mockito.ArgumentMatchers.argThat(saved ->
+                saved.getRole() == MembershipRole.TENANT
+                        && saved.getDepositPaid().compareTo(BigDecimal.ZERO) == 0
+                        && saved.getSpace() == space));
+        verify(mealParticipationService, never()).findActiveSummaryForMember(any(), any());
+        verify(invitationProvisioner)
+                .ensurePendingInvitation(eq(space), eq(owner), eq("9000000504"), eq(MembershipRole.TENANT));
+    }
+
+    @Test
+    void searchImportCandidates_lodgingTarget_includesMessCustomer() {
+        UUID messId = UUID.randomUUID();
+        SpaceEntity mess = SpaceEntity.builder()
+                .owner(owner)
+                .name("Annapurna Mess")
+                .type(SpaceType.MESS)
+                .isActive(true)
+                .build();
+        mess.setId(messId);
+        MemberEntity customer = MemberEntity.builder()
+                .space(mess)
+                .fullName("Dev Rao")
+                .mobileNumber("9000000504")
+                .role(MembershipRole.CUSTOMER)
+                .isActive(true)
+                .status(MemberStatus.ACTIVE)
+                .occupancyStatus(MemberOccupancyStatus.VACATED)
+                .depositAmount(BigDecimal.ZERO)
+                .depositPaid(BigDecimal.ZERO)
+                .depositRefunded(BigDecimal.ZERO)
+                .build();
+        customer.setId(UUID.randomUUID());
+        customer.setCreatedAt(LocalDateTime.now());
+
+        when(spaceRepository.findByIdAndIsActiveTrue(spaceId)).thenReturn(Optional.of(space));
+        when(spaceMembershipRepository.existsByUserIdAndSpaceIdAndRoleIn(
+                ownerId, spaceId, List.of(MembershipRole.OWNER, MembershipRole.MANAGER)))
+                .thenReturn(true);
+        when(spaceMembershipRepository.findManagedSpaceIdsByTypesAndRoles(
+                eq(ownerId),
+                eq(List.of(MembershipRole.OWNER, MembershipRole.MANAGER)),
+                any()))
+                .thenReturn(List.of(spaceId, messId));
+        when(memberRepository.searchImportCandidates(
+                eq(spaceId), eq(List.of(spaceId, messId)), eq("Dev"), eq(null)))
+                .thenReturn(List.of(customer));
+        when(memberRepository.existsBusyOccupancyForMobileInSpace(eq("9000000504"), eq(spaceId)))
+                .thenReturn(false);
+
+        List<MemberImportCandidateResponse> result =
+                memberMasterService.searchImportCandidates(spaceId, ownerId, "Dev");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getRole()).isEqualTo(MembershipRole.CUSTOMER);
+        assertThat(result.get(0).getSourceSpaceName()).isEqualTo("Annapurna Mess");
+        assertThat(result.get(0).isAvailableForMoveIn()).isTrue();
+        assertThat(result.get(0).isAlreadyInTargetSpace()).isFalse();
     }
 
     @Test

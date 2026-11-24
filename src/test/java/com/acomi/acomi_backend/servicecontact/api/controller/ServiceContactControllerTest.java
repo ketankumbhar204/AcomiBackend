@@ -1,10 +1,7 @@
 package com.acomi.acomi_backend.servicecontact.api.controller;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -116,7 +113,7 @@ class ServiceContactControllerTest {
     void listPassesFiltersToTheService() throws Exception {
         authenticate();
         when(serviceContactService.list(
-                        eq(callerId), eq("ramesh"), eq("ELECTRICAL"), any(), eq("name"), eq(false), eq(0), eq(20)))
+                        eq(callerId), eq("ramesh"), eq("ELECTRICAL"), eq("name"), eq(false), eq(0), eq(20)))
                 .thenReturn(PagedResponse.<ServiceContactResponse>builder()
                         .content(List.of())
                         .page(0)
@@ -135,7 +132,7 @@ class ServiceContactControllerTest {
                 .andExpect(jsonPath("$.data.content").isArray());
 
         verify(serviceContactService)
-                .list(eq(callerId), eq("ramesh"), eq("ELECTRICAL"), isNull(), eq("name"), anyBoolean(), anyInt(), anyInt());
+                .list(eq(callerId), eq("ramesh"), eq("ELECTRICAL"), eq("name"), eq(false), eq(0), eq(20));
     }
 
     private void authenticate() {

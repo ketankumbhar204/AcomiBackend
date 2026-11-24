@@ -1,7 +1,11 @@
 package com.acomi.acomi_backend.member.infrastructure.persistence.repository;
 
+import com.acomi.acomi_backend.member.domain.model.MemberStatus;
+import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.infrastructure.persistence.entity.MemberEntity;
 import com.acomi.acomi_backend.occupancy.domain.model.MemberOccupancyStatus;
+import com.acomi.acomi_backend.space.domain.model.SpaceType;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -87,8 +91,9 @@ public interface MemberRepository extends JpaRepository<MemberEntity, UUID> {
     List<MemberEntity> findByUser_Id(UUID userId);
 
     /**
-     * Lodging import candidates: active or vacated tenants in spaces the caller manages.
-     * Current occupancy does not hide the person; move-in eligibility is decided separately.
+     * Lodging Move In candidates: TENANT in managed accommodation spaces, or CUSTOMER in
+     * managed Mess spaces. The destination association is always created as TENANT.
+     * Current occupancy does not hide the person; destination conflicts are decided separately.
      * A mobile already in the target space is returned only as that target membership.
      */
     @Query("""
@@ -100,7 +105,22 @@ public interface MemberRepository extends JpaRepository<MemberEntity, UUID> {
                   com.acomi.acomi_backend.member.domain.model.MemberStatus.ACTIVE,
                   com.acomi.acomi_backend.member.domain.model.MemberStatus.VACATED
               )
-              AND m.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.TENANT
+              AND (
+                  (
+                      s.type = com.acomi.acomi_backend.space.domain.model.SpaceType.MESS
+                      AND m.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.CUSTOMER
+                  )
+                  OR (
+                      s.type IN (
+                          com.acomi.acomi_backend.space.domain.model.SpaceType.PG,
+                          com.acomi.acomi_backend.space.domain.model.SpaceType.HOSTEL,
+                          com.acomi.acomi_backend.space.domain.model.SpaceType.CO_LIVING,
+                          com.acomi.acomi_backend.space.domain.model.SpaceType.RENTAL,
+                          com.acomi.acomi_backend.space.domain.model.SpaceType.CORPORATE_STAY
+                      )
+                      AND m.role = com.acomi.acomi_backend.member.domain.model.MembershipRole.TENANT
+                  )
+              )
               AND s.id IN :sourceSpaceIds
               AND (
                   CAST(:search AS string) IS NULL OR CAST(:search AS string) = ''
@@ -201,4 +221,73 @@ public interface MemberRepository extends JpaRepository<MemberEntity, UUID> {
     boolean existsBusyOccupancyForMobileAcrossSpaces(
             @Param("mobileNumber") String mobileNumber,
             @Param("managedSpaceIds") List<UUID> managedSpaceIds);
+
+    /**
+     * True when this mobile already has ALLOCATED or RESERVED occupancy in the destination space.
+     * Stays in other spaces do not count.
+     */
+    @Query("""
+            SELECT CASE WHEN COUNT(m) > 0 THEN true ELSE false END
+            FROM MemberEntity m
+            WHERE m.isActive = true
+              AND m.mobileNumber = :mobileNumber
+              AND m.space.id = :spaceId
+              AND m.occupancyStatus IN (
+                  com.acomi.acomi_backend.occupancy.domain.model.MemberOccupancyStatus.ALLOCATED,
+                  com.acomi.acomi_backend.occupancy.domain.model.MemberOccupancyStatus.RESERVED
+              )
+            """)
+    boolean existsBusyOccupancyForMobileInSpace(
+            @Param("mobileNumber") String mobileNumber,
+            @Param("spaceId") UUID spaceId);
+
+    @Query("""
+            SELECT CASE WHEN COUNT(m) > 0 THEN true ELSE false END
+            FROM MemberEntity m
+            WHERE m.isActive = true
+              AND m.user.id = :userId
+              AND m.space.id = :spaceId
+              AND m.occupancyStatus IN (
+                  com.acomi.acomi_backend.occupancy.domain.model.MemberOccupancyStatus.ALLOCATED,
+                  com.acomi.acomi_backend.occupancy.domain.model.MemberOccupancyStatus.RESERVED
+              )
+            """)
+    boolean existsBusyOccupancyForUserInSpace(
+            @Param("userId") UUID userId,
+            @Param("spaceId") UUID spaceId);
+
+    /**
+     * Active TENANT / CUSTOMER / STAFF rows across managed spaces for the owner directory.
+     * Deduplication by user/mobile is done in the service layer.
+     */
+    @Query("""
+            SELECT m FROM MemberEntity m
+            JOIN FETCH m.space s
+            LEFT JOIN FETCH m.user u
+            WHERE m.isActive = true
+              AND m.role IN :roles
+              AND s.id IN :managedSpaceIds
+              AND (:spaceId IS NULL OR s.id = :spaceId)
+              AND (:spaceType IS NULL OR s.type = :spaceType)
+              AND (:status IS NULL OR m.status = :status)
+              AND (
+                  CAST(:search AS string) IS NULL OR CAST(:search AS string) = ''
+                  OR LOWER(m.fullName) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
+                  OR LOWER(u.fullName) LIKE LOWER(CONCAT('%', CAST(:search AS string), '%'))
+                  OR m.mobileNumber LIKE CONCAT('%', CAST(:search AS string), '%')
+                  OR (
+                      CAST(:mobileSearch AS string) IS NOT NULL
+                      AND m.mobileNumber LIKE CONCAT('%', CAST(:mobileSearch AS string), '%')
+                  )
+              )
+            ORDER BY m.fullName ASC, m.createdAt DESC
+            """)
+    List<MemberEntity> searchDirectoryMembers(
+            @Param("managedSpaceIds") Collection<UUID> managedSpaceIds,
+            @Param("roles") Collection<MembershipRole> roles,
+            @Param("search") String search,
+            @Param("mobileSearch") String mobileSearch,
+            @Param("spaceId") UUID spaceId,
+            @Param("spaceType") SpaceType spaceType,
+            @Param("status") MemberStatus status);
 }

@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.space.api.dto.response;
 
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
+import com.acomi.acomi_backend.space.api.dto.RuleAssignmentDto;
 import com.acomi.acomi_backend.space.domain.model.Space;
 import com.acomi.acomi_backend.space.domain.model.MealBillingType;
 import com.acomi.acomi_backend.space.domain.model.PrepaidBalanceUnit;
@@ -58,15 +59,23 @@ public class SpaceDetailsResponse {
     @Schema(description = "Amenities offered at this space (PG, Hostel, Co-living)")
     private List<AmenityAssignmentDto> amenities;
 
+    @Schema(description = "Selected house rules / guidelines saved for this space only")
+    private List<RuleAssignmentDto> rules;
+
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private UUID photoFileId;
 
     public static SpaceDetailsResponse from(Space space) {
-        return from(space, List.of());
+        return from(space, List.of(), List.of());
     }
 
     public static SpaceDetailsResponse from(Space space, List<AmenityAssignmentDto> amenities) {
+        return from(space, amenities, List.of());
+    }
+
+    public static SpaceDetailsResponse from(
+            Space space, List<AmenityAssignmentDto> amenities, List<RuleAssignmentDto> rules) {
         return SpaceDetailsResponse.builder()
                 .id(space.getId())
                 .referenceCode(space.getReferenceCode())
@@ -85,6 +94,7 @@ public class SpaceDetailsResponse {
                 .prepaidBalanceUnit(space.getPrepaidBalanceUnit())
                 .prepaidFallbackToPayPerMeal(space.isPrepaidFallbackToPayPerMeal())
                 .amenities(amenities)
+                .rules(rules)
                 .createdAt(space.getCreatedAt())
                 .updatedAt(space.getUpdatedAt())
                 .photoFileId(space.getPhotoFileId())

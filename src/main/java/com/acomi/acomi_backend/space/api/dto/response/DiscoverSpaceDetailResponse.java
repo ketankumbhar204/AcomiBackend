@@ -2,6 +2,7 @@ package com.acomi.acomi_backend.space.api.dto.response;
 
 import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
+import com.acomi.acomi_backend.space.api.dto.RuleAssignmentDto;
 import com.acomi.acomi_backend.space.application.support.FoodAvailability;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
@@ -81,6 +82,9 @@ public class DiscoverSpaceDetailResponse {
 
     @Schema(description = "Full amenity assignments with code and label")
     private List<AmenityAssignmentDto> amenities;
+
+    @Schema(description = "Selected house rules / guidelines for this space")
+    private List<RuleAssignmentDto> rules;
 
     @Schema(description = "When true, food is included in rent")
     private boolean foodIncludedInRent;

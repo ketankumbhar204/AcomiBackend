@@ -53,6 +53,7 @@ public class SpaceService {
     private final MealPlanService mealPlanService;
     private final InventorySeedService inventorySeedService;
     private final SpaceAmenityService spaceAmenityService;
+    private final SpaceRuleService spaceRuleService;
     private final MembershipNotificationSyncService membershipNotificationSyncService;
     private final EntityPhotoService entityPhotoService;
     private final ListingRegistrationSync listingRegistrationSync;
@@ -89,6 +90,7 @@ public class SpaceService {
         space = spaceRepository.save(space);
 
         spaceAmenityService.replaceForSpace(space, request.getAmenities());
+        spaceRuleService.replaceForSpace(space, request.getRules());
 
         SpaceMembershipEntity ownerMembership = SpaceMembershipEntity.builder()
                 .user(owner)
@@ -151,7 +153,9 @@ public class SpaceService {
         }
 
         return SpaceMapper.toDetailsResponse(
-                SpaceMapper.toDomain(entity), spaceAmenityService.getForSpace(spaceId));
+                SpaceMapper.toDomain(entity),
+                spaceAmenityService.getForSpace(spaceId),
+                spaceRuleService.getForSpace(spaceId));
     }
 
     @Transactional
@@ -174,9 +178,14 @@ public class SpaceService {
         if (request.getAmenities() != null) {
             spaceAmenityService.replaceForSpace(saved, request.getAmenities());
         }
+        if (request.getRules() != null) {
+            spaceRuleService.replaceForSpace(saved, request.getRules());
+        }
         listingRegistrationSync.syncFromSpace(saved);
         return SpaceMapper.toDetailsResponse(
-                SpaceMapper.toDomain(saved), spaceAmenityService.getForSpace(spaceId));
+                SpaceMapper.toDomain(saved),
+                spaceAmenityService.getForSpace(spaceId),
+                spaceRuleService.getForSpace(spaceId));
     }
 
     @Transactional(readOnly = true)

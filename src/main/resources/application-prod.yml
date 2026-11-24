@@ -18,6 +18,20 @@ spring:
   flyway:
     clean-disabled: true
 
+  # GoDaddy Professional Email (Titan). Enable with ACOMI_MAIL_ENABLED=true and SPRING_MAIL_PASSWORD.
+  mail:
+    host: ${SPRING_MAIL_HOST:smtpout.secureserver.net}
+    port: ${SPRING_MAIL_PORT:587}
+    username: ${SPRING_MAIL_USERNAME:support@acomi.in}
+    password: ${SPRING_MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+
 acomi:
   billing:
     monthly-rent:
@@ -38,6 +52,13 @@ acomi:
       domain: ${ACOMI_AUTH_COOKIE_DOMAIN:}
       secure: true
       same-site: Lax
+  mail:
+    # New AWS cutover left this false. Enquiry contact emails will not send until true + SMTP password.
+    enabled: ${ACOMI_MAIL_ENABLED:false}
+    from: ${ACOMI_MAIL_FROM:support@acomi.in}
+    from-name: ${ACOMI_MAIL_FROM_NAME:ACOMI Support}
+    reply-to: ${ACOMI_MAIL_REPLY_TO:support@acomi.in}
+    support-address: ${ACOMI_MAIL_SUPPORT_ADDRESS:support@acomi.in}
 
 springdoc:
   api-docs:

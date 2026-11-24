@@ -40,6 +40,16 @@ public class PaymentReferenceService {
             throw new IllegalArgumentException("spaceId is required to mint a payment reference");
         }
         LocalDate refDay = day != null ? day : LocalDate.now();
+        for (int attempt = 0; attempt < 25; attempt++) {
+            String candidate = mint(spaceId, refDay);
+            if (!referenceAlreadyUsed(candidate)) {
+                return candidate;
+            }
+        }
+        throw new IllegalStateException("Could not mint a unique payment reference");
+    }
+
+    private String mint(UUID spaceId, LocalDate refDay) {
         Number seq = (Number) entityManager
                 .createNativeQuery(
                         """
@@ -53,5 +63,17 @@ public class PaymentReferenceService {
                 .setParameter(2, java.sql.Date.valueOf(refDay))
                 .getSingleResult();
         return "PAY-" + refDay.format(DAY) + "-" + String.format("%06d", seq.intValue());
+    }
+
+    /**
+     * The sequence is per space, while {@code payment_reference} is unique across all spaces.
+     * Another space can already hold the same daily number.
+     */
+    private boolean referenceAlreadyUsed(String reference) {
+        Number count = (Number) entityManager
+                .createNativeQuery("SELECT count(*) FROM space_payments WHERE payment_reference = ?1")
+                .setParameter(1, reference)
+                .getSingleResult();
+        return count.intValue() > 0;
     }
 }

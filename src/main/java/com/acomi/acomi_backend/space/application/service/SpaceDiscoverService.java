@@ -11,6 +11,7 @@ import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.property.infrastructure.persistence.entity.PropertyRegistrationEntity;
 import com.acomi.acomi_backend.property.infrastructure.persistence.repository.PropertyRegistrationRepository;
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
+import com.acomi.acomi_backend.space.api.dto.RuleAssignmentDto;
 import com.acomi.acomi_backend.space.api.dto.response.DiscoverSpaceCardResponse;
 import com.acomi.acomi_backend.space.api.dto.response.DiscoverSpaceDetailResponse;
 import com.acomi.acomi_backend.space.application.support.DiscoverListingText;
@@ -51,6 +52,7 @@ public class SpaceDiscoverService {
     private final SpaceRepository spaceRepository;
     private final SpaceDiscoverRankedPageQuery rankedPageQuery;
     private final SpaceAmenityService spaceAmenityService;
+    private final SpaceRuleService spaceRuleService;
     private final SpaceMembershipRepository spaceMembershipRepository;
     private final PropertyRegistrationRepository propertyRegistrationRepository;
     private final MessRegistrationRepository messRegistrationRepository;
@@ -188,6 +190,7 @@ public class SpaceDiscoverService {
         SpaceEntity space = findDiscoverableSpace(spaceId);
 
         List<AmenityAssignmentDto> amenities = spaceAmenityService.getForSpace(spaceId);
+        List<RuleAssignmentDto> rules = spaceRuleService.getForSpace(spaceId);
         boolean alreadyMember = callerId != null
                 && spaceMembershipRepository.existsByUserIdAndSpaceIdAndStatus(
                         callerId, spaceId, MembershipStatus.ACTIVE);
@@ -199,7 +202,7 @@ public class SpaceDiscoverService {
         boolean ownedByCurrentUser = callerId != null
                 && spaceRepository.existsByIdAndOwnerIdAndIsActiveTrue(spaceId, callerId);
 
-        return toDetail(space, amenities, alreadyMember, testSpace, ownedByCurrentUser, property, mess);
+        return toDetail(space, amenities, rules, alreadyMember, testSpace, ownedByCurrentUser, property, mess);
     }
 
     /** Rejects inactive or non-discoverable listings. Test listings follow the discovery flag. */
@@ -440,6 +443,7 @@ public class SpaceDiscoverService {
     private static DiscoverSpaceDetailResponse toDetail(
             SpaceEntity space,
             List<AmenityAssignmentDto> amenities,
+            List<RuleAssignmentDto> rules,
             boolean alreadyMember,
             boolean testSpace,
             boolean ownedByCurrentUser,
@@ -456,6 +460,7 @@ public class SpaceDiscoverService {
                         .amenityCodes(amenities.stream().map(AmenityAssignmentDto::getCode).toList())
                         .amenityLabels(amenities.stream().map(AmenityAssignmentDto::getLabel).toList())
                         .amenities(amenities)
+                        .rules(rules == null ? List.of() : rules)
                         .foodIncludedInRent(space.isFoodIncludedInRent())
                         .foodAvailability(foodAvailability(space, property, mess, amenities))
                         .genderPolicy(space.getGenderPolicy())

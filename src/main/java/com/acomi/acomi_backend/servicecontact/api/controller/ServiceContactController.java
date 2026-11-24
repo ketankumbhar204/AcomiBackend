@@ -46,7 +46,6 @@ public class ServiceContactController {
     public ResponseEntity<ApiResponse<PagedResponse<ServiceContactResponse>>> list(
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String category,
-            @RequestParam(required = false) UUID spaceId,
             @RequestParam(required = false, defaultValue = "updated") String sort,
             @RequestParam(required = false, defaultValue = "false") boolean includeArchived,
             @RequestParam(required = false, defaultValue = "0") int page,
@@ -54,8 +53,7 @@ public class ServiceContactController {
         UUID callerId = SecurityUtils.getCurrentUserId();
         return ResponseEntity.ok(ApiResponse.success(
                 "Service contacts fetched successfully",
-                serviceContactService.list(
-                        callerId, q, category, spaceId, sort, includeArchived, page, size)));
+                serviceContactService.list(callerId, q, category, sort, includeArchived, page, size)));
     }
 
     @GetMapping("/{contactId}")

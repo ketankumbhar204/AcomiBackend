@@ -323,7 +323,8 @@ public class SpaceEnquiryService {
             Set<EnquiryDeliveryChannel> channels = channelsBySpace.get(enquiry.getSpaceId());
             boolean contactViewed = channels != null && channels.contains(EnquiryDeliveryChannel.VIEW_HERE);
             EmailSendStatus emailLogStatus = sharedEmailStatus.get(enquiry.getId());
-            boolean emailAccepted = emailLogStatus == EmailSendStatus.SENT || emailLogStatus == EmailSendStatus.SKIPPED;
+            // SKIPPED means SMTP is disabled — do not treat as a delivered contact email.
+            boolean emailAccepted = emailLogStatus == EmailSendStatus.SENT;
             if (viewHereOnly(enquiry, channels) && !emailAccepted) {
                 inquiries.add(InquiredListingDestinationResponse.builder()
                         .listingId(enquiry.getSpaceId())
@@ -1054,10 +1055,14 @@ public class SpaceEnquiryService {
             return emailStatusResponse(entity, "NONE", null, null);
         }
         EmailSendStatus status = log.getStatus();
-        if (status == EmailSendStatus.SENT || status == EmailSendStatus.SKIPPED) {
+        if (status == EmailSendStatus.SENT) {
             LocalDateTime sentAt = log.getSentAt() != null ? log.getSentAt() : LocalDateTime.now(clock);
             markOwnerEmailSent(entity, log.getRecipientEmail(), sentAt);
             return emailStatusResponse(entity, "SENT", log.getRecipientEmail(), sentAt);
+        }
+        if (status == EmailSendStatus.SKIPPED) {
+            // Mail transport disabled (acomi.mail.enabled=false) — not delivered.
+            return emailStatusResponse(entity, "FAILED", log.getRecipientEmail(), null);
         }
         if (status == EmailSendStatus.FAILED && log.getAttemptCount() >= 3) {
             return emailStatusResponse(entity, "FAILED", log.getRecipientEmail(), null);
@@ -1125,9 +1130,9 @@ public class SpaceEnquiryService {
 
     private static int emailStatusRank(EmailSendStatus status) {
         return switch (status) {
-            case SENT, SKIPPED -> 3;
+            case SENT -> 3;
             case SENDING, PENDING -> 2;
-            case FAILED -> 1;
+            case FAILED, SKIPPED -> 1;
         };
     }
 

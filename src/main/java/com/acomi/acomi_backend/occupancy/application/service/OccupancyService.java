@@ -51,6 +51,7 @@ import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.hibernate.Hibernate;
+import org.hibernate.LazyInitializationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -90,7 +91,7 @@ public class OccupancyService {
 
         MemberEntity member = loadActiveMember(spaceId, request.getMemberId());
         occupancyAccessService.assertSubjectIsResident(member);
-        assertMemberHasNoCurrentOccupancy(spaceId, member.getId());
+        assertMemberHasNoCurrentOccupancy(spaceId, member);
         validateMoveInDateForReserve(request.getMoveInDate());
 
         genderPolicyValidator.validate(space, member);
@@ -308,7 +309,7 @@ public class OccupancyService {
 
         MemberEntity member = loadActiveMember(spaceId, request.getMemberId());
         occupancyAccessService.assertSubjectIsResident(member);
-        assertMemberHasNoCurrentOccupancy(spaceId, member.getId());
+        assertMemberHasNoCurrentOccupancy(spaceId, member);
         genderPolicyValidator.validate(space, member);
 
         OccupancyTargetService.ResolvedTarget target = occupancyTargetService.resolve(
@@ -672,9 +673,20 @@ public class OccupancyService {
                 .orElseThrow(() -> new ResourceNotFoundException("Member", "id", memberId));
     }
 
-    private void assertMemberHasNoCurrentOccupancy(UUID spaceId, UUID memberId) {
+    /**
+     * Blocks a second active or reserved stay in this destination only.
+     * Matches the person by this member id, mobile, and linked user so a different
+     * space-specific member row cannot create a duplicate destination occupancy.
+     * Occupancy in another space is not a conflict.
+     */
+    private void assertMemberHasNoCurrentOccupancy(UUID spaceId, MemberEntity member) {
+        UUID memberId = member.getId();
         if (occupancyRepository.existsBySpaceIdAndMemberIdAndStatus(spaceId, memberId, OccupancyStatus.ACTIVE)
-                || occupancyRepository.existsBySpaceIdAndMemberIdAndStatus(spaceId, memberId, OccupancyStatus.RESERVED)) {
+                || occupancyRepository.existsBySpaceIdAndMemberIdAndStatus(spaceId, memberId, OccupancyStatus.RESERVED)
+                || memberRepository.existsBusyOccupancyForMobileInSpace(member.getMobileNumber(), spaceId)
+                || (member.getUser() != null
+                        && member.getUser().getId() != null
+                        && memberRepository.existsBusyOccupancyForUserInSpace(member.getUser().getId(), spaceId))) {
             throw new BusinessException("Member already has an active or reserved occupancy in this space");
         }
     }
@@ -959,6 +971,20 @@ public class OccupancyService {
     }
 
     private OccupancyResponse toResponse(OccupancyEntity occupancy) {
+        try {
+            return toResponseLoaded(occupancy);
+        } catch (LazyInitializationException ex) {
+            // Payment snapshot rebuild clears the persistence context, which detaches the
+            // occupancy loaded earlier in this transaction. Reload it before mapping.
+            if (occupancy.getId() == null) {
+                throw ex;
+            }
+            OccupancyEntity fresh = occupancyRepository.findById(occupancy.getId()).orElseThrow(() -> ex);
+            return toResponseLoaded(fresh);
+        }
+    }
+
+    private OccupancyResponse toResponseLoaded(OccupancyEntity occupancy) {
         if (occupancy.getFloor() != null) {
             Hibernate.initialize(occupancy.getFloor());
         }

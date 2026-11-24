@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.space.application.mapper;
 
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
+import com.acomi.acomi_backend.space.api.dto.RuleAssignmentDto;
 import com.acomi.acomi_backend.space.api.dto.request.UpdateSpaceRequest;
 import com.acomi.acomi_backend.space.api.dto.response.SpaceDetailsResponse;
 import com.acomi.acomi_backend.space.api.dto.response.SpaceResponse;
@@ -75,7 +76,12 @@ public final class SpaceMapper {
     }
 
     public static SpaceDetailsResponse toDetailsResponse(Space space, List<AmenityAssignmentDto> amenities) {
-        return SpaceDetailsResponse.from(space, amenities);
+        return SpaceDetailsResponse.from(space, amenities, List.of());
+    }
+
+    public static SpaceDetailsResponse toDetailsResponse(
+            Space space, List<AmenityAssignmentDto> amenities, List<RuleAssignmentDto> rules) {
+        return SpaceDetailsResponse.from(space, amenities, rules);
     }
 
     public static SpaceResponse toCreateResponse(SpaceEntity entity) {

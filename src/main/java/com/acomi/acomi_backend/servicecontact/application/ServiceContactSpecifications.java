@@ -2,14 +2,9 @@ package com.acomi.acomi_backend.servicecontact.application;
 
 import com.acomi.acomi_backend.servicecontact.domain.model.ServiceContactCategory;
 import com.acomi.acomi_backend.servicecontact.infrastructure.persistence.entity.ServiceContactEntity;
-import com.acomi.acomi_backend.servicecontact.infrastructure.persistence.entity.ServiceContactSpaceEntity;
 import jakarta.persistence.criteria.Predicate;
-import jakarta.persistence.criteria.Root;
-import jakarta.persistence.criteria.Subquery;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
-import java.util.UUID;
 import org.springframework.data.jpa.domain.Specification;
 
 public final class ServiceContactSpecifications {
@@ -19,7 +14,6 @@ public final class ServiceContactSpecifications {
     public static Specification<ServiceContactEntity> directory(
             CallerScope scope,
             boolean includeArchived,
-            UUID spaceId,
             ServiceContactCategory category,
             String likePattern,
             String phoneDigits) {
@@ -34,22 +28,12 @@ public final class ServiceContactSpecifications {
                 predicates.add(cb.isTrue(root.get("active")));
             }
 
-            List<Predicate> visibility = new ArrayList<>();
-            if (scope.ownsAccountDirectory()) {
-                visibility.add(cb.equal(root.get("ownerUserId"), scope.callerId()));
-            }
-            if (!scope.visibleSpaceIds().isEmpty()) {
-                visibility.add(linkedToAny(root, query, cb, scope.visibleSpaceIds()));
-            }
-            if (visibility.isEmpty()) {
+            if (scope.directoryOwnerIds().isEmpty()) {
                 predicates.add(cb.disjunction());
             } else {
-                predicates.add(cb.or(visibility.toArray(Predicate[]::new)));
+                predicates.add(root.get("ownerUserId").in(scope.directoryOwnerIds()));
             }
 
-            if (spaceId != null) {
-                predicates.add(linkedToAny(root, query, cb, Set.of(spaceId)));
-            }
             if (category != null) {
                 predicates.add(cb.equal(root.get("category"), category));
             }
@@ -73,19 +57,5 @@ public final class ServiceContactSpecifications {
             }
             return cb.and(predicates.toArray(Predicate[]::new));
         };
-    }
-
-    private static Predicate linkedToAny(
-            Root<ServiceContactEntity> root,
-            jakarta.persistence.criteria.CriteriaQuery<?> query,
-            jakarta.persistence.criteria.CriteriaBuilder cb,
-            Set<UUID> spaceIds) {
-        Subquery<Integer> subquery = query.subquery(Integer.class);
-        Root<ServiceContactSpaceEntity> link = subquery.from(ServiceContactSpaceEntity.class);
-        subquery.select(cb.literal(1));
-        subquery.where(
-                cb.equal(link.get("contact"), root),
-                link.get("space").get("id").in(spaceIds));
-        return cb.exists(subquery);
     }
 }

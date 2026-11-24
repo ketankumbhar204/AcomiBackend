@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.space.api.dto.request;
 
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
+import com.acomi.acomi_backend.space.api.dto.RuleAssignmentDto;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
@@ -53,4 +54,8 @@ public class UpdateSpaceRequest {
     @Valid
     @Schema(description = "Replace space amenities when provided (PG, Hostel, Co-living only)")
     private List<AmenityAssignmentDto> amenities;
+
+    @Valid
+    @Schema(description = "Replace space rules when provided. Omitted values leave existing rules unchanged.")
+    private List<RuleAssignmentDto> rules;
 }

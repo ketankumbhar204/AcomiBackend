@@ -22,7 +22,6 @@ import com.acomi.acomi_backend.servicecontact.infrastructure.persistence.entity.
 import com.acomi.acomi_backend.servicecontact.infrastructure.persistence.repository.ServiceContactRepository;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
-import com.acomi.acomi_backend.space.infrastructure.persistence.repository.SpaceRepository;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
 import com.acomi.acomi_backend.member.domain.model.MembershipRole;
 import com.acomi.acomi_backend.member.domain.model.MembershipStatus;
@@ -47,9 +46,6 @@ class ServiceContactServiceTest {
     private ServiceContactRepository contactRepository;
 
     @Mock
-    private SpaceRepository spaceRepository;
-
-    @Mock
     private SpaceMembershipRepository membershipRepository;
 
     private ServiceContactService service;
@@ -62,7 +58,7 @@ class ServiceContactServiceTest {
     @BeforeEach
     void setUp() {
         service = new ServiceContactService(
-                contactRepository, spaceRepository, new ServiceContactAccessService(membershipRepository));
+                contactRepository, new ServiceContactAccessService(membershipRepository));
         ownerId = UUID.randomUUID();
         otherOwnerId = UUID.randomUUID();
         spaceA = UUID.randomUUID();
@@ -73,12 +69,11 @@ class ServiceContactServiceTest {
     @Test
     void ownerCreatesContactWithTwoSpacesAndDisplayPhones() {
         ownerMemberships();
-        when(spaceRepository.findActiveWithOwnerById(spaceA)).thenReturn(Optional.of(space(spaceA, ownerId, "PG A")));
-        when(spaceRepository.findActiveWithOwnerById(spaceB)).thenReturn(Optional.of(space(spaceB, ownerId, "PG B")));
         when(contactRepository.findActiveByOwnerAndAnyPhone(eq(ownerId), anyCollection())).thenReturn(List.of());
         when(contactRepository.save(any())).thenAnswer(invocation -> {
             ServiceContactEntity entity = invocation.getArgument(0);
             entity.setId(UUID.randomUUID());
+            assertTrue(entity.getSpaceLinks().isEmpty());
             return entity;
         });
 
@@ -88,9 +83,67 @@ class ServiceContactServiceTest {
 
         assertEquals("Ramesh Electricals", response.getBusinessName());
         assertEquals("+919876543210", response.getPrimaryPhone());
-        assertEquals(2, response.getSpaces().size());
+        assertTrue(response.getSpaces().isEmpty());
         assertTrue(response.isCanEdit());
         assertTrue(response.isCanArchive());
+    }
+
+    @Test
+    void ownerCreatesAGlobalContactWithoutLinkingSpaces() {
+        ownerMemberships();
+        when(contactRepository.findActiveByOwnerAndAnyPhone(eq(ownerId), anyCollection())).thenReturn(List.of());
+        when(contactRepository.save(any())).thenAnswer(invocation -> {
+            ServiceContactEntity entity = invocation.getArgument(0);
+            entity.setId(UUID.randomUUID());
+            return entity;
+        });
+
+        ServiceContactResponse response = service.create(ownerId, request());
+
+        assertTrue(response.getSpaces().isEmpty());
+        assertTrue(response.isCanEdit());
+        assertTrue(response.isCanArchive());
+    }
+
+    @Test
+    void managerCreatesUnlinkedContactInTheOwnersDirectory() {
+        UUID managerId = UUID.randomUUID();
+        when(membershipRepository.findUserSpaces(managerId)).thenReturn(List.of(
+                membership(managerId, spaceA, MembershipRole.MANAGER)));
+        when(contactRepository.findActiveByOwnerAndAnyPhone(eq(ownerId), anyCollection())).thenReturn(List.of());
+        when(contactRepository.save(any())).thenAnswer(invocation -> {
+            ServiceContactEntity entity = invocation.getArgument(0);
+            entity.setId(UUID.randomUUID());
+            assertEquals(ownerId, entity.getOwnerUserId());
+            assertTrue(entity.getSpaceLinks().isEmpty());
+            return entity;
+        });
+
+        ServiceContactResponse response = service.create(managerId, request());
+
+        assertTrue(response.getSpaces().isEmpty());
+        assertFalse(response.isCanArchive());
+    }
+
+    @Test
+    void updateWithoutSpaceIdsKeepsExistingAssociations() {
+        ownerMemberships();
+        ServiceContactEntity contact = existingContact();
+        contact.setSpaceLinks(new ArrayList<>(List.of(
+                ServiceContactSpaceEntity.builder().contact(contact).space(space(spaceA, ownerId, "PG A")).build(),
+                ServiceContactSpaceEntity.builder().contact(contact).space(space(spaceB, ownerId, "Mess B")).build())));
+        when(contactRepository.findById(contact.getId())).thenReturn(Optional.of(contact));
+        when(contactRepository.findActiveByOwnerAndAnyPhone(eq(ownerId), anyCollection())).thenReturn(List.of());
+        when(contactRepository.save(contact)).thenReturn(contact);
+
+        SaveServiceContactRequest request = request();
+        request.setBusinessName("Ramesh Electricals Updated");
+        request.setSpaceIds(List.of());
+        ServiceContactResponse response = service.update(ownerId, contact.getId(), request);
+
+        assertEquals("Ramesh Electricals Updated", response.getBusinessName());
+        assertTrue(response.getSpaces().isEmpty());
+        assertEquals(2, contact.getSpaceLinks().size());
     }
 
     @Test
@@ -128,13 +181,22 @@ class ServiceContactServiceTest {
     }
 
     @Test
-    void cannotAssociateAnotherAccountsSpace() {
+    void suppliedSpaceIdsDoNotCreateAssociations() {
         ownerMemberships();
+        when(contactRepository.findActiveByOwnerAndAnyPhone(eq(ownerId), anyCollection())).thenReturn(List.of());
+        when(contactRepository.save(any())).thenAnswer(invocation -> {
+            ServiceContactEntity entity = invocation.getArgument(0);
+            assertEquals(ownerId, entity.getOwnerUserId());
+            assertTrue(entity.getSpaceLinks().isEmpty());
+            entity.setId(UUID.randomUUID());
+            return entity;
+        });
         SaveServiceContactRequest request = request();
         request.setSpaceIds(List.of(foreignSpace));
 
-        BusinessException ex = assertThrows(BusinessException.class, () -> service.create(ownerId, request));
-        assertEquals("SPACE_NOT_ALLOWED", ex.getErrorCode());
+        ServiceContactResponse response = service.create(ownerId, request);
+
+        assertTrue(response.getSpaces().isEmpty());
     }
 
     @Test
@@ -148,8 +210,10 @@ class ServiceContactServiceTest {
 
         ServiceContactResponse response = service.addSpace(ownerId, contact.getId(), spaceA);
 
-        assertEquals(1, response.getSpaces().size());
+        assertTrue(response.getSpaces().isEmpty());
+        assertEquals(1, contact.getSpaceLinks().size());
         verify(contactRepository, never()).saveAndFlush(any());
+        verify(contactRepository, never()).save(any());
     }
 
     @Test
@@ -162,14 +226,14 @@ class ServiceContactServiceTest {
                 ServiceContactSpaceEntity.builder().contact(contact).space(first).build(),
                 ServiceContactSpaceEntity.builder().contact(contact).space(second).build())));
         when(contactRepository.findById(contact.getId())).thenReturn(Optional.of(contact));
-        when(contactRepository.save(contact)).thenReturn(contact);
 
         ServiceContactResponse response = service.removeSpace(ownerId, contact.getId(), spaceA);
 
         assertEquals(contact.getId(), response.getId());
-        assertEquals(1, response.getSpaces().size());
-        assertEquals(spaceB, response.getSpaces().get(0).getSpaceId());
+        assertTrue(response.getSpaces().isEmpty());
+        assertEquals(2, contact.getSpaceLinks().size());
         assertTrue(contact.isActive());
+        verify(contactRepository, never()).save(any());
     }
 
     @Test
@@ -215,7 +279,7 @@ class ServiceContactServiceTest {
 
         BusinessException ex = assertThrows(
                 BusinessException.class,
-                () -> service.list(tenantId, null, null, null, "updated", false, 0, 20));
+                () -> service.list(tenantId, null, null, "updated", false, 0, 20));
         assertEquals(403, ex.getStatus().value());
     }
 
@@ -225,11 +289,11 @@ class ServiceContactServiceTest {
         when(contactRepository.findAll(any(Specification.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
 
-        assertEquals(0, service.list(ownerId, "ramesh", null, null, "name", false, 0, 500).getSize());
+        assertEquals(0, service.list(ownerId, "ramesh", null, "name", false, 0, 500).getSize());
 
         BusinessException ex = assertThrows(
                 BusinessException.class,
-                () -> service.list(ownerId, null, "NOPE", null, "updated", false, 0, 20));
+                () -> service.list(ownerId, null, "NOPE", "updated", false, 0, 20));
         assertEquals("INVALID_CATEGORY", ex.getErrorCode());
     }
 
@@ -310,9 +374,10 @@ class ServiceContactServiceTest {
         user.setId(userId);
         user.setFullName("User");
         user.setMobileNumber("9000000002");
+        UUID spaceOwnerId = role == MembershipRole.OWNER ? userId : ownerId;
         return SpaceMembershipEntity.builder()
                 .user(user)
-                .space(space(spaceId, ownerId, "Space"))
+                .space(space(spaceId, spaceOwnerId, "Space"))
                 .role(role)
                 .status(MembershipStatus.ACTIVE)
                 .build();

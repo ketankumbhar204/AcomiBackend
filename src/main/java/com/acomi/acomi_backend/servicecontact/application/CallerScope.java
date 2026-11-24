@@ -11,4 +11,10 @@ public record CallerScope(
         UUID callerId,
         boolean ownsAccountDirectory,
         Set<UUID> manageableSpaceIds,
-        Set<UUID> visibleSpaceIds) {}
+        Set<UUID> visibleSpaceIds,
+        /**
+         * Account owners whose global directory this caller may search.
+         * Includes the caller when they own a directory, and the owner of each
+         * space they operate. This is visibility, not a space association.
+         */
+        Set<UUID> directoryOwnerIds) {}

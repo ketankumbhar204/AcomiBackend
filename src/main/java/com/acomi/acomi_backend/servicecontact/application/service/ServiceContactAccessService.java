@@ -75,7 +75,25 @@ public class ServiceContactAccessService {
         }
 
         boolean ownsDirectory = memberships.isEmpty() || hasOwner;
-        return new CallerScope(callerId, ownsDirectory, Set.copyOf(manageable), Set.copyOf(visible));
+        Set<UUID> directoryOwners = new HashSet<>();
+        if (ownsDirectory) {
+            directoryOwners.add(callerId);
+        }
+        for (SpaceMembershipEntity membership : memberships) {
+            MembershipRole role = membership.getRole();
+            if (role != MembershipRole.OWNER && role != MembershipRole.MANAGER && role != MembershipRole.STAFF) {
+                continue;
+            }
+            if (membership.getSpace() == null || membership.getSpace().getOwner() == null) {
+                continue;
+            }
+            UUID accountOwnerId = membership.getSpace().getOwner().getId();
+            if (accountOwnerId != null) {
+                directoryOwners.add(accountOwnerId);
+            }
+        }
+        return new CallerScope(
+                callerId, ownsDirectory, Set.copyOf(manageable), Set.copyOf(visible), Set.copyOf(directoryOwners));
     }
 
     public void requireManageCapability(CallerScope scope) {
@@ -85,14 +103,9 @@ public class ServiceContactAccessService {
     }
 
     public boolean canRead(CallerScope scope, ServiceContactEntity contact) {
-        if (contact == null) {
-            return false;
-        }
-        if (scope.ownsAccountDirectory() && scope.callerId().equals(contact.getOwnerUserId())) {
-            return true;
-        }
-        return contact.getSpaceLinks().stream()
-                .anyMatch(link -> scope.visibleSpaceIds().contains(link.getSpace().getId()));
+        return contact != null
+                && contact.getOwnerUserId() != null
+                && scope.directoryOwnerIds().contains(contact.getOwnerUserId());
     }
 
     public boolean canEdit(CallerScope scope, ServiceContactEntity contact) {
@@ -102,8 +115,8 @@ public class ServiceContactAccessService {
         if (scope.ownsAccountDirectory() && scope.callerId().equals(contact.getOwnerUserId())) {
             return true;
         }
-        return contact.getSpaceLinks().stream()
-                .anyMatch(link -> scope.manageableSpaceIds().contains(link.getSpace().getId()));
+        return !scope.manageableSpaceIds().isEmpty()
+                && scope.directoryOwnerIds().contains(contact.getOwnerUserId());
     }
 
     public boolean canArchive(CallerScope scope, ServiceContactEntity contact) {
@@ -130,12 +143,6 @@ public class ServiceContactAccessService {
         requireRead(scope, contact);
         if (!canArchive(scope, contact)) {
             deny("You do not have permission to archive this service contact");
-        }
-    }
-
-    public void requireVisibleSpace(CallerScope scope, UUID spaceId) {
-        if (spaceId != null && !scope.visibleSpaceIds().contains(spaceId)) {
-            deny("You do not have permission to view contacts for this space");
         }
     }
 

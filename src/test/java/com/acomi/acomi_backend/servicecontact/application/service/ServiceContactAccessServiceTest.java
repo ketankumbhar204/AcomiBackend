@@ -14,7 +14,6 @@ import com.acomi.acomi_backend.member.infrastructure.persistence.repository.Spac
 import com.acomi.acomi_backend.servicecontact.application.CallerScope;
 import com.acomi.acomi_backend.servicecontact.domain.model.ServiceContactCategory;
 import com.acomi.acomi_backend.servicecontact.infrastructure.persistence.entity.ServiceContactEntity;
-import com.acomi.acomi_backend.servicecontact.infrastructure.persistence.entity.ServiceContactSpaceEntity;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.space.infrastructure.persistence.entity.SpaceEntity;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
@@ -78,9 +77,14 @@ class ServiceContactAccessServiceTest {
     @Test
     void staffCanViewButNotManageOrArchive() {
         when(membershipRepository.findUserSpaces(staffId))
-                .thenReturn(List.of(membership(staffId, spaceA, MembershipRole.STAFF)));
+                .thenReturn(List.of(membership(staffId, spaceA, MembershipRole.STAFF, ownerId)));
         CallerScope scope = accessService.requireDirectoryAccess(staffId);
-        ServiceContactEntity contact = linkedContact(ownerId, spaceA);
+        ServiceContactEntity contact = ServiceContactEntity.builder()
+                .ownerUserId(ownerId)
+                .businessName("Ramesh Electricals")
+                .category(ServiceContactCategory.ELECTRICAL)
+                .active(true)
+                .build();
 
         assertFalse(scope.ownsAccountDirectory());
         assertTrue(scope.manageableSpaceIds().isEmpty());
@@ -91,12 +95,31 @@ class ServiceContactAccessServiceTest {
     }
 
     @Test
-    void managerCannotReadUnassociatedOwnerContact() {
+    void managerCanReadUnassociatedContactInTheSpaceOwnersDirectory() {
         when(membershipRepository.findUserSpaces(managerId))
-                .thenReturn(List.of(membership(managerId, spaceA, MembershipRole.MANAGER)));
+                .thenReturn(List.of(membership(managerId, spaceA, MembershipRole.MANAGER, ownerId)));
         CallerScope scope = accessService.requireDirectoryAccess(managerId);
         ServiceContactEntity unlinked = ServiceContactEntity.builder()
                 .ownerUserId(ownerId)
+                .businessName("Shared plumber")
+                .category(ServiceContactCategory.PLUMBING)
+                .active(true)
+                .build();
+
+        assertTrue(scope.directoryOwnerIds().contains(ownerId));
+        assertTrue(accessService.canRead(scope, unlinked));
+        assertTrue(accessService.canEdit(scope, unlinked));
+        assertFalse(accessService.canArchive(scope, unlinked));
+        assertTrue(unlinked.getSpaceLinks().isEmpty());
+    }
+
+    @Test
+    void managerCannotReadAnotherOwnersUnassociatedContact() {
+        when(membershipRepository.findUserSpaces(managerId))
+                .thenReturn(List.of(membership(managerId, spaceA, MembershipRole.MANAGER, ownerId)));
+        CallerScope scope = accessService.requireDirectoryAccess(managerId);
+        ServiceContactEntity unlinked = ServiceContactEntity.builder()
+                .ownerUserId(UUID.randomUUID())
                 .businessName("Hidden")
                 .category(ServiceContactCategory.ELECTRICAL)
                 .active(true)
@@ -108,12 +131,18 @@ class ServiceContactAccessServiceTest {
     }
 
     @Test
-    void managerCanEditContactLinkedToAssignedSpaceButCannotArchiveIt() {
+    void managerCanEditTheOwnersDirectoryWithoutASpaceLink() {
         when(membershipRepository.findUserSpaces(managerId))
-                .thenReturn(List.of(membership(managerId, spaceA, MembershipRole.MANAGER)));
+                .thenReturn(List.of(membership(managerId, spaceA, MembershipRole.MANAGER, ownerId)));
         CallerScope scope = accessService.requireDirectoryAccess(managerId);
-        ServiceContactEntity contact = linkedContact(ownerId, spaceA);
+        ServiceContactEntity contact = ServiceContactEntity.builder()
+                .ownerUserId(ownerId)
+                .businessName("Ramesh Electricals")
+                .category(ServiceContactCategory.ELECTRICAL)
+                .active(true)
+                .build();
 
+        assertTrue(contact.getSpaceLinks().isEmpty());
         assertTrue(accessService.canEdit(scope, contact));
         assertFalse(accessService.canArchive(scope, contact));
     }
@@ -146,35 +175,28 @@ class ServiceContactAccessServiceTest {
         assertTrue(scope.manageableSpaceIds().isEmpty());
     }
 
-    private ServiceContactEntity linkedContact(UUID accountOwnerId, UUID linkedSpaceId) {
-        SpaceEntity space = SpaceEntity.builder()
-                .name("PG A")
-                .type(SpaceType.PG)
-                .isActive(true)
-                .build();
-        space.setId(linkedSpaceId);
-        ServiceContactEntity contact = ServiceContactEntity.builder()
-                .ownerUserId(accountOwnerId)
-                .businessName("Ramesh Electricals")
-                .category(ServiceContactCategory.ELECTRICAL)
-                .primaryPhone("9876543210")
-                .active(true)
-                .build();
-        contact.setId(UUID.randomUUID());
-        ServiceContactSpaceEntity link = ServiceContactSpaceEntity.builder()
-                .contact(contact)
-                .space(space)
-                .build();
-        contact.getSpaceLinks().add(link);
-        return contact;
+    private SpaceMembershipEntity membership(UUID userId, UUID spaceId, MembershipRole role) {
+        return membership(userId, spaceId, role, null);
     }
 
-    private SpaceMembershipEntity membership(UUID userId, UUID spaceId, MembershipRole role) {
+    private SpaceMembershipEntity membership(UUID userId, UUID spaceId, MembershipRole role, UUID accountOwnerId) {
         UserEntity user = new UserEntity();
         user.setId(userId);
         user.setFullName("User");
         user.setMobileNumber("9000000000");
-        SpaceEntity space = SpaceEntity.builder().name("Space").type(SpaceType.PG).isActive(true).build();
+        UserEntity accountOwner = null;
+        if (accountOwnerId != null) {
+            accountOwner = new UserEntity();
+            accountOwner.setId(accountOwnerId);
+            accountOwner.setFullName("Owner");
+            accountOwner.setMobileNumber("9000000001");
+        }
+        SpaceEntity space = SpaceEntity.builder()
+                .name("Space")
+                .type(SpaceType.PG)
+                .isActive(true)
+                .owner(accountOwner)
+                .build();
         space.setId(spaceId);
         return SpaceMembershipEntity.builder()
                 .user(user)

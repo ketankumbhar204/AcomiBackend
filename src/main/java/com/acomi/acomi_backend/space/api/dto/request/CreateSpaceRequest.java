@@ -1,6 +1,7 @@
 package com.acomi.acomi_backend.space.api.dto.request;
 
 import com.acomi.acomi_backend.space.api.dto.AmenityAssignmentDto;
+import com.acomi.acomi_backend.space.api.dto.RuleAssignmentDto;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -64,4 +65,8 @@ public class CreateSpaceRequest {
     @Valid
     @Schema(description = "Optional amenities for PG, Hostel, or Co-living spaces")
     private List<AmenityAssignmentDto> amenities = new ArrayList<>();
+
+    @Valid
+    @Schema(description = "Optional space-specific house rules / guidelines")
+    private List<RuleAssignmentDto> rules = new ArrayList<>();
 }
