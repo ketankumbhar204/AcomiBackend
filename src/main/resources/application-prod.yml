@@ -68,10 +68,10 @@ springdoc:
 
 management:
   health:
-    # SMTP is configured but sending stays off until ACOMI_MAIL_ENABLED=true.
-    # An empty password otherwise makes /actuator/health return 503 and the deploy rolls back.
+    # Sending is controlled by ACOMI_MAIL_ENABLED. The actuator mail check logs in to
+    # the mailbox and can take longer than the deploy health timeout, which rolls the API back.
     mail:
-      enabled: ${ACOMI_MAIL_ENABLED:false}
+      enabled: false
 
 logging:
   level:
