@@ -1,6 +1,8 @@
 package com.acomi.acomi_backend.admin.application.service;
 
 import com.acomi.acomi_backend.admin.api.dto.response.AdminMessRegistrationsSummaryResponse;
+import com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus;
+import com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.mess.api.dto.request.AdminCreateMessRegistrationRequest;
 import com.acomi.acomi_backend.mess.api.dto.response.MessRegistrationDetailResponse;
@@ -40,11 +42,12 @@ public class AdminMessRegistrationService {
     private final SavedAddressService savedAddressService;
     private final AdminRegistrationConversionService adminRegistrationConversionService;
     private final SpaceRepository spaceRepository;
+    private final AdminListingMarketingService adminListingMarketingService;
 
     @Transactional(readOnly = true)
     public Page<MessRegistrationListItemResponse> list(
             MessRegistrationSource source, boolean leadsOnly, Pageable pageable) {
-        return list(null, source, null, leadsOnly, null, pageable);
+        return list(null, source, null, leadsOnly, null, null, null, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -55,12 +58,39 @@ public class AdminMessRegistrationService {
             boolean leadsOnly,
             Boolean claimed,
             Pageable pageable) {
+        return list(q, source, status, leadsOnly, claimed, null, null, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<MessRegistrationListItemResponse> list(
+            String q,
+            MessRegistrationSource source,
+            MessRegistrationStatus status,
+            boolean leadsOnly,
+            Boolean claimed,
+            ListingMarketingStatus marketingStatus,
+            WhatsAppAvailability whatsappAvailability,
+            Pageable pageable) {
         String query = StringUtils.hasText(q) ? q.trim() : null;
-        boolean filtered = query != null || source != null || status != null || claimed != null || leadsOnly;
+        boolean filtered = query != null
+                || source != null
+                || status != null
+                || claimed != null
+                || leadsOnly
+                || marketingStatus != null
+                || whatsappAvailability != null;
         Page<MessRegistrationEntity> page;
         if (filtered) {
             page = messRegistrationRepository.searchFiltered(
-                    query, source, status, leadsOnly, CLOSED_STATUSES, claimed, pageable);
+                    query,
+                    source,
+                    status,
+                    leadsOnly,
+                    CLOSED_STATUSES,
+                    claimed,
+                    marketingStatus,
+                    whatsappAvailability,
+                    pageable);
         } else {
             page = messRegistrationRepository.findAllByOrderByCreatedAtDesc(pageable);
         }
@@ -113,7 +143,12 @@ public class AdminMessRegistrationService {
 
     @Transactional(readOnly = true)
     public MessRegistrationDetailResponse getById(UUID id) {
-        return adminRegistrationConversionService.enrichMessDetail(messRegistrationService.requireEntity(id));
+        MessRegistrationDetailResponse detail =
+                adminRegistrationConversionService.enrichMessDetail(messRegistrationService.requireEntity(id));
+        return detail.toBuilder()
+                .marketingActivities(
+                        adminListingMarketingService.getMessRegistrationMarketing(id).getActivities())
+                .build();
     }
 
     @Transactional

@@ -1,5 +1,7 @@
 package com.acomi.acomi_backend.property.application.mapper;
 
+import com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus;
+import com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability;
 import com.acomi.acomi_backend.property.api.dto.response.PropertyRegistrationDetailResponse;
 import com.acomi.acomi_backend.property.api.dto.response.PropertyRegistrationListItemResponse;
 import com.acomi.acomi_backend.property.infrastructure.persistence.entity.PropertyRegistrationAmenityEntity;
@@ -27,6 +29,14 @@ public final class PropertyRegistrationMapper {
                 .claimedAt(entity.getClaimedAt())
                 .createdAt(entity.getCreatedAt())
                 .testLead(entity.isTestLead())
+                .marketingStatus(
+                        entity.getMarketingStatus() == null
+                                ? ListingMarketingStatus.NOT_SHARED
+                                : entity.getMarketingStatus())
+                .whatsappAvailability(
+                        entity.getWhatsappAvailability() == null
+                                ? WhatsAppAvailability.UNKNOWN
+                                : entity.getWhatsappAvailability())
                 .build();
     }
 
@@ -67,6 +77,17 @@ public final class PropertyRegistrationMapper {
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .testLead(entity.isTestLead())
+                .marketingStatus(
+                        entity.getMarketingStatus() == null
+                                ? ListingMarketingStatus.NOT_SHARED
+                                : entity.getMarketingStatus())
+                .whatsappAvailability(
+                        entity.getWhatsappAvailability() == null
+                                ? WhatsAppAvailability.UNKNOWN
+                                : entity.getWhatsappAvailability())
+                .lastSharedAt(entity.getLastSharedAt())
+                .lastSharedBy(entity.getLastSharedBy())
+                .marketingNotes(entity.getMarketingNotes())
                 .amenities(toAmenities(entity.getAmenities()))
                 .build();
     }

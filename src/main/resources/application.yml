@@ -72,6 +72,21 @@ acomi:
       # 00:40 on the 1st–3rd so a missed 1st still closes the previous month. Does not bill the open month.
       cron: ${ACOMI_OPEN_ENDED_MONTH_CLOSE_CRON:0 40 0 1-3 * *}
       zone: ${ACOMI_OPEN_ENDED_MONTH_CLOSE_ZONE:Asia/Kolkata}
+  marketing:
+    whatsapp:
+      # Automatic listing promo send via WhatsApp Business Platform. Default off — never claim live until E2E-tested.
+      enabled: ${ACOMI_MARKETING_WHATSAPP_ENABLED:false}
+      # disabled | logging | live — live requires Meta credentials + approved promotional template.
+      mode: ${ACOMI_MARKETING_WHATSAPP_MODE:disabled}
+      # Sender pipeline ready flag. Keep false until media upload + Meta template mapping are implemented and tested.
+      sender-ready: ${ACOMI_MARKETING_WHATSAPP_SENDER_READY:false}
+      access-token: ${ACOMI_WHATSAPP_ACCESS_TOKEN:}
+      phone-number-id: ${ACOMI_WHATSAPP_PHONE_NUMBER_ID:}
+      business-account-id: ${ACOMI_WHATSAPP_WABA_ID:}
+      promotional-template: ${ACOMI_MARKETING_WHATSAPP_TEMPLATE:}
+      template-language: ${ACOMI_MARKETING_WHATSAPP_TEMPLATE_LANGUAGE:en}
+      default-country-code: ${ACOMI_WHATSAPP_DEFAULT_COUNTRY_CODE:91}
+      duplicate-window-seconds: ${ACOMI_MARKETING_WHATSAPP_DUPLICATE_WINDOW_SECONDS:120}
   reminders:
     scheduler:
       enabled: ${ACOMI_REMINDERS_SCHEDULER_ENABLED:true}

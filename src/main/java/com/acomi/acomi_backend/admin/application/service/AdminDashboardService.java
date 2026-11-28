@@ -361,7 +361,15 @@ public class AdminDashboardService {
                 .ownerName(space.getOwner().getFullName())
                 .ownerMobile(space.getOwner().getMobileNumber())
                 .createdAt(space.getCreatedAt())
-                .testLead(false);
+                .testLead(false)
+                .marketingStatus(
+                        space.getMarketingStatus() == null
+                                ? com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus.NOT_SHARED
+                                : space.getMarketingStatus())
+                .whatsappAvailability(
+                        space.getWhatsappAvailability() == null
+                                ? com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability.UNKNOWN
+                                : space.getWhatsappAvailability());
 
         if (space.getType() == SpaceType.MESS) {
             if (messLead != null) {
@@ -378,7 +386,15 @@ public class AdminDashboardService {
             AdminActiveSpaceResponse.AdminActiveSpaceResponseBuilder builder, PropertyRegistrationEntity reg) {
         builder.source(reg.getSource() == null ? null : reg.getSource().name())
                 .testLead(reg.isTestLead())
-                .registrationId(reg.getId());
+                .registrationId(reg.getId())
+                .marketingStatus(
+                        reg.getMarketingStatus() == null
+                                ? com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus.NOT_SHARED
+                                : reg.getMarketingStatus())
+                .whatsappAvailability(
+                        reg.getWhatsappAvailability() == null
+                                ? com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability.UNKNOWN
+                                : reg.getWhatsappAvailability());
         String listingMobile = firstUsableMobile(
                 reg.getMobileNumber(), reg.getAlternateMobileNumber(), reg.getAdditionalMobileNumber());
         if (listingMobile != null) {
@@ -390,7 +406,15 @@ public class AdminDashboardService {
             AdminActiveSpaceResponse.AdminActiveSpaceResponseBuilder builder, MessRegistrationEntity reg) {
         builder.source(reg.getSource() == null ? null : reg.getSource().name())
                 .testLead(reg.isTestLead())
-                .registrationId(reg.getId());
+                .registrationId(reg.getId())
+                .marketingStatus(
+                        reg.getMarketingStatus() == null
+                                ? com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus.NOT_SHARED
+                                : reg.getMarketingStatus())
+                .whatsappAvailability(
+                        reg.getWhatsappAvailability() == null
+                                ? com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability.UNKNOWN
+                                : reg.getWhatsappAvailability());
         String listingMobile = firstUsableMobile(
                 reg.getMobileNumber(), reg.getAlternateMobileNumber(), reg.getAdditionalMobileNumber());
         if (listingMobile != null) {

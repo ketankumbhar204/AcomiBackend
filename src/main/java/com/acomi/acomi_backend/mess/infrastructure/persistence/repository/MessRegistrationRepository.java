@@ -126,6 +126,8 @@ public interface MessRegistrationRepository extends JpaRepository<MessRegistrati
               AND (:claimed IS NULL
                 OR (:claimed = true AND r.claimedAt IS NOT NULL)
                 OR (:claimed = false AND r.claimedAt IS NULL))
+              AND (:marketingStatus IS NULL OR r.marketingStatus = :marketingStatus)
+              AND (:whatsappAvailability IS NULL OR r.whatsappAvailability = :whatsappAvailability)
             ORDER BY r.createdAt DESC
             """)
     Page<MessRegistrationEntity> searchFiltered(
@@ -136,6 +138,10 @@ public interface MessRegistrationRepository extends JpaRepository<MessRegistrati
             @Param("closedStatuses")
                     List<com.acomi.acomi_backend.mess.domain.model.MessRegistrationStatus> closedStatuses,
             @Param("claimed") Boolean claimed,
+            @Param("marketingStatus")
+                    com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus marketingStatus,
+            @Param("whatsappAvailability")
+                    com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability whatsappAvailability,
             Pageable pageable);
 
     Optional<MessRegistrationEntity> findByConvertedSpaceId(UUID convertedSpaceId);

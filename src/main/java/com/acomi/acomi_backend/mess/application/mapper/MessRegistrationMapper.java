@@ -1,5 +1,7 @@
 package com.acomi.acomi_backend.mess.application.mapper;
 
+import com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus;
+import com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability;
 import com.acomi.acomi_backend.mess.api.dto.response.MessRegistrationDetailResponse;
 import com.acomi.acomi_backend.mess.api.dto.response.MessRegistrationListItemResponse;
 import com.acomi.acomi_backend.mess.infrastructure.persistence.entity.MessRegistrationEntity;
@@ -24,6 +26,14 @@ public final class MessRegistrationMapper {
                 .claimedAt(entity.getClaimedAt())
                 .createdAt(entity.getCreatedAt())
                 .testLead(entity.isTestLead())
+                .marketingStatus(
+                        entity.getMarketingStatus() == null
+                                ? ListingMarketingStatus.NOT_SHARED
+                                : entity.getMarketingStatus())
+                .whatsappAvailability(
+                        entity.getWhatsappAvailability() == null
+                                ? WhatsAppAvailability.UNKNOWN
+                                : entity.getWhatsappAvailability())
                 .build();
     }
 
@@ -64,6 +74,17 @@ public final class MessRegistrationMapper {
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .testLead(entity.isTestLead())
+                .marketingStatus(
+                        entity.getMarketingStatus() == null
+                                ? ListingMarketingStatus.NOT_SHARED
+                                : entity.getMarketingStatus())
+                .whatsappAvailability(
+                        entity.getWhatsappAvailability() == null
+                                ? WhatsAppAvailability.UNKNOWN
+                                : entity.getWhatsappAvailability())
+                .lastSharedAt(entity.getLastSharedAt())
+                .lastSharedBy(entity.getLastSharedBy())
+                .marketingNotes(entity.getMarketingNotes())
                 .build();
     }
 }

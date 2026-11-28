@@ -651,6 +651,10 @@ public class SpaceEnquiryService {
     @Transactional
     public void deleteForAdmin(UUID enquiryId) {
         SpaceEnquiryEntity entity = load(enquiryId);
+        // Delivery rows reference space_enquiries without ON DELETE CASCADE.
+        // Delete them first or Postgres rejects the enquiry delete with
+        // space_enquiry_deliveries_enquiry_id_fkey (surfaced as HTTP 409).
+        deliveryRepository.deleteByEnquiryId(enquiryId);
         enquiryRepository.delete(entity);
     }
 

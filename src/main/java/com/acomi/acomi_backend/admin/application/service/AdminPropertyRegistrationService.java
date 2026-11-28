@@ -1,6 +1,8 @@
 package com.acomi.acomi_backend.admin.application.service;
 
 import com.acomi.acomi_backend.admin.api.dto.response.AdminPropertyRegistrationsSummaryResponse;
+import com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus;
+import com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability;
 import com.acomi.acomi_backend.common.exception.BusinessException;
 import com.acomi.acomi_backend.property.api.dto.request.AdminCreatePropertyRegistrationRequest;
 import com.acomi.acomi_backend.property.api.dto.response.PropertyRegistrationDetailResponse;
@@ -43,11 +45,12 @@ public class AdminPropertyRegistrationService {
     private final SavedAddressService savedAddressService;
     private final AdminRegistrationConversionService adminRegistrationConversionService;
     private final SpaceRepository spaceRepository;
+    private final AdminListingMarketingService adminListingMarketingService;
 
     @Transactional(readOnly = true)
     public Page<PropertyRegistrationListItemResponse> list(
             PropertyRegistrationSource source, boolean leadsOnly, Pageable pageable) {
-        return list(null, source, null, leadsOnly, null, pageable);
+        return list(null, source, null, leadsOnly, null, null, null, pageable);
     }
 
     @Transactional(readOnly = true)
@@ -58,12 +61,39 @@ public class AdminPropertyRegistrationService {
             boolean leadsOnly,
             Boolean claimed,
             Pageable pageable) {
+        return list(q, source, status, leadsOnly, claimed, null, null, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<PropertyRegistrationListItemResponse> list(
+            String q,
+            PropertyRegistrationSource source,
+            PropertyRegistrationStatus status,
+            boolean leadsOnly,
+            Boolean claimed,
+            ListingMarketingStatus marketingStatus,
+            WhatsAppAvailability whatsappAvailability,
+            Pageable pageable) {
         String query = StringUtils.hasText(q) ? q.trim() : null;
-        boolean filtered = query != null || source != null || status != null || claimed != null || leadsOnly;
+        boolean filtered = query != null
+                || source != null
+                || status != null
+                || claimed != null
+                || leadsOnly
+                || marketingStatus != null
+                || whatsappAvailability != null;
         Page<PropertyRegistrationEntity> page;
         if (filtered) {
             page = propertyRegistrationRepository.searchFiltered(
-                    query, source, status, leadsOnly, CLOSED_STATUSES, claimed, pageable);
+                    query,
+                    source,
+                    status,
+                    leadsOnly,
+                    CLOSED_STATUSES,
+                    claimed,
+                    marketingStatus,
+                    whatsappAvailability,
+                    pageable);
         } else {
             page = propertyRegistrationRepository.findAllByOrderByCreatedAtDesc(pageable);
         }
@@ -120,8 +150,12 @@ public class AdminPropertyRegistrationService {
 
     @Transactional(readOnly = true)
     public PropertyRegistrationDetailResponse getById(UUID id) {
-        return adminRegistrationConversionService.enrichPropertyDetail(
+        PropertyRegistrationDetailResponse detail = adminRegistrationConversionService.enrichPropertyDetail(
                 propertyRegistrationService.requireEntity(id));
+        return detail.toBuilder()
+                .marketingActivities(
+                        adminListingMarketingService.getPropertyRegistrationMarketing(id).getActivities())
+                .build();
     }
 
     @Transactional

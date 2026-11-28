@@ -61,7 +61,8 @@ class AdminRegistrationDeleteServiceTest {
                         org.mockito.Mockito.mock(AdminRegistrationConversionService.class),
                         org.mockito.Mockito.mock(
                                 com.acomi.acomi_backend.space.infrastructure.persistence.repository
-                                        .SpaceRepository.class));
+                                        .SpaceRepository.class),
+                        org.mockito.Mockito.mock(AdminListingMarketingService.class));
         adminMessRegistrationService =
                 new AdminMessRegistrationService(
                         messRegistrationRepository,
@@ -70,7 +71,8 @@ class AdminRegistrationDeleteServiceTest {
                         org.mockito.Mockito.mock(AdminRegistrationConversionService.class),
                         org.mockito.Mockito.mock(
                                 com.acomi.acomi_backend.space.infrastructure.persistence.repository
-                                        .SpaceRepository.class));
+                                        .SpaceRepository.class),
+                        org.mockito.Mockito.mock(AdminListingMarketingService.class));
     }
 
     @Test

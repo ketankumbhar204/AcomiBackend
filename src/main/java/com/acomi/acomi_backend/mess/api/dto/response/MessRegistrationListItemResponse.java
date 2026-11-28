@@ -1,5 +1,7 @@
 package com.acomi.acomi_backend.mess.api.dto.response;
 
+import com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus;
+import com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationSource;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationStatus;
 import java.time.LocalDateTime;
@@ -25,4 +27,6 @@ public class MessRegistrationListItemResponse {
     private LocalDateTime claimedAt;
     private LocalDateTime createdAt;
     private boolean testLead;
+    private ListingMarketingStatus marketingStatus;
+    private WhatsAppAvailability whatsappAvailability;
 }

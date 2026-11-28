@@ -1,5 +1,7 @@
 package com.acomi.acomi_backend.property.infrastructure.persistence.entity;
 
+import com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus;
+import com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability;
 import com.acomi.acomi_backend.common.model.BaseEntity;
 import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationSource;
@@ -154,6 +156,25 @@ public class PropertyRegistrationEntity extends BaseEntity {
 
     @Column(name = "linked_owner_user_id")
     private UUID linkedOwnerUserId;
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "marketing_status", nullable = false, length = 20)
+    private ListingMarketingStatus marketingStatus = ListingMarketingStatus.NOT_SHARED;
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "whatsapp_availability", nullable = false, length = 20)
+    private WhatsAppAvailability whatsappAvailability = WhatsAppAvailability.UNKNOWN;
+
+    @Column(name = "last_shared_at")
+    private LocalDateTime lastSharedAt;
+
+    @Column(name = "last_shared_by")
+    private UUID lastSharedBy;
+
+    @Column(name = "marketing_notes", columnDefinition = "TEXT")
+    private String marketingNotes;
 
     @Builder.Default
     @OneToMany(

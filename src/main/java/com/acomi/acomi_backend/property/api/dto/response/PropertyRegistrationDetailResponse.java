@@ -1,5 +1,8 @@
 package com.acomi.acomi_backend.property.api.dto.response;
 
+import com.acomi.acomi_backend.admin.api.dto.response.AdminListingMarketingActivityResponse;
+import com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus;
+import com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability;
 import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationSource;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationStatus;
@@ -58,6 +61,12 @@ public class PropertyRegistrationDetailResponse {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private boolean testLead;
+    private ListingMarketingStatus marketingStatus;
+    private WhatsAppAvailability whatsappAvailability;
+    private LocalDateTime lastSharedAt;
+    private UUID lastSharedBy;
+    private String marketingNotes;
+    private List<AdminListingMarketingActivityResponse> marketingActivities;
     private List<PropertyRegistrationAmenityResponse> amenities;
 
     @Getter

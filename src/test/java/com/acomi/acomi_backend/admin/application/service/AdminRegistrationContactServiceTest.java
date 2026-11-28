@@ -66,7 +66,8 @@ class AdminRegistrationContactServiceTest {
                         conversionService,
                         org.mockito.Mockito.mock(
                                 com.acomi.acomi_backend.space.infrastructure.persistence.repository
-                                        .SpaceRepository.class));
+                                        .SpaceRepository.class),
+                        org.mockito.Mockito.mock(AdminListingMarketingService.class));
         adminMessRegistrationService =
                 new AdminMessRegistrationService(
                         messRegistrationRepository,
@@ -75,7 +76,8 @@ class AdminRegistrationContactServiceTest {
                         conversionService,
                         org.mockito.Mockito.mock(
                                 com.acomi.acomi_backend.space.infrastructure.persistence.repository
-                                        .SpaceRepository.class));
+                                        .SpaceRepository.class),
+                        org.mockito.Mockito.mock(AdminListingMarketingService.class));
         lenient()
                 .when(conversionService.enrichPropertyDetail(any(PropertyRegistrationEntity.class)))
                 .thenAnswer(invocation -> PropertyRegistrationMapper.toDetail(invocation.getArgument(0)));

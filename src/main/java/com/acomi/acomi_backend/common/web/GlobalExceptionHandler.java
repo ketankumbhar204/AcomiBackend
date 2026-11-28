@@ -172,6 +172,10 @@ public class GlobalExceptionHandler {
         if (detail.contains("chk_auth_otps_purpose")) {
             return "Unable to send OTP. Please try again later.";
         }
+        if (detail.contains("space_enquiry_deliveries_enquiry_id_fkey")
+                || detail.contains("violates foreign key constraint")) {
+            return "This record is still referenced by related data and cannot be deleted.";
+        }
         return "A record with the same unique value already exists";
     }
 

@@ -135,6 +135,8 @@ public interface PropertyRegistrationRepository
               AND (:claimed IS NULL
                 OR (:claimed = true AND r.claimedAt IS NOT NULL)
                 OR (:claimed = false AND r.claimedAt IS NULL))
+              AND (:marketingStatus IS NULL OR r.marketingStatus = :marketingStatus)
+              AND (:whatsappAvailability IS NULL OR r.whatsappAvailability = :whatsappAvailability)
             ORDER BY r.createdAt DESC
             """)
     Page<PropertyRegistrationEntity> searchFiltered(
@@ -146,6 +148,10 @@ public interface PropertyRegistrationRepository
                     List<com.acomi.acomi_backend.property.domain.model.PropertyRegistrationStatus>
                             closedStatuses,
             @Param("claimed") Boolean claimed,
+            @Param("marketingStatus")
+                    com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus marketingStatus,
+            @Param("whatsappAvailability")
+                    com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability whatsappAvailability,
             Pageable pageable);
 
     Optional<PropertyRegistrationEntity> findByConvertedSpaceId(UUID convertedSpaceId);

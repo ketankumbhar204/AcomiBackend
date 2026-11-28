@@ -1261,6 +1261,19 @@ class SpaceEnquiryServiceTest {
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
+    @Test
+    void deleteForAdmin_removesDeliveryRowsBeforeEnquiry() {
+        SpaceEnquiryEntity enquiry = pendingEnquiry();
+        when(enquiryRepository.findById(enquiry.getId())).thenReturn(Optional.of(enquiry));
+        when(deliveryRepository.deleteByEnquiryId(enquiry.getId())).thenReturn(1L);
+
+        service.deleteForAdmin(enquiry.getId());
+
+        var inOrder = org.mockito.Mockito.inOrder(deliveryRepository, enquiryRepository);
+        inOrder.verify(deliveryRepository).deleteByEnquiryId(enquiry.getId());
+        inOrder.verify(enquiryRepository).delete(enquiry);
+    }
+
     private SpaceEnquiryEntity pendingEnquiry() {
         SpaceEnquiryEntity entity = SpaceEnquiryEntity.builder()
                 .spaceId(spaceBId)

@@ -1,5 +1,8 @@
 package com.acomi.acomi_backend.mess.api.dto.response;
 
+import com.acomi.acomi_backend.admin.api.dto.response.AdminListingMarketingActivityResponse;
+import com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus;
+import com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationSource;
 import com.acomi.acomi_backend.property.domain.model.PriceBasis;
 import com.acomi.acomi_backend.mess.domain.model.MessRegistrationStatus;
@@ -7,6 +10,7 @@ import com.acomi.acomi_backend.registration.domain.model.RegistrationClaimVia;
 import com.acomi.acomi_backend.space.domain.model.GenderPolicy;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 import lombok.Builder;
 import lombok.Getter;
@@ -56,4 +60,10 @@ public class MessRegistrationDetailResponse {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private boolean testLead;
+    private ListingMarketingStatus marketingStatus;
+    private WhatsAppAvailability whatsappAvailability;
+    private LocalDateTime lastSharedAt;
+    private UUID lastSharedBy;
+    private String marketingNotes;
+    private List<AdminListingMarketingActivityResponse> marketingActivities;
 }

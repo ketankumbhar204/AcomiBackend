@@ -1,5 +1,7 @@
 package com.acomi.acomi_backend.property.api.dto.response;
 
+import com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus;
+import com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationSource;
 import com.acomi.acomi_backend.property.domain.model.PropertyRegistrationStatus;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
@@ -27,4 +29,6 @@ public class PropertyRegistrationListItemResponse {
     private LocalDateTime claimedAt;
     private LocalDateTime createdAt;
     private boolean testLead;
+    private ListingMarketingStatus marketingStatus;
+    private WhatsAppAvailability whatsappAvailability;
 }

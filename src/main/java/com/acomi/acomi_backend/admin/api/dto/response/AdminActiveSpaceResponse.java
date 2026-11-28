@@ -1,5 +1,7 @@
 package com.acomi.acomi_backend.admin.api.dto.response;
 
+import com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus;
+import com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -24,4 +26,6 @@ public class AdminActiveSpaceResponse {
     private String source;
     private boolean testLead;
     private UUID registrationId;
+    private ListingMarketingStatus marketingStatus;
+    private WhatsAppAvailability whatsappAvailability;
 }

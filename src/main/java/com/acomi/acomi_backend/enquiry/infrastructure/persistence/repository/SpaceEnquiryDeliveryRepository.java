@@ -13,6 +13,8 @@ import org.springframework.data.repository.query.Param;
 
 public interface SpaceEnquiryDeliveryRepository extends JpaRepository<SpaceEnquiryDeliveryEntity, UUID> {
 
+    long deleteByEnquiryId(UUID enquiryId);
+
     Optional<SpaceEnquiryDeliveryEntity> findBySpaceIdAndRequesterUserIdAndDeliveryChannel(
             UUID spaceId, UUID requesterUserId, EnquiryDeliveryChannel deliveryChannel);
 

@@ -1,5 +1,7 @@
 package com.acomi.acomi_backend.space.infrastructure.persistence.entity;
 
+import com.acomi.acomi_backend.admin.domain.model.ListingMarketingStatus;
+import com.acomi.acomi_backend.admin.domain.model.WhatsAppAvailability;
 import com.acomi.acomi_backend.common.reference.BusinessReferencePrefix;
 import com.acomi.acomi_backend.common.reference.BusinessReferenced;
 
@@ -11,6 +13,8 @@ import com.acomi.acomi_backend.space.domain.model.PriceTaxMode;
 import com.acomi.acomi_backend.space.domain.model.SpaceType;
 import com.acomi.acomi_backend.meal.domain.model.PollCloseDayOffset;
 import com.acomi.acomi_backend.user.infrastructure.persistence.entity.UserEntity;
+import java.time.LocalDateTime;
+import java.util.UUID;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -160,4 +164,23 @@ public class SpaceEntity extends BaseEntity implements BusinessReferenced {
 
     @Column(name = "photo_file_id")
     private java.util.UUID photoFileId;
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "marketing_status", nullable = false, length = 20)
+    private ListingMarketingStatus marketingStatus = ListingMarketingStatus.NOT_SHARED;
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "whatsapp_availability", nullable = false, length = 20)
+    private WhatsAppAvailability whatsappAvailability = WhatsAppAvailability.UNKNOWN;
+
+    @Column(name = "last_shared_at")
+    private LocalDateTime lastSharedAt;
+
+    @Column(name = "last_shared_by")
+    private UUID lastSharedBy;
+
+    @Column(name = "marketing_notes", columnDefinition = "TEXT")
+    private String marketingNotes;
 }
